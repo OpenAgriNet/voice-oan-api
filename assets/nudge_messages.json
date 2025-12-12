@@ -1,0 +1,26 @@
+{
+    "search_documents": {
+        "en": "Sure. I can help you with that. Please hold while I check the documents for you.",
+        "mr": "कृपया लाईन वर राहा, मी तुमच्या प्रश्नांची माहिती घेत आहे."
+    },
+    "mandi_prices": {
+        "en": "Sure. I can help you with that. Please hold while I check the mandi prices for you.",
+        "mr": "बाजारातील मंडी भावाची माहिती घेत आहे, कृपया प्रतीक्षा करा."
+    },
+    "weather_forecast": {
+        "en": "Sure. I can help you with that. Please hold while I check the weather forecast for you.",
+        "mr": "हवामान अंदाज संबंधित माहिती घेत आहे, कृपया प्रतीक्षा करा"
+      },  
+      "weather_historical": {
+        "en": "Sure. I can help you with that. Please hold while I check the weather data for you.",
+        "mr": "हवामाना बद्दल माहिती घेत आहे, कृपया प्रतीक्षा करा"
+      },
+    "warehouse_data": {
+        "en": "Sure. I can help you with that. Please hold while I check the warehouse information for you.",
+        "mr": "गोदामा बद्दल माहिती मिळवत आहे, कृपया प्रतीक्षा करा."
+      },
+    "scheme_info": {
+        "en": "Sure. I can help you with that. Please hold while I check the scheme information for you.",
+        "mr": "योजना संबंधित माहिती घेत आहे, कृपया प्रतीक्षा करा."
+      }
+}
