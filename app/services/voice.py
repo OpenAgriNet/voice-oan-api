@@ -24,18 +24,18 @@ async def stream_voice_message(
     session_id: str,
     source_lang: str,
     target_lang: str,
-#    user_id: str,
+    user_id: str,
     history: list,
     provider: Optional[Literal['RAYA', 'RINGG']] = None,
     process_id: Optional[str] = None,
-#    user_info: dict,
+    user_info: dict = None,
 #    background_tasks: BackgroundTasks,
     
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming chat messages."""
     # Generate a unique content ID for this query
     content_id = f"query_{session_id}_{len(history)//2 + 1}"
-#    logger.info(f"User info: {user_info}")
+    logger.info(f"User info: {user_info}")
     deps = FarmerContext(query=query,
                          lang_code=target_lang,
                          provider=provider,
