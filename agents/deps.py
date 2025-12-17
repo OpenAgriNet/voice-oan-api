@@ -9,6 +9,7 @@ class FarmerContext(BaseModel):
     Args:
         query (str): The user's question.
         lang_code (str): The language code of the user's question.
+        target_lang (str): The target language for the response (hi=Hindi, mr=Marathi, en=English).
         moderation_str (Optional[str]): The moderation result of the user's question.
         provider (Optional[str]): The provider for the voice service.
         session_id (Optional[str]): The session ID for the user.
@@ -22,6 +23,7 @@ class FarmerContext(BaseModel):
     """
     query: str = Field(description="The user's question.")
     lang_code: str = Field(description="The language code of the user's question.", default='mr')
+    target_lang: str = Field(description="The target language for the response (hi=Hindi, mr=Marathi, en=English).", default='mr')
     moderation_str: Optional[str] = Field(default=None, description="The moderation result of the user's question.")
     provider: Optional[Literal['RAYA', 'RINGG']] = Field(default=None, description="The provider for the voice service - can be RAYA, RINGG, or None.")
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
@@ -38,8 +40,10 @@ class FarmerContext(BaseModel):
     
     def _language_string(self):
         """Get the language string for the agrinet agent."""
-        if self.lang_code:
-            return f"**Selected Language:** {Language.get(self.lang_code).display_name()}"
+        # Use target_lang if available, otherwise fall back to lang_code
+        lang = self.target_lang or self.lang_code
+        if lang:
+            return f"**Selected Language:** {Language.get(lang).display_name()}"
         else:
             return None
     

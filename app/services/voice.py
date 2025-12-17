@@ -37,7 +37,8 @@ async def stream_voice_message(
     content_id = f"query_{session_id}_{len(history)//2 + 1}"
     logger.info(f"User info: {user_info}")
     deps = FarmerContext(query=query,
-                         lang_code=target_lang,
+                         lang_code=source_lang,
+                         target_lang=target_lang,
                          provider=provider,
                          session_id=session_id,
                          process_id=process_id
