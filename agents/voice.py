@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 load_dotenv()
 
-logfire.configure(scrubbing=False)
+logfire.configure(scrubbing=False, environment=os.getenv('ENVIRONMENT', 'voice-production'))
 
 
 voice_agent = Agent(
