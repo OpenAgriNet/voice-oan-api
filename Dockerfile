@@ -33,7 +33,7 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # USER app
 
 # Expose FastAPI port
-EXPOSE 8000
+EXPOSE 8003
 
 # Start supervisor to manage both FastAPI and Celery
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

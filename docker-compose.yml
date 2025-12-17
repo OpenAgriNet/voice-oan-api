@@ -3,9 +3,9 @@ services:
     container_name: sva_app
     build: .
     ports:
-      - "8000:8000"
+      - "8003:8003"
     expose:
-      - "8000"
+      - "8003"
     volumes:
       - .:/app
     env_file:
