@@ -1,0 +1,73 @@
+## basic setup packages
+wheel 
+setuptools
+
+httpx_oauth
+Jinja2>=3.1.0  # For template rendering
+
+# for data/DB
+pandas
+simplejson
+
+### for DB
+# requests  # Replaced with httpx
+
+# LLM
+openai
+pydantic
+tiktoken
+tenacity
+
+# Logfire
+logfire
+gevent>=22.10.0
+
+# Redis for caching and stuff
+redis
+# NOTE: not sure if needed
+# hiredis-py 
+
+# Settings
+python-decouple
+
+openpyxl
+
+### Pydantic AI (Updated to resolve conflicts)
+pydantic-ai==1.2.1
+asgiref
+
+# Web Server
+gunicorn
+uvicorn[standard]==0.34.3  # ASGI server
+uvicorn-worker
+
+# FastAPI and dependencies
+fastapi[standard]
+starlette
+httpx
+
+# Async HTTP client for SATHI API optimization
+# aiohttp
+
+# Search and Data
+
+# Authentication and Security
+PyJWT
+cryptography
+
+# Async utilities
+aiocache==0.12.3
+pydantic-settings==2.9.1
+python-dateutil
+
+langcodes[data]==3.4.0
+
+# python dotenv
+python-dotenv
+
+markdownify
+
+# Human-friendly formatting
+humanize
+
+pycryptodome

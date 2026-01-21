@@ -1,0 +1,19 @@
+services:
+  app:
+    container_name: bh_voice_app
+    image: bhvoice1:latest
+    ports:
+      - "8003:8003"
+    expose:
+      - "8003"
+    volumes:
+      - .:/app
+    env_file:
+      - .env  
+    restart: unless-stopped
+    networks:
+      - svanetwork
+      
+networks:
+  svanetwork:
+    external: true
