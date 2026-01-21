@@ -70,6 +70,7 @@ async def generate_openai_stream(
     
     # Stream response from voice agent
     accumulated_content = ""
+    audio_payload_sent = False
     
     async for chunk in stream_voice_message(
         query=query,
@@ -83,7 +84,35 @@ async def generate_openai_stream(
         if chunk:
             accumulated_content += chunk
             
-            # Stream chunks as they come (OpenAI format)
+            # Check if chunk is a JSON payload (from stream_voice_message)
+            # stream_voice_message yields a complete JSON string like {"audio": "...", "end_interaction": true}
+            chunk_stripped = chunk.strip()
+            if chunk_stripped.startswith("{") and chunk_stripped.endswith("}"):
+                try:
+                    # Parse the JSON payload
+                    payload = json.loads(chunk_stripped)
+                    if "audio" in payload:
+                        # Send audio payload in delta (not as content)
+                        audio_payload_sent = True
+                        audio_chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_timestamp,
+                            "model": request.model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": payload,  # Send the parsed payload directly
+                                "finish_reason": None
+                            }]
+                        }
+                        yield f"data: {json.dumps(audio_chunk)}\n\n"
+                        continue  # Skip streaming as content
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, treat as regular content
+                    logger.warning(f"Failed to parse JSON chunk: {chunk[:100]}")
+                    pass
+            
+            # Stream as regular content chunk (for non-JSON chunks)
             chunk_data = {
                 "id": completion_id,
                 "object": "chat.completion.chunk",
@@ -99,13 +128,9 @@ async def generate_openai_stream(
             }
             yield f"data: {json.dumps(chunk_data)}\n\n"
     
-    # After streaming completes, send audio payload if content was generated
-    if accumulated_content:
-        # Extract audio payload from final content (Samvaad format)
+    # If no audio payload was sent during streaming, extract and send it now (fallback)
+    if accumulated_content and not audio_payload_sent:
         audio_payload = _extract_audio_payload(accumulated_content)
-        
-        # Send audio payload as a special chunk (Samvaad format)
-        # This is included in the delta for Samvaad integration
         audio_chunk = {
             "id": completion_id,
             "object": "chat.completion.chunk",
