@@ -1,7 +1,7 @@
 services:
   app:
     container_name: bh_voice_app
-    image: bhvoice1:latest
+    build: .
     ports:
       - "8003:8003"
     expose:

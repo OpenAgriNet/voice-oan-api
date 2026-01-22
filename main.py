@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 load_dotenv()
 
 # Import all routers
-from app.routers import voice, health, openai
+from app.routers import health, openai
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,7 +51,5 @@ async def root():
 
 # Include all routers with API prefix from settings
 
-app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(health.router, prefix=settings.api_prefix)
-# OpenAI-compatible endpoint (no API prefix, as it follows OpenAI's standard path)
 app.include_router(openai.router, prefix=settings.api_prefix) 

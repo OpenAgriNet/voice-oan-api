@@ -24,21 +24,12 @@ if LLM_PROVIDER == 'openai':
 # GPT-OSS Models
 
 if LLM_PROVIDER == 'vllm':
-    if LLM_MODEL_NAME in ['gpt-oss-20b', 'gpt-oss-120b']:
-       LLM_MODEL = OpenAIChatModel(
+    LLM_MODEL = OpenAIChatModel(
         LLM_MODEL_NAME,
-        provider=OpenAIProvider(
-            base_url=os.getenv('VLLM_BASE_URL'), 
-            api_key="not-needed"
-        ),
-       )
-    else:
-        LLM_MODEL = OpenAIChatModel(
-            LLM_MODEL_NAME,
-            provider=OpenAIProvider(
-                base_url=os.getenv('VLLM_BASE_URL'), 
-                api_key="not-needed"
-            ),
-        )
+    provider=OpenAIProvider(
+        base_url=os.getenv('VLLM_BASE_URL'), 
+        api_key="not-needed"
+    ),
+    )
 else:
     raise ValueError(f"Invalid LLM_PROVIDER: {LLM_PROVIDER}. Must be one of: 'openai', 'vllm'")

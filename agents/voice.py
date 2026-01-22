@@ -30,14 +30,12 @@ voice_agent = Agent(
     tools=TOOLS,
     end_strategy='exhaustive',
     model_settings=ModelSettings(
-         temperature=0.5,
-         top_p=0.9,
-         top_k=0,
-        # max_tokens=80,
+         temperature=1.0,
+         top_p=1.0,
         parallel_tool_calls=True,  
-      openai_reasoning_effort='low',  
-     openai_send_reasoning_ids=False,
-   )
+        openai_reasoning_effort='high',  
+        openai_send_reasoning_ids=True,
+    )
 )
 
 @voice_agent.system_prompt(dynamic=True)

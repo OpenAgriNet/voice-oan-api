@@ -7,7 +7,7 @@ class Message(BaseModel):
     content: str
 
 class ChatCompletionRequest(BaseModel):
-    model: str = Field(default="gpt-3.5-turbo", description="Model name")
+    model: str = Field(default="bharatvistaar-voice", description="Model name")
     messages: List[Message] = Field(..., description="List of messages in the conversation")
     stream: Optional[bool] = Field(default=True, description="Whether to stream the response")
     temperature: Optional[float] = Field(default=1.0, description="Sampling temperature")

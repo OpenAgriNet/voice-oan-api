@@ -1,5 +1,4 @@
 from typing import AsyncGenerator
-from fastapi import BackgroundTasks
 from agents.voice import voice_agent, VoiceOutput
 # from agents.moderation import moderation_agent  # Moderation disabled
 from helpers.utils import get_logger
@@ -29,8 +28,7 @@ async def stream_voice_message(
     source_lang: str,
     target_lang: str,
     user_id: str,
-    history: list,
-    background_tasks: BackgroundTasks
+    history: list
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages."""
     # Generate a unique content ID for this query
@@ -46,12 +44,6 @@ async def stream_voice_message(
         last_response = ""
     
     user_message    = f"{last_response}{deps.get_user_message()}"
-    
-    # Moderation disabled - skipping moderation check
-    # moderation_run  = await moderation_agent.run(user_message)
-    # moderation_data = moderation_run.output
-    # logger.info(f"Moderation data: {moderation_data}")
-    # deps.update_moderation_str(str(moderation_data))
 
     user_message = deps.get_user_message()
     logger.info(f"Running agent with user message: {user_message}")
@@ -118,9 +110,10 @@ async def stream_voice_message(
     #     logger.info(f"Final output - end_interaction: {final_output.end_interaction}")
     #     # You can use final_output.end_interaction here if needed for session management
     
-    # NEW CODE: Format and yield the structured VoiceOutput as JSON
+    # Stream the structured VoiceOutput as JSON incrementally
+    # This simulates OpenAI's streaming structured output behavior
     if agent_run and agent_run.result:
-        final_output: VoiceOutput = agent_run.result.data
+        final_output: VoiceOutput = agent_run.result.output
         
         # Build output dict according to spec:
         # - If end_interaction is True, include it in the output
@@ -129,13 +122,21 @@ async def stream_voice_message(
         if final_output.end_interaction:
             output_dict["end_interaction"] = True
         
-        # Yield the JSON string
-        yield json.dumps(output_dict, ensure_ascii=False)
+        # Convert to JSON string and stream in small chunks
+        json_string = json.dumps(output_dict, ensure_ascii=False)
+        
+        # Stream the JSON in small chunks for proper streaming behavior
+        chunk_size = 10  # Characters per chunk
+        for i in range(0, len(json_string), chunk_size):
+            yield json_string[i:i + chunk_size]
+        
         logger.info(f"Final output sent - end_interaction: {final_output.end_interaction}")
     else:
         # Fallback if no result (shouldn't happen, but handle gracefully)
         logger.warning("No result from agent run")
-        yield json.dumps({"audio": ""}, ensure_ascii=False)
+        fallback_json = json.dumps({"audio": ""}, ensure_ascii=False)
+        for i in range(0, len(fallback_json), 10):
+            yield fallback_json[i:i + 10]
     
     # Post-processing happens AFTER streaming is complete
     messages = [

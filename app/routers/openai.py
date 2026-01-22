@@ -1,10 +1,7 @@
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Depends
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from typing import Optional, Dict, Any
-import uuid
 from app.models.openai_models import ChatCompletionRequest
 from app.services.openai_service import generate_openai_stream, generate_openai_response
-from app.auth.jwt_auth import get_current_user
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -14,10 +11,10 @@ router = APIRouter(prefix="/v1", tags=["openai"])
 @router.post("/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
-    background_tasks: BackgroundTasks,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
-    x_language: Optional[str] = Header(None, alias="X-Language"),
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+    x_user_id: str = Header(..., alias="X-User-ID"),
+    x_session_id: str = Header(..., alias="X-Session-ID"),
+    x_language: str = Header("hi", alias="X-Language"),
 ):
     """
     OpenAI-compatible chat completions endpoint with streaming support.
@@ -26,42 +23,21 @@ async def chat_completions(
     responses compatible with OpenAI's chat completion API. Supports both streaming
     and non-streaming responses.
     
-    Requires authentication via JWT token in Authorization header.
-    
     Headers:
-    - Authorization: Bearer token (required, for authentication)
-    - X-Session-ID: Session identifier (optional, will be generated if not provided)
-    - X-Language: Language code (optional, defaults to 'en'). Supported: 'en', 'hi'
+    - X-Tenant-ID: Tenant identifier (required)
+    - X-User-ID: User identifier (required)
+    - X-Session-ID: Session identifier (required)
+    - X-Language: Language code (optional, defaults to 'hi'). Supported: 'en', 'hi'
     
     The response includes special payloads for Samvaad integration:
     - { "audio": "..." } for normal responses
     - { "end_interaction": true, "audio": "..." } for ending conversations
     """
-    # Extract user_id and tenant_id from JWT token
-    # Try common JWT claim names: user_id, tenant_id, sub (subject), user (alternative)
-    user_id = (
-        current_user.get("user_id") or 
-        current_user.get("sub") or 
-        current_user.get("user") or 
-        request.user or 
-        "anonymous"
-    )
-    
-    tenant_id = (
-        current_user.get("tenant_id") or 
-        current_user.get("tenant") or 
-        request.tenant_id
-    )
-    
-    # Extract session ID from header or generate one
-    if x_session_id:
-        session_id = x_session_id
-    else:
-        # Generate session ID from user_id and tenant_id if not provided
-        session_id = f"{tenant_id or 'default'}_{user_id}_{uuid.uuid4().hex[:8]}"
-    
-    # Extract language from header or default to 'en'
-    target_lang = x_language or "en"
+    # Use header values directly
+    user_id = x_user_id
+    tenant_id = x_tenant_id
+    session_id = x_session_id
+    target_lang = x_language
     
     # Validate language code
     valid_languages = ["en", "hi"]
@@ -92,8 +68,7 @@ async def chat_completions(
                 request=request,
                 session_id=session_id,
                 user_id=user_id,
-                target_lang=target_lang,
-                background_tasks=background_tasks
+                target_lang=target_lang
             ),
             media_type="text/event-stream",
             headers={
@@ -107,8 +82,7 @@ async def chat_completions(
             request=request,
             session_id=session_id,
             user_id=user_id,
-            target_lang=target_lang,
-            background_tasks=background_tasks
+            target_lang=target_lang
         )
         return response
 
