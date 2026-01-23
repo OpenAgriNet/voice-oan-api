@@ -22,7 +22,7 @@ logfire.configure(scrubbing=False, environment='bharatvistaar-voice')
 class VoiceOutput(BaseModel):
     """Output of the voice agent."""
     audio: str = Field(description="The audio content of the response.")
-    end_interaction: bool = Field(description="Whether to end the interaction.")
+    end_interaction: bool = Field(description="Set to true ONLY when the user explicitly indicates they have no more questions (e.g., responding 'no' to 'do you need any other info', saying 'no more questions', 'that's all', etc.). Default is false. Do not set to true for normal conversation flow or when asking follow-up questions.")
 
 voice_agent = Agent[FarmerContext, NativeOutput(VoiceOutput)](
     model=LLM_MODEL,

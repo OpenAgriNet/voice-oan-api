@@ -118,9 +118,9 @@ async def stream_voice_message(
         # Build output dict according to spec:
         # - If end_interaction is True, include it in the output
         # - Always include audio
-        output_dict = {"audio": final_output.audio}
-        if final_output.end_interaction:
-            output_dict["end_interaction"] = True
+        output_dict = {"audio": final_output.audio, "end_interaction": final_output.end_interaction}
+        # if final_output.end_interaction:
+        #     output_dict["end_interaction"] = True
         
         # Convert to JSON string and stream in small chunks
         json_string = json.dumps(output_dict, ensure_ascii=False)
