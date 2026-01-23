@@ -1,3 +1,6 @@
+from typing import Any
+
+
 import os
 from pydantic_ai import Agent
 from pydantic_ai.tools import RunContext
@@ -10,6 +13,7 @@ from agents.tools import TOOLS
 from pydantic_ai.settings import ModelSettings
 from pydantic import BaseModel, Field
 from agents.deps import FarmerContext
+from pydantic_ai import NativeOutput
 
 load_dotenv()
 
@@ -18,13 +22,13 @@ logfire.configure(scrubbing=False, environment='bharatvistaar-voice')
 class VoiceOutput(BaseModel):
     """Output of the voice agent."""
     audio: str = Field(description="The audio content of the response.")
-    end_interaction: bool = Field(description="Whether to end the interaction.", default=False)
+    end_interaction: bool = Field(description="Whether to end the interaction.")
 
-voice_agent = Agent(
+voice_agent = Agent[FarmerContext, NativeOutput(VoiceOutput)](
     model=LLM_MODEL,
     name="Voice Agent",
     instrument=True,
-    output_type=VoiceOutput,
+    output_type=NativeOutput(VoiceOutput),
     deps_type=FarmerContext,
     retries=3,
     tools=TOOLS,
