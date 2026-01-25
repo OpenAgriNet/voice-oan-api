@@ -10,8 +10,6 @@ from app.utils import (
 )
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
-# NOTE: Removing suggestions for now.
-# from app.tasks.suggestions import create_suggestions
 from agents.deps import FarmerContext
 
 logger = get_logger(__name__)

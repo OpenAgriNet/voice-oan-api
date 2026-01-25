@@ -8,19 +8,4 @@ class ChatRequest(BaseModel):
     target_lang: str = Field('mr', description="Target language code")
     user_id: str = Field('anonymous', description="User identifier")
     provider: Optional[Literal['RAYA', 'RINGG']] = Field(None, description="Provider for the voice service - can be RAYA, RINGG, or None")
-    process_id: Optional[str] = Field(None, description="Process ID for tracking and hold messages")
-
-class TranscribeRequest(BaseModel):
-    audio_content: str = Field(..., description="Base64 encoded audio content")
-    service_type: Literal['bhashini', 'whisper'] = Field('bhashini', description="Transcription service to use")
-    session_id: Optional[str] = Field(None, description="Session ID")
-
-class SuggestionsRequest(BaseModel):
-    session_id: str = Field(..., description="Session ID to get suggestions for")
-    target_lang: str = Field('mr', description="Target language for suggestions")
-
-class TTSRequest(BaseModel):
-    text: str = Field(..., description="Text to convert to speech")
-    lang_code: str = Field('mr', description="Language code for TTS")
-    session_id: Optional[str] = Field(None, description="Session ID")
-    service_type: Literal['bhashini', 'eleven_labs'] = Field('bhashini', description="TTS service to use") 
+    process_id: Optional[str] = Field(None, description="Process ID for tracking and hold messages") 
