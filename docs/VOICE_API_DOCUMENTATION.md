@@ -289,7 +289,7 @@ flowchart LR
 
 ### Components
 
-- **Voice Vendor**: External voice service providers (RAYA, RINGG) that send requests and receive responses
+- **Voice Vendor**: External voice service provider (RAYA) that sends requests and receives responses
 - **Voice Router**: FastAPI router endpoint that handles HTTP requests, creates SSE streaming responses, and manages request routing
 - **Auth Layer**: JWT authentication and authorization for secure API access
 - **Voice Service**: Service layer that orchestrates session management, calls the voice agent, handles message history trimming/cleaning, and manages SSE streaming

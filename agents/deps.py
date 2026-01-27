@@ -22,7 +22,7 @@ class FarmerContext(BaseModel):
     query: str = Field(description="The user's question.")
     lang_code: str = Field(description="The language code of the user's question.", default='mr')
     target_lang: str = Field(description="The target language for the response (hi=Hindi, mr=Marathi, en=English).", default='mr')
-    provider: Optional[Literal['RAYA', 'RINGG']] = Field(default=None, description="The provider for the voice service - can be RAYA, RINGG, or None.")
+    provider: Optional[Literal['RAYA']] = Field(default=None, description="The provider for the voice service - can be RAYA or None.")
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
     

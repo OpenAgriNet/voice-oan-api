@@ -32,7 +32,7 @@ curl --location 'https://vistaar-dev.mahapocra.gov.in/api/voice/?session_id=a1b2
 | `source_lang` | string | No       | `hi` (Hindi), `mr` (Marathi), `en` (English) - Default: `mr` |
 | `target_lang` | string | No       | Any language code - Default:`mr`                                   |
 | `user_id`     | string | No       | Any string - Default:`anonymous`                                   |
-| `provider`    | string | No       | `RAYA`, `RINGG`, or `None`                                     |
+| `provider`    | string | No       | `RAYA` or `None`                                     |
 | `process_id`  | string | No       | Any string                                                           |
 
 ## Hindi Language Support Details

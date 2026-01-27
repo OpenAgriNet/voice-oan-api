@@ -7,5 +7,5 @@ class ChatRequest(BaseModel):
     source_lang: Literal['hi', 'mr', 'en'] = Field('mr', description="Source language code (hi=Hindi, mr=Marathi, en=English)")
     target_lang: str = Field('mr', description="Target language code")
     user_id: str = Field('anonymous', description="User identifier")
-    provider: Optional[Literal['RAYA', 'RINGG']] = Field(None, description="Provider for the voice service - can be RAYA, RINGG, or None")
+    provider: Optional[Literal['RAYA']] = Field(None, description="Provider for the voice service - can be RAYA or None")
     process_id: Optional[str] = Field(None, description="Process ID for tracking and hold messages") 

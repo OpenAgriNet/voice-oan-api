@@ -21,7 +21,7 @@ async def stream_voice_message(
     target_lang: str,
     user_id: str,
     history: list,
-    provider: Optional[Literal['RAYA', 'RINGG']] = None,
+    provider: Optional[Literal['RAYA']] = None,
     process_id: Optional[str] = None,
     user_info: dict = None,
 #    background_tasks: BackgroundTasks,
