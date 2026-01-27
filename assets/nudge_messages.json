@@ -2,25 +2,5 @@
     "search_documents": {
         "en": "Sure. I can help you with that. Please hold while I check the documents for you.",
         "gu": "કૃપા કરીને લાઇન પર રહો, હું તમારા પ્રશ્નોની માહિતી લઈ રહી છું."
-    },
-    "mandi_prices": {
-        "en": "Sure. I can help you with that. Please hold while I check the mandi prices for you.",
-        "gu": "બજારમાં મંડીના ભાવની માહિતી લઈ રહી છું, કૃપા કરીને રાહ જુઓ."
-    },
-    "weather_forecast": {
-        "en": "Sure. I can help you with that. Please hold while I check the weather forecast for you.",
-        "gu": "હવામાન અંદાજ સંબંધિત માહિતી લઈ રહી છું, કૃપા કરીને રાહ જુઓ."
-    },
-    "weather_historical": {
-        "en": "Sure. I can help you with that. Please hold while I check the weather data for you.",
-        "gu": "હવામાન વિશે માહિતી લઈ રહી છું, કૃપા કરીને રાહ જુઓ."
-    },
-    "warehouse_data": {
-        "en": "Sure. I can help you with that. Please hold while I check the warehouse information for you.",
-        "gu": "ગોદામ વિશે માહિતી મેળવી રહી છું, કૃપા કરીને રાહ જુઓ."
-    },
-    "scheme_info": {
-        "en": "Sure. I can help you with that. Please hold while I check the scheme information for you.",
-        "gu": "યોજના સંબંધિત માહિતી લઈ રહી છું, કૃપા કરીને રાહ જુઓ."
     }
 }
