@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry, RunContext
 from helpers.utils import get_logger
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya
+# from agents.tools.common import get_nudge_message, send_nudge_message_raya
 
 
 logger = get_logger(__name__)
@@ -63,9 +63,9 @@ async def search_documents(
     """
     try:
         # Send nudge message asynchronously without blocking
-        nudge_message = get_nudge_message("search_documents", ctx.deps.lang_code)
-        result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-        logger.info(f"Nudge message sent: {result}")
+        # nudge_message = get_nudge_message("search_documents", ctx.deps.lang_code)
+        # result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+        # logger.info(f"Nudge message sent: {result}")
 
         # Initialize Marqo client
         endpoint_url = os.getenv('MARQO_ENDPOINT_URL')

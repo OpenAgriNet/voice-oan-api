@@ -36,7 +36,8 @@ async def stream_voice_message(
                          target_lang=target_lang,
                          provider=provider,
                          session_id=session_id,
-                         process_id=process_id
+                         process_id=process_id,
+                         farmer_info=user_info
                          )
 
     message_pairs = "\n\n".join(format_message_pairs(history, 3))

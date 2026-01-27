@@ -97,3 +97,58 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)):
             detail="Token verification failed",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+async def get_optional_token(request: Request) -> str | None:
+    """
+    Extract optional JWT token from request headers.
+    Returns None if no token is provided instead of raising an exception.
+    """
+    authorization = request.headers.get("Authorization")
+    if not authorization:
+        return None
+    scheme, param = get_authorization_scheme_param(authorization)
+    if scheme.lower() != "bearer":
+        return None
+    return param
+
+async def get_current_user_optional(token: str | None = Depends(get_optional_token)):
+    """
+    Optional version of get_current_user that returns None instead of raising exceptions.
+    Useful for endpoints where authentication is optional.
+    
+    Returns:
+        Decoded JWT token payload (dict) or None if token is missing/invalid
+    """
+    if token is None:
+        return None
+    
+    if public_key is None:
+        logger.warning("JWT Public Key is not loaded, skipping token verification.")
+        return None
+        
+    try:
+        decoded_token = jwt.decode(
+            token,
+            public_key,
+            algorithms=[settings.jwt_algorithm],
+            options={
+                "verify_signature": True,
+                "verify_aud": False,
+                "verify_iss": False
+            }
+        )
+        
+        logger.debug(f"Successfully decoded optional JWT token")
+        return decoded_token
+        
+    except jwt.ExpiredSignatureError:
+        logger.warning("Token has expired, skipping authentication")
+        return None
+    
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid token error (optional auth): {str(e)}")
+        return None
+    
+    except Exception as e:
+        logger.warning(f"Unexpected error during optional token verification: {str(e)}")
+        return None
