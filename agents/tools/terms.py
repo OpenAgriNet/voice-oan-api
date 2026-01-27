@@ -9,19 +9,30 @@ term_pairs = json.load(open('assets/glossary_terms.json', 'r', encoding='utf-8')
 
 class Language(str, Enum):
     ENGLISH = "en"
-    MARATHI = "mr"
+    GUJARATI = "gu"
     TRANSLITERATION = "transliteration"
 
 class TermPair(BaseModel):
     en: str = Field(description="English term")
-    mr: str = Field(description="Marathi term")
-    transliteration: str = Field(description="Transliteration of Marathi term to English")
+    gu: str = Field(default="", description="Gujarati term")
+    mr: str = Field(default="", description="Marathi term (legacy, will be mapped to gu)")
+    transliteration: str = Field(description="Transliteration of Gujarati term to English")
 
     def __str__(self):
-        return f"{self.en} -> {self.mr} ({self.transliteration})"
+        gu_term = self.gu if self.gu else self.mr
+        return f"{self.en} -> {gu_term} ({self.transliteration})"
+    
+    def get_gujarati_term(self) -> str:
+        """Get Gujarati term, falling back to Marathi if Gujarati not available."""
+        return self.gu if self.gu else self.mr
 
-# Convert raw dictionaries to TermPair objects
-TERM_PAIRS = [TermPair(**pair) for pair in term_pairs]
+# Convert raw dictionaries to TermPair objects, handling both mr and gu fields
+TERM_PAIRS = []
+for pair in term_pairs:
+    # If pair has 'mr' but not 'gu', use 'mr' as 'gu' for backward compatibility
+    if 'mr' in pair and 'gu' not in pair:
+        pair['gu'] = pair['mr']
+    TERM_PAIRS.append(TermPair(**pair))
 
 async def search_terms(
     text: str, 
@@ -36,7 +47,7 @@ async def search_terms(
         text: The text to search for
         max_results: Maximum number of results to return
         similarity_threshold: Minimum similarity score (0-1) to consider a match
-        language: Optional language to restrict search to (en/mr/transliteration)
+        language: Optional language to restrict search to (en/gu/transliteration)
         
     Returns:
         Formatted string with matching results and their scores
@@ -55,10 +66,12 @@ async def search_terms(
             en_score = fuzz.ratio(text, term_pair.en.lower()) / 100.0
             max_score = max(max_score, en_score)
             
-        # Check Marathi term if no language specified or language is Marathi    
-        if language in [None, Language.MARATHI]:
-            mr_score = fuzz.ratio(text, term_pair.mr.lower()) / 100.0
-            max_score = max(max_score, mr_score)
+        # Check Gujarati term if no language specified or language is Gujarati    
+        if language in [None, Language.GUJARATI]:
+            gu_term = term_pair.get_gujarati_term()
+            if gu_term:
+                gu_score = fuzz.ratio(text, gu_term.lower()) / 100.0
+                max_score = max(max_score, gu_score)
             
         # Check transliteration if no language specified or language is transliteration
         if language in [None, Language.TRANSLITERATION]:

@@ -9,7 +9,7 @@ class FarmerContext(BaseModel):
     Args:
         query (str): The user's question.
         lang_code (str): The language code of the user's question.
-        target_lang (str): The target language for the response (hi=Hindi, mr=Marathi, en=English).
+        target_lang (str): The target language for the response (gu=Gujarati, en=English).
         provider (Optional[str]): The provider for the voice service.
         session_id (Optional[str]): The session ID for the user.
         process_id (Optional[str]): The process ID for tracking and hold messages.
@@ -17,11 +17,11 @@ class FarmerContext(BaseModel):
 
     Example:
         **User:** "What is the weather in Mumbai?"
-        **Selected Language:** Marathi
+        **Selected Language:** Gujarati
     """
     query: str = Field(description="The user's question.")
-    lang_code: str = Field(description="The language code of the user's question.", default='mr')
-    target_lang: str = Field(description="The target language for the response (hi=Hindi, mr=Marathi, en=English).", default='mr')
+    lang_code: str = Field(description="The language code of the user's question.", default='gu')
+    target_lang: str = Field(description="The target language for the response (gu=Gujarati, en=English).", default='gu')
     provider: Optional[Literal['RAYA']] = Field(default=None, description="The provider for the voice service - can be RAYA or None.")
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")

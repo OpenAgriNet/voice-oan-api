@@ -1,6 +1,6 @@
 # Voice OAN API
 
-An AI-powered agricultural assistant API that provides real-time, streaming responses to agricultural queries. Supports multiple languages (Hindi, Marathi, English) and offers a wide range of agricultural services including weather forecasts, market prices, scheme information, and more.
+An AI-powered agricultural assistant API that provides real-time, streaming responses to agricultural queries. Supports multiple languages (Gujarati, English) and offers a wide range of agricultural services including weather forecasts, market prices, scheme information, and more.
 
 ## Technology Stack
 
@@ -12,10 +12,6 @@ An AI-powered agricultural assistant API that provides real-time, streaming resp
 - **Monitoring**: Logfire
 - **Infrastructure**: Docker, Supervisor
 - **Language**: Python 3.10+
-
-## Documentation
-
-- [Voice API Documentation](./docs/VOICE_API_DOCUMENTATION.md) - Complete API reference and usage guide
 
 ### Prerequisites
 
@@ -69,7 +65,7 @@ pip install -r requirements.txt
 
 ### Running Locally
 
-See the [API Documentation](./docs/VOICE_API_DOCUMENTATION.md) for detailed information about endpoints, request parameters, and response formats.
+Run the application locally using the setup instructions above.
 
 ## Maintenance
 
