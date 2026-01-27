@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     uvicorn_workers: int = os.cpu_count() or 1
 
     # Redis Settings
-    redis_host: str = "localhost"
-    redis_port: int = 6379
+    redis_host: str = os.getenv("REDIS_HOST", "localhost")
+    redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
     redis_db: int = 0
     redis_key_prefix: str = "sva-cache-"
     redis_socket_connect_timeout: int = 10
