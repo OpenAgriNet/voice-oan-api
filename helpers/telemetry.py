@@ -16,7 +16,6 @@ class EventType(str, Enum):
     OE_LEVEL_SET = "OE_LEVEL_SET"
     OE_MEDIA = "OE_MEDIA"
     OE_TRANSLATION = "OE_TRANSLATION"
-    OE_MODERATION = "OE_MODERATION"
 
 
 class PData(BaseModel):
@@ -85,19 +84,6 @@ class QueryTranslationEventEks(BaseEventData):
     """Extended data for OE_QUERY_TRANSLATION events"""
     target: Target
     type: str
-
-
-class ModerationEventEks(BaseEventData):
-    """Extended data for OE_MODERATION events"""
-    target: Target
-    type: str
-    # content_id: str
-    # session_id: str
-    # content_type: str
-    # moderation_service: str
-    # flagged: bool
-    # action_taken: Optional[str] = None
-    # reason: Optional[str] = None
 
 
 class EData(BaseModel):
@@ -372,66 +358,6 @@ def create_translation_event(
         event_data=TranslationEventEks(
             target=target,
             type="TEXT_TRANSLATION"
-        ),
-        uid=uid,
-        sid=session_id,
-        channel=channel,
-        did=did,
-        pdata_id=pdata_id,
-        pdata_ver=pdata_ver,
-        gdata_id=gdata_id,
-        gdata_ver=gdata_ver,
-        timestamp=timestamp
-    )
-
-def create_moderation_event(
-    question_text: str,
-    moderation_type: str,
-    content_id: str,
-    session_id: str,
-    content_type: str,
-    moderation_service: str,
-    flagged: bool,
-    category: Optional[str] = None,
-    action: Optional[str] = None,
-    uid: str = "system",
-    channel: str = "MahaVistaar",
-    did: str = "system",
-    pdata_id: str = "MahaVistaar",
-    pdata_ver: str = "v0.1",
-    gdata_id: str = "content_id",
-    gdata_ver: str = "content_ver",
-    timestamp: Optional[int] = None,
-) -> TelemetryEvent:
-    """Creates a moderation event for telemetry"""
-    target = Target(
-        id="default",
-        ver="v0.1",
-        type="Question",
-        parent={"id": "p1", "type": "default"},
-        questionsDetails={
-            "questionText": question_text,
-            "sessionId": session_id,
-            "contentId": content_id,
-            "contentType": content_type,
-            "moderationService": moderation_service,
-            "flagged": flagged,
-            "category": category,
-            "action": action
-        }
-    )
-    return create_event(
-        event_type=EventType.OE_MODERATION,
-        event_data=ModerationEventEks(
-            target=target,
-            type=moderation_type
-            # content_id=content_id,
-            # session_id=session_id,
-            # content_type=content_type,
-            # moderation_service=moderation_service,
-            # flagged=flagged,
-            # action_taken=action_taken,
-            # reason=reason
         ),
         uid=uid,
         sid=session_id,

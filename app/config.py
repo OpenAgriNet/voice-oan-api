@@ -48,7 +48,6 @@ class Settings(BaseSettings):
 
     # Cache Configuration
     default_cache_ttl: int = 60 * 60 * 24  # 24 hours
-    suggestions_cache_ttl: int = 60 * 30    # 30 minutes
 
     # Logging Configuration
     log_level: str = "INFO"
@@ -57,7 +56,6 @@ class Settings(BaseSettings):
     # External Service URLs
     telemetry_api_url: str = "https://vistaar.kenpath.ai/observability-service/action/data/v3/telemetry"
     nudge_api_url: str = os.getenv("NUDGE_API_URL", "https://vistaar.getraya.app/api/nudge-user")
-    bhashini_api_url: str = ""
     ollama_endpoint_url: Optional[str] = None
     marqo_endpoint_url: Optional[str] = None
     inference_endpoint_url: Optional[str] = None
@@ -67,8 +65,6 @@ class Settings(BaseSettings):
     sarvam_api_key: Optional[str] = None
     meity_api_key_value: Optional[str] = None
     logfire_token: Optional[str] = None
-    bhashini_api_key: str = ""
-    eleven_labs_api_key: str = ""
     inference_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
     mapbox_api_token: Optional[str] = None

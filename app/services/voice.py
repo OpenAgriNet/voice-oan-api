@@ -1,8 +1,6 @@
 from typing import AsyncGenerator, Optional, Literal
 # from fastapi import BackgroundTasks
 from agents.voice import voice_agent
-# NOTE: Removed moderation for now. Directly running the voice agent for lower latencies.
-# from agents.moderation import moderation_agent
 from helpers.utils import get_logger
 from app.utils import (
     update_message_history, 
@@ -11,10 +9,7 @@ from app.utils import (
     clean_message_history_for_openai
 )
 # NOTE: Removing telemetry for now.
-# from helpers.telemetry import create_moderation_event
 # from app.tasks.telemetry import send_telemetry
-# NOTE: Removing suggestions for now.
-# from app.tasks.suggestions import create_suggestions
 from agents.deps import FarmerContext
 
 logger = get_logger(__name__)
@@ -51,14 +46,6 @@ async def stream_voice_message(
     else:
         last_response = ""
     
-    user_message    = f"{last_response}{deps.get_user_message()}"
-    
-    # NOTE: Removed moderation for now. Directly running the voice agent for lower latencies.
-    # moderation_run  = await moderation_agent.run(user_message)
-    # moderation_data = moderation_run.output
-    # logger.info(f"Moderation data: {moderation_data}")
-    # deps.update_moderation_str(str(moderation_data))
-
     user_message = deps.get_user_message()
     logger.info(f"Running agent with user message: {user_message}")
 
