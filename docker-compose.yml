@@ -1,6 +1,6 @@
 services:
   app:
-    container_name: sva_app_voice
+    container_name: sva_app
     build: .
     ports:
       - "8003:8003"
