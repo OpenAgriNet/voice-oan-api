@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     llm_provider: Optional[str] = None
     llm_model_name: Optional[str] = None
     marqo_index_name: Optional[str] = None
+    marqo_pests_diseases_index_name: Optional[str] = None
 
     class Config:
         env_file = ".env"
