@@ -71,3 +71,12 @@ markdownify
 humanize
 
 pycryptodome
+
+
+# Search and Data
+marqo  # Vector search
+rapidfuzz  # Fuzzy string matching
+
+# Cloud Services
+boto3  # AWS SDK
+google-cloud-translate  #
