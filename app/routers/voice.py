@@ -18,6 +18,7 @@ async def voice_endpoint(
     """
     Chat endpoint that streams responses back to the client.
     Authentication is disabled.
+    session_id is used for message history and Langfuse Sessions: same ID groups all agent runs for one conversation.
     """
     session_id = request.session_id or str(uuid.uuid4())
     
