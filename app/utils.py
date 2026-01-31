@@ -52,50 +52,9 @@ async def _get_message_history(session_id: str) -> List[ModelMessage]:
         return ModelMessagesTypeAdapter.validate_python(message_history)
     return []
 
-async def _get_moderation_history(session_id: str) -> List[ModelMessage]:
-    """Get or initialize moderation history."""
-    moderation_history = await get_cache(f"{session_id}_{HISTORY_SUFFIX}_MODERATION")
-    if moderation_history:
-        return ModelMessagesTypeAdapter.validate_python(moderation_history)
-    return []
-
 async def update_message_history(session_id: str, all_messages: List[ModelMessage]):
     """Update message history."""
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(all_messages), ttl=DEFAULT_CACHE_TTL)
-
-async def update_moderation_history(session_id: str, moderation_messages: List[ModelMessage]):
-    """Update moderation history."""
-    await set_cache(f"{session_id}_{HISTORY_SUFFIX}_MODERATION", to_jsonable_python(moderation_messages), ttl=DEFAULT_CACHE_TTL)
-
-def filter_out_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
-    """Filter out tool calls and tool returns from the message history.
-    
-    Args:
-        messages: List of messages (ModelRequest/ModelResponse objects)
-        
-    Returns:
-        List of messages with tool calls and returns removed
-    """
-    if not messages:
-        return []
-    
-    filtered_messages = []
-    for message in messages:
-        # Create a deep copy to avoid modifying the original
-        msg_copy = deepcopy(message)
-        filtered_parts = []
-        
-        for part in msg_copy.parts:
-            # Only keep non-tool parts
-            if not hasattr(part, 'part_kind') or part.part_kind not in ['tool-call', 'tool-return']:
-                filtered_parts.append(part)
-        
-        # Only add messages that have non-tool parts
-        if filtered_parts:
-            msg_copy.parts = filtered_parts
-            filtered_messages.append(msg_copy)            
-    return filtered_messages
-
 
 
 def get_message_pairs(history: List[ModelMessage], limit: int = None) -> List[List]:
