@@ -1,6 +1,7 @@
 from typing import AsyncGenerator, Optional, Literal
 # from fastapi import BackgroundTasks
 from agents.voice import voice_agent
+from agents.tools.farmer import normalize_phone_to_mobile, fetch_farmer_info_raw
 from helpers.utils import get_logger
 from app.utils import (
     update_message_history, 
@@ -28,6 +29,23 @@ async def stream_voice_message(
     
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming chat messages."""
+    # user_id is expected to be phone number: clean it and proactively fetch farmer info
+    mobile = normalize_phone_to_mobile(user_id)
+    farmer_info = None
+    if mobile:
+        records = await fetch_farmer_info_raw(mobile)
+        if records:
+            farmer_info = {"farmers": records}  # wrap list for FarmerContext (expects Dict)
+            logger.info(f"Proactively loaded farmer info for mobile {mobile}")
+        else:
+            # API failed: set default message in target language so agent continues
+            msg = (
+                "Could not fetch farmer data, continuing to call"
+                if (target_lang or "gu") != "gu"
+                else "કૃષિકાર ડેટા મેળવી શકાયો નથી, કૉલ ચાલુ રાખી રહ્યા છીએ"
+            )
+            farmer_info = {"message": msg}
+
     # Generate a unique content ID for this query
     content_id = f"query_{session_id}_{len(history)//2 + 1}"
     logger.info(f"User info: {user_info}")
@@ -36,7 +54,8 @@ async def stream_voice_message(
                          target_lang=target_lang,
                          provider=provider,
                          session_id=session_id,
-                         process_id=process_id
+                         process_id=process_id,
+                         farmer_info=farmer_info
                          )
 
     message_pairs = "\n\n".join(format_message_pairs(history, 3))
