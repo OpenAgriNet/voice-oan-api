@@ -1,7 +1,10 @@
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Track if any OTEL exporter is configured
 has_otel_exporter = False
@@ -15,6 +18,8 @@ if os.getenv("LOGFIRE_TOKEN"):
 # Conditionally configure Langfuse if env vars are set
 langfuse_public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
 langfuse_secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+langfuse_client = None
+
 if langfuse_public_key and langfuse_secret_key:
     from app.config import settings
 
@@ -30,42 +35,34 @@ if langfuse_public_key and langfuse_secret_key:
         or settings.environment
         or "production"
     )
-    base_url = (
-        os.getenv("LANGFUSE_BASE_URL")
+    # SDK v3 uses LANGFUSE_HOST env var, but we also support LANGFUSE_BASE_URL
+    host = (
+        os.getenv("LANGFUSE_HOST")
+        or os.getenv("LANGFUSE_BASE_URL")
         or (settings.langfuse_base_url if settings.langfuse_base_url else None)
         or "https://cloud.langfuse.com"
     )
+    
+    # Set environment variables for SDK v3 auto-configuration
+    os.environ.setdefault("LANGFUSE_HOST", host)
 
-    # Optional: set OpenTelemetry resource so service.name appears in Langfuse metadata
-    tracer_provider = None
-    try:
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.resources import Resource
+    print(f"🔍 Langfuse initializing: host={host}, release={release}, environment={environment}", flush=True)
 
-        tracer_provider = TracerProvider(
-            resource=Resource.create(
-                {
-                    "service.name": release,
-                    "deployment.environment": environment,
-                }
-            )
-        )
-    except ImportError:
-        pass
+    from langfuse import get_client
 
-    from langfuse import Langfuse
-
-    Langfuse(
-        public_key=langfuse_public_key,
-        secret_key=langfuse_secret_key,
-        base_url=base_url,
-        release=release,
-        environment=environment,
-        tracer_provider=tracer_provider,
-    )
-    has_otel_exporter = True
+    langfuse_client = get_client()
+    
+    # Verify connection
+    if langfuse_client.auth_check():
+        print("✅ Langfuse initialized successfully - authentication verified", flush=True)
+        has_otel_exporter = True
+    else:
+        print("❌ Langfuse authentication failed - traces will not be sent", flush=True)
+else:
+    print("ℹ️  Langfuse not configured - LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY not set", flush=True)
 
 # Enable Pydantic AI instrumentation if at least one exporter is configured
 if has_otel_exporter:
     from pydantic_ai.agent import Agent
     Agent.instrument_all()
+    print("📊 Pydantic AI instrumentation enabled", flush=True)
