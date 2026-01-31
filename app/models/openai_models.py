@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Dict, Any
-import time
+from typing import List, Optional, Literal
 
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
@@ -14,18 +13,3 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = Field(default=None, description="Maximum tokens to generate")
     user: Optional[str] = Field(default=None, description="User ID for tracking")
     tenant_id: Optional[str] = Field(default=None, description="Tenant ID for multi-tenancy")
-
-class ChatCompletionChunk(BaseModel):
-    id: str
-    object: str = "chat.completion.chunk"
-    created: int
-    model: str
-    choices: List[Dict[str, Any]]
-    
-class ChatCompletionResponse(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str
-    choices: List[Dict[str, Any]]
-    usage: Optional[Dict[str, int]] = None

@@ -1,10 +1,5 @@
-from typing import Any
-
-
-import os
 from pydantic_ai import Agent
 from pydantic_ai.tools import RunContext
-from datetime import datetime, timezone
 from helpers.utils import get_prompt, get_today_date_str
 from dotenv import load_dotenv
 import logfire

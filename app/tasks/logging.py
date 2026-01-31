@@ -1,7 +1,6 @@
 """
 Tasks for logging operations.
 """
-from fastapi import BackgroundTasks
 from helpers.utils import upload_audio_to_s3, get_logger
 from dotenv import load_dotenv
 from datetime import datetime

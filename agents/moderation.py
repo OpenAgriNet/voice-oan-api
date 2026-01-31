@@ -1,4 +1,3 @@
-import os
 from pydantic import BaseModel, Field
 from typing import Literal
 from pydantic_ai import Agent

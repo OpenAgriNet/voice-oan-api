@@ -31,19 +31,7 @@ async def stream_voice_message(
     history: list
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages."""
-    # Generate a unique content ID for this query
-    content_id = f"query_{session_id}_{len(history)//2 + 1}"
-       
     deps = FarmerContext(query=query, lang_code=target_lang, session_id=session_id)
-
-    message_pairs = "\n\n".join(format_message_pairs(history, 3))
-    logger.info(f"Message pairs: {message_pairs}")
-    if message_pairs:
-        last_response = f"**Conversation**\n\n{message_pairs}\n\n---\n\n"
-    else:
-        last_response = ""
-    
-    user_message    = f"{last_response}{deps.get_user_message()}"
 
     user_message = deps.get_user_message()
     logger.info(f"Running agent with user message: {user_message}")

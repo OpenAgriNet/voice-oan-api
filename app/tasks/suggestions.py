@@ -2,7 +2,6 @@
 Tasks for creating conversation suggestions.
 """
 
-from fastapi import BackgroundTasks
 from helpers.utils import get_logger
 from app.utils import _get_message_history, trim_history, format_message_pairs, set_cache
 from agents.suggestions import suggestions_agent

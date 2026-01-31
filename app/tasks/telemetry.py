@@ -5,7 +5,6 @@ import os
 from dotenv import load_dotenv
 from typing import Dict
 import requests
-from fastapi import BackgroundTasks
 from helpers.utils import get_logger
 
 load_dotenv()

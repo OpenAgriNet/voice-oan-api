@@ -75,32 +75,6 @@ def count_tokens_for_part(part) -> int:
 
 
 
-def is_sentence_complete(text: str) -> bool:
-    """Check if the text is a complete sentence.
-    
-    Args:
-        text (str): Text to check.
-
-    Returns:
-        bool: True if the text is a complete sentence, False otherwise.
-    """
-    # Check if text ends with a sentence terminator (., !, ?) possibly followed by whitespace or newlines
-    return text.endswith('\n')
-
-def split_text(text: str) -> List[str]:
-    """Split text into chunks based on newlines.
-    
-    Args:
-        text (str): Text to split.
-
-    Returns:
-        list: List of chunks, split by newlines.
-    """
-    # Split on newlines and filter out empty strings
-    chunks = [chunk + "\n" for chunk in text.split('\n')]
-    return chunks
-
-
 def remove_redundant_parenthetical(text: str) -> str:
     """
     Collapse "X (X)" → "X" for any Unicode text.
@@ -211,27 +185,3 @@ def get_prompt(prompt_file: str, context: Dict = {}, prompt_dir: str = "assets/p
     prompt = template.render(**context) if context else template.render()
     
     return prompt
-
-
-
-def load_json_data(filename: str) -> List[Dict]:
-    """Load JSON data from assets directory.
-    
-    Args:
-        filename (str): Name of the JSON file in the assets directory
-        
-    Returns:
-        List[Dict]: List of dictionaries loaded from the JSON file
-    """
-    try:
-        file_path = os.path.join(os.path.dirname(__file__), "..", "assets", filename)
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        logger = get_logger(__name__)
-        logger.error(f"JSON file not found: {filename}")
-        return []
-    except json.JSONDecodeError as e:
-        logger = get_logger(__name__)
-        logger.error(f"Error parsing JSON file {filename}: {e}")
-        return []
