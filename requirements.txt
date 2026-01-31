@@ -20,8 +20,9 @@ pydantic==2.11.4
 tiktoken
 tenacity
 
-# Logfire
+# Logfire & Langfuse (observability)
 logfire
+langfuse
 gevent>=22.10.0
 
 # Redis for caching and stuff

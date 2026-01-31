@@ -6,6 +6,9 @@ from contextlib import asynccontextmanager
 
 load_dotenv()
 
+# Configure observability (Logfire and/or Langfuse) before other imports that use it
+import app.observability  # noqa: F401, E402
+
 # Import all routers
 from app.routers import  voice, health
 

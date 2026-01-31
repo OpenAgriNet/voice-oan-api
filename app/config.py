@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     sarvam_api_key: Optional[str] = None
     meity_api_key_value: Optional[str] = None
     logfire_token: Optional[str] = None
+    langfuse_public_key: Optional[str] = None
+    langfuse_secret_key: Optional[str] = None
+    langfuse_base_url: Optional[str] = None
+    # Langfuse labels: release = app/service name for grouping; environment = deployment env
+    langfuse_release: Optional[str] = None  # e.g. "voice-oan-api" – shown in Langfuse for filtering
+    langfuse_environment: Optional[str] = None  # e.g. "production" – defaults to ENVIRONMENT
     inference_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
     mapbox_api_token: Optional[str] = None

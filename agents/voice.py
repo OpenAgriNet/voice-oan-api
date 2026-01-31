@@ -3,7 +3,6 @@ from pydantic_ai import Agent, RunContext
 from datetime import datetime, timezone
 from helpers.utils import get_prompt, get_today_date_str, get_logger
 from dotenv import load_dotenv
-import logfire
 from agents.models import LLM_MODEL
 from agents.tools import TOOLS
 from pydantic_ai.settings import ModelSettings
@@ -12,9 +11,6 @@ from agents.deps import FarmerContext
 logger = get_logger(__name__)
 
 load_dotenv()
-
-logfire.configure(scrubbing=False, environment=os.getenv('ENVIRONMENT', 'voice-production'))
-
 
 voice_agent = Agent(
     model=LLM_MODEL,
