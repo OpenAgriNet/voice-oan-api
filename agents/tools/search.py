@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry, RunContext
 from helpers.utils import get_logger
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya
+# from agents.tools.common import get_nudge_message, send_nudge_message_raya
 
 
 logger = get_logger(__name__)
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 DocumentType = Literal['video', 'document']
 
 class SearchHit(BaseModel):
-    """Individual search hit from elasticsearch"""
+    """Individual search hit from Marqo"""
     name: str
     text: str
     doc_id: str
@@ -63,9 +63,9 @@ async def search_documents(
     """
     try:
         # Send nudge message asynchronously without blocking
-        nudge_message = get_nudge_message("search_documents", ctx.deps.lang_code)
-        result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-        logger.info(f"Nudge message sent: {result}")
+        # nudge_message = get_nudge_message("search_documents", ctx.deps.lang_code)
+        # result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+        # logger.info(f"Nudge message sent: {result}")
 
         # Initialize Marqo client
         endpoint_url = os.getenv('MARQO_ENDPOINT_URL')
@@ -105,12 +105,26 @@ async def search_documents(
         
         if len(results) == 0:
             return f"No results found for `{query}`"
-        else:            
-            search_hits = [SearchHit(**hit) for hit in results]
+        
+        # Extract name based on target language
+        target_lang = ctx.deps.target_lang or ctx.deps.lang_code or "en"
+        search_hits = []
+        for hit in results:
+            # Select name based on target language preference
+            if target_lang == "gu" and hit.get("name_gu"):
+                hit["name"] = hit["name_gu"]
+            elif hit.get("name_en"):
+                hit["name"] = hit["name_en"]
+            elif hit.get("name_gu"):
+                hit["name"] = hit["name_gu"]
+            else:
+                hit["name"] = hit.get("_id") or "Unknown"
             
-            # Convert back to dict format for compatibility
-            document_string = '\n\n----\n\n'.join([str(document) for document in search_hits])
-            return "> Search Results for `" + query + "`\n\n" + document_string
+            search_hits.append(SearchHit(**hit))
+        
+        # Convert back to dict format for compatibility
+        document_string = '\n\n----\n\n'.join([str(document) for document in search_hits])
+        return "> Search Results for `" + query + "`\n\n" + document_string
     except Exception as e:
         logger.error(f"Error searching documents: {e} for query: {query}")
         raise ModelRetry(f"Error searching documents, please try again")
