@@ -4,7 +4,7 @@ import random
 import httpx
 import asyncio
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from helpers.utils import get_logger
 from app.config import settings
 
@@ -34,6 +34,16 @@ def get_nudge_message(tool: str, lang_code: str = "en") -> str:
     with open('assets/nudge_messages.json', 'r') as f:
         nudge_data = json.load(f)
     return nudge_data[tool][lang_code]
+
+async def send_feedback_prompt_raya(
+    session_id: str, process_id: Optional[str], lang_code: str = "gu"
+) -> None:
+    """Send the feedback question (1-5 scale) to the user via RAYA nudge API."""
+    from app.services.feedback import get_feedback_question
+
+    message = get_feedback_question(lang_code)
+    await send_nudge_message_raya(message, session_id, process_id)
+
 
 async def send_nudge_message_raya(message: str, session_id: str, process_id: str = None) -> None:
     """Internal function to send nudge message synchronously."""

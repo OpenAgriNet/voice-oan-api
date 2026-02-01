@@ -2,16 +2,31 @@ import asyncio
 from contextlib import nullcontext
 from typing import AsyncGenerator, Optional, Literal
 # from fastapi import BackgroundTasks
+from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart
+
 from agents.voice import voice_agent
 from agents.tools.farmer import normalize_phone_to_mobile, fetch_farmer_info_raw
-from agents.tools.common import get_random_nudge_message, send_nudge_message_raya
+from agents.tools.common import (
+    get_random_nudge_message,
+    send_nudge_message_raya,
+    send_feedback_prompt_raya,
+)
 from helpers.utils import get_logger
 from app.config import settings
 from app.utils import (
     update_message_history,
     trim_history,
     format_message_pairs,
-    clean_message_history_for_openai
+    clean_message_history_for_openai,
+    get_feedback_state,
+    set_feedback_initiated,
+    set_feedback_rating_received,
+    extract_conversation_events_from_messages,
+)
+from app.services.feedback import (
+    parse_rating_from_text,
+    get_feedback_ack,
+    send_feedback,
 )
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
@@ -57,6 +72,39 @@ async def stream_voice_message(
     # Langfuse Sessions: session_id groups all agent runs for this conversation (same ID = one Session);
     # process_id in metadata for filtering by process in Langfuse UI/API.
     with _langfuse_session_context(session_id, user_id, process_id):
+        # --- Feedback: intercept rating if we're waiting for 1-5 ---
+        feedback_state = await get_feedback_state(session_id)
+        if feedback_state.get("initiated") and not feedback_state.get("rating_received"):
+            rating = parse_rating_from_text(query)
+            target_lang = (target_lang or "gu").strip().lower()
+            trigger = feedback_state.get("trigger") or "conversation_closing"
+
+            # Use high ack for unparseable (graceful fallback); low/high based on 1-3 vs 4-5 when parsed
+            ack = get_feedback_ack(rating if rating else 4, target_lang)
+
+            if rating is not None:
+                await send_feedback(
+                    session_id=session_id,
+                    user_id=user_id,
+                    process_id=process_id,
+                    rating=rating,
+                    trigger=trigger,
+                    source_lang=source_lang or "gu",
+                    target_lang=target_lang,
+                    message_history_summary={"turn_count": len(history)},
+                    farmer_info=None,
+                )
+            await set_feedback_rating_received(session_id)
+
+            # Append user rating + ack to history for coherence
+            rating_req = ModelRequest(parts=[UserPromptPart(content=query)])
+            ack_resp = ModelResponse(parts=[TextPart(content=ack)])
+            await update_message_history(session_id, [*history, rating_req, ack_resp])
+
+            # Stream the ack to the user
+            yield ack
+            return
+
         # user_id is expected to be phone number: clean it and proactively fetch farmer info
         mobile = normalize_phone_to_mobile(user_id)
         farmer_info = None
@@ -158,3 +206,18 @@ async def stream_voice_message(
 
         logger.info(f"Updating message history for session {session_id} with {len(messages)} messages")
         await update_message_history(session_id, messages)
+
+        # --- Feedback: trigger feedback question if agent signaled conversation_closing or user_frustration ---
+        feedback_state = await get_feedback_state(session_id)
+        if not feedback_state.get("initiated"):
+            events = extract_conversation_events_from_messages(new_messages)
+            trigger = None
+            for e in events:
+                if e in ("conversation_closing", "user_frustration"):
+                    trigger = e
+                    break
+            if trigger and provider == "RAYA":
+                await set_feedback_initiated(session_id, trigger)
+                nudge_lang = (target_lang or "gu").strip().lower()
+                await send_feedback_prompt_raya(session_id, process_id, nudge_lang)
+                logger.info(f"Feedback prompt sent (trigger={trigger})")

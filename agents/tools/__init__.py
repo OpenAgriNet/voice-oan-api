@@ -7,6 +7,7 @@ from agents.tools.search import search_documents
 from agents.tools.farmer import get_farmer_by_mobile
 from agents.tools.animal import get_animal_by_tag
 from agents.tools.cvcc import get_cvcc_health_details
+from agents.tools.feedback import signal_conversation_state
 
 TOOLS = [
     Tool(
@@ -34,5 +35,10 @@ TOOLS = [
         takes_ctx=False,
         docstring_format='auto',
         require_parameter_descriptions=True,
+    ),
+    Tool(
+        signal_conversation_state,
+        takes_ctx=True,
+        docstring_format='auto',
     ),
 ]
