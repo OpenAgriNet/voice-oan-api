@@ -1,6 +1,18 @@
 {
-    "search_documents": {
-        "en": "Sure. I can help you with that. Please hold while I check the documents for you.",
-        "gu": "કૃપા કરીને લાઇન પર રહો, હું તમારા પ્રશ્નોની માહિતી લઈ રહી છું."
+    "hold_messages": {
+        "en": [
+            "Sure. I can help you with that. Please hold while I check the records. This will not take long.",
+            "I can definitely help you with this. Let me check in the official system and get back to you right away. Please wait, I am checking.",
+            "Alright, I will fetch this information for you. I hope you don't mind waiting for a few seconds.",
+            "I am retrieving the latest update from the system. Please wait with me for a short time.",
+            "Sure, I am checking the official records now. Kindly stay on the line for a few seconds."
+        ],
+        "gu": [
+            "ખાતરીથી. હું તમને તેમાં મદદ કરી શકું છું. કૃપા કરીને થોડું રાહ જુઓ, હું રેકોર્ડ તપાસી રહ્યો છું. આમાં વધારે સમય નહીં લાગે.",
+            "હું ચોક્કસપણે તમને hierin મદદ કરી શકું છું. હું અધિકૃત સિસ્ટમમાં તપાસ કરી રહ્યો છું અને તરત જ તમને જાણ કરીશ. કૃપા કરીને રાહ જુઓ.",
+            "બરાબર, હું આ માહિતી મેળવી રહ્યો છું. કૃપા કરીને થોડા સેકન્ડ રાહ જોવામાં તમને વાંધો નહીં હોય ને?",
+            "હું સિસ્ટમમાંથી તાજું અપડેટ મેળવી રહ્યો છું. કૃપા કરીને થોડા સમય સુધી લાઇન પર રહો.",
+            "ખાતરીથી, હું હાલ અધિકૃત રેકોર્ડ તપાસી રહ્યો છું. કૃપા કરીને થોડા સેકન્ડ લાઇન પર રહો."
+        ]
     }
 }

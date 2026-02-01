@@ -1,9 +1,12 @@
+import asyncio
 from contextlib import nullcontext
 from typing import AsyncGenerator, Optional, Literal
 # from fastapi import BackgroundTasks
 from agents.voice import voice_agent
 from agents.tools.farmer import normalize_phone_to_mobile, fetch_farmer_info_raw
+from agents.tools.common import get_random_nudge_message, send_nudge_message_raya
 from helpers.utils import get_logger
+from app.config import settings
 from app.utils import (
     update_message_history,
     trim_history,
@@ -111,13 +114,36 @@ async def stream_voice_message(
 
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
+        # Nudge only if agent doesn't respond within configured time; use received language for message.
+        first_chunk_sent = [False]
+        nudge_lang = (target_lang or "en").strip().lower()
+
+        async def maybe_send_nudge_after_timeout() -> None:
+            await asyncio.sleep(settings.nudge_timeout_seconds)
+            if first_chunk_sent[0]:
+                return
+            first_chunk_sent[0] = True
+            msg = get_random_nudge_message(nudge_lang)
+            await send_nudge_message_raya(msg, session_id, process_id)
+            logger.info("Nudge sent (agent did not respond within timeout)")
+
+        nudge_timeout_task = None
+        if provider == "RAYA":
+            nudge_timeout_task = asyncio.create_task(maybe_send_nudge_after_timeout())
+
         async with voice_agent.run_stream(
             user_prompt=user_message,
             message_history=trimmed_history,
             deps=deps,
         ) as response_stream:
             async for chunk in response_stream.stream_text(delta=True):
-                # if chunk:
+                if not first_chunk_sent[0] and nudge_timeout_task is not None:
+                    first_chunk_sent[0] = True
+                    nudge_timeout_task.cancel()
+                    try:
+                        await nudge_timeout_task
+                    except asyncio.CancelledError:
+                        pass
                 yield chunk
 
             logger.info(f"Streaming complete for session {session_id}")
