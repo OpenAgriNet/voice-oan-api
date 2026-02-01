@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     # Cache Configuration
     default_cache_ttl: int = 60 * 60 * 24  # 24 hours
+    feedback_state_ttl: int = 10 * 60  # 10 min; expires if user never responds (e.g. cuts call). Set FEEDBACK_STATE_TTL env to override.
 
     # Logging Configuration
     log_level: str = "INFO"

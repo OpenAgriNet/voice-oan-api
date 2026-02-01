@@ -1,6 +1,7 @@
 import json
 from typing import List
 from app.core.cache import cache  # Import cache instance from core
+from app.config import settings
 from helpers.utils import get_logger, count_tokens_for_part
 from copy import deepcopy
 from pydantic_ai.messages import (
@@ -56,11 +57,11 @@ async def get_feedback_state(session_id: str) -> dict:
 
 
 async def set_feedback_initiated(session_id: str, trigger: str) -> None:
-    """Mark that feedback question has been asked."""
+    """Mark that feedback question has been asked. State expires per feedback_state_ttl if no rating received."""
     await set_cache(
         f"{session_id}_{FEEDBACK_STATE_SUFFIX}",
         {"initiated": True, "rating_received": False, "trigger": trigger},
-        ttl=DEFAULT_CACHE_TTL
+        ttl=settings.feedback_state_ttl
     )
 
 
@@ -98,7 +99,7 @@ async def set_feedback_rating_received(session_id: str) -> None:
     """Mark that feedback rating has been received."""
     state = await get_feedback_state(session_id)
     state = {**state, "rating_received": True}
-    await set_cache(f"{session_id}_{FEEDBACK_STATE_SUFFIX}", state, ttl=DEFAULT_CACHE_TTL)
+    await set_cache(f"{session_id}_{FEEDBACK_STATE_SUFFIX}", state, ttl=settings.feedback_state_ttl)
 
 
 async def _get_message_history(session_id: str) -> List[ModelMessage]:

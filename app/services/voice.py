@@ -26,6 +26,7 @@ from app.utils import (
 from app.services.feedback import (
     parse_rating_from_text,
     get_feedback_ack,
+    get_feedback_question,
     send_feedback,
 )
 # NOTE: Removing telemetry for now.
@@ -82,24 +83,27 @@ async def stream_voice_message(
             # Use high ack for unparseable (graceful fallback); low/high based on 1-3 vs 4-5 when parsed
             ack = get_feedback_ack(rating if rating else 4, target_lang)
 
-            if rating is not None:
-                await send_feedback(
-                    session_id=session_id,
-                    user_id=user_id,
-                    process_id=process_id,
-                    rating=rating,
-                    trigger=trigger,
-                    source_lang=source_lang or "gu",
-                    target_lang=target_lang,
-                    message_history_summary={"turn_count": len(history)},
-                    farmer_info=None,
-                )
+            # Always send feedback: parsed rating (1-5) or 0 for unparseable with raw_input in metadata
+            await send_feedback(
+                session_id=session_id,
+                user_id=user_id,
+                process_id=process_id,
+                rating=rating if rating is not None else 0,
+                trigger=trigger,
+                source_lang=source_lang or "gu",
+                target_lang=target_lang,
+                message_history_summary={"turn_count": len(history)},
+                farmer_info=None,
+                raw_input=query if rating is None else None,
+            )
             await set_feedback_rating_received(session_id)
 
-            # Append user rating + ack to history for coherence
+            # Append feedback question + user response + ack to history (useful for debugging unparsables)
+            feedback_question = get_feedback_question(target_lang)
+            feedback_q_resp = ModelResponse(parts=[TextPart(content=feedback_question)])
             rating_req = ModelRequest(parts=[UserPromptPart(content=query)])
             ack_resp = ModelResponse(parts=[TextPart(content=ack)])
-            await update_message_history(session_id, [*history, rating_req, ack_resp])
+            await update_message_history(session_id, [*history, feedback_q_resp, rating_req, ack_resp])
 
             # Stream the ack to the user
             yield ack

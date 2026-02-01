@@ -75,20 +75,21 @@ async def send_feedback(
     target_lang: str,
     message_history_summary: Optional[str] = None,
     farmer_info: Optional[dict] = None,
+    raw_input: Optional[str] = None,
 ) -> None:
     """
     Send feedback to Langfuse (and optionally other telemetry). Stores the 1-5 rating
     as a session-level score in Langfuse, linked to the conversation session.
+    For unparseable input, pass rating=0 and raw_input with the user's utterance.
 
     All parameters are provided for telemetry correlation:
     - session_id: groups feedback with the conversation (used for Langfuse session)
     - user_id: typically phone number for farmer identification
     - process_id: RAYA process/trace ID
-    - rating: 1-5
+    - rating: 1-5 (or 0 for unparseable)
     - trigger: what prompted feedback (conversation_closing | user_frustration)
     - source_lang, target_lang: for localization context
-    - message_history_summary: optional summary of conversation for context
-    - farmer_info: optional farmer/animal context
+    - raw_input: user's raw utterance when unparseable (stored in comment)
     """
     # Build comment with metadata for correlation
     comment_parts = [f"trigger={trigger}", f"source_lang={source_lang}", f"target_lang={target_lang}"]
@@ -96,6 +97,10 @@ async def send_feedback(
         comment_parts.append(f"user_id={user_id}")
     if process_id:
         comment_parts.append(f"process_id={process_id}")
+    if raw_input:
+        # Truncate long inputs; store unparseable utterance for analysis
+        raw_preview = (raw_input[:200] + "…") if len(raw_input) > 200 else raw_input
+        comment_parts.append(f"raw_input={raw_preview}")
     comment = "; ".join(comment_parts)
 
     # Store in Langfuse as session-level score (matches propagate_attributes session_id)
@@ -113,7 +118,10 @@ async def send_feedback(
                 score_id=f"{session_id}-user-feedback",  # idempotency: one feedback per session
             )
             langfuse_client.flush()
-            logger.info(f"Feedback stored in Langfuse: session_id={session_id}, rating={rating}")
+            logger.info(
+                f"Feedback stored in Langfuse: session_id={session_id}, rating={rating}"
+                + (f" (unparseable raw_input)" if rating == 0 and raw_input else "")
+            )
     except Exception as e:
         logger.warning(f"Failed to store feedback in Langfuse: {e}")
 
