@@ -6,7 +6,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, Te
 
 from agents.voice import voice_agent
 from agents.tools.farmer import normalize_phone_to_mobile, fetch_farmer_info_raw
-from agents.tools.common import get_random_nudge_message
+from agents.tools.common import get_random_nudge_message, send_nudge_message_raya
 from helpers.utils import get_logger
 from app.config import settings
 from app.utils import (
@@ -164,54 +164,70 @@ async def stream_voice_message(
 
         nudge_lang = (target_lang or "en").strip().lower()
 
+        async def send_nudge_after_timeout() -> None:
+            """After nudge_timeout_seconds, send nudge via API. Cancelled if first chunk yielded first."""
+            try:
+                await asyncio.sleep(settings.nudge_timeout_seconds)
+                nudge_msg = get_random_nudge_message(nudge_lang)
+                await send_nudge_message_raya(nudge_msg, session_id, process_id)
+                logger.info(
+                    "Nudge actually sent; session_id=%s process_id=%s",
+                    session_id,
+                    process_id,
+                )
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning(
+                    "Nudge-after-timeout failed; session_id=%s process_id=%s error=%s",
+                    session_id,
+                    process_id,
+                    e,
+                )
+
+        nudge_task = asyncio.create_task(send_nudge_after_timeout())
+        logger.info(
+            "Nudge initiated; session_id=%s process_id=%s",
+            session_id,
+            process_id,
+        )
+
         async with voice_agent.run_stream(
             user_prompt=user_message,
             message_history=trimmed_history,
             deps=deps,
         ) as response_stream:
             stream_iter = response_stream.stream_text(delta=True)
-            first_chunk_task = asyncio.create_task(stream_iter.__anext__())
-            timeout_task = asyncio.create_task(
-                asyncio.sleep(settings.nudge_timeout_seconds)
-            )
-
+            first_chunk_yet = True
             try:
-                done, pending = await asyncio.wait(
-                    [first_chunk_task, timeout_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                if timeout_task in done:
-                    # Agent slow: yield nudge as if agent said it via response stream
-                    nudge_msg = get_random_nudge_message(nudge_lang)
-                    yield nudge_msg
-                    logger.info(
-                        "Nudge yielded via stream (agent slow); session_id=%s",
-                        session_id,
-                    )
-                    try:
-                        first_chunk = await first_chunk_task
-                        yield first_chunk
-                    except StopAsyncIteration:
-                        pass
-                else:
-                    # Agent responded in time; cancel timeout
-                    timeout_task.cancel()
-                    try:
-                        await timeout_task
-                    except asyncio.CancelledError:
-                        pass
-                    try:
-                        first_chunk = first_chunk_task.result()
-                        yield first_chunk
-                    except StopAsyncIteration:
-                        pass
-
                 async for chunk in stream_iter:
+                    if first_chunk_yet:
+                        first_chunk_yet = False
+                        nudge_task.cancel()
+                        logger.info(
+                            "Nudge canceled (first chunk received); session_id=%s process_id=%s",
+                            session_id,
+                            process_id,
+                        )
+                        try:
+                            await nudge_task
+                        except asyncio.CancelledError:
+                            pass
                     yield chunk
-
             except StopAsyncIteration:
                 pass
+            finally:
+                if not nudge_task.done():
+                    nudge_task.cancel()
+                    logger.info(
+                        "Nudge canceled (stream ended); session_id=%s process_id=%s",
+                        session_id,
+                        process_id,
+                    )
+                    try:
+                        await nudge_task
+                    except asyncio.CancelledError:
+                        pass
 
             logger.info(f"Streaming complete for session {session_id}")
             new_messages = response_stream.new_messages()

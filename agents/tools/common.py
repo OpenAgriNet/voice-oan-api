@@ -59,7 +59,14 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
         }
         if process_id:
             payload["process_id"] = process_id
-        
+
+        logger.info(
+            "Nudge API request sent; session_id=%s process_id=%s url=%s payload=%s",
+            session_id,
+            process_id,
+            nudge_url,
+            payload,
+        )
         response = httpx.post(
             nudge_url,
             json=payload,
@@ -67,6 +74,13 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
             timeout=5
         )
         response_body = response.text
+        logger.info(
+            "Nudge API response; session_id=%s process_id=%s status=%s body=%s",
+            session_id,
+            process_id,
+            response.status_code,
+            response_body,
+        )
         if response.status_code == 200:
             logger.info(
                 "Nudge message sent; session_id=%s process_id=%s api_status=%s response=%s",
