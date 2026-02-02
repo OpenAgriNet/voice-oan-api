@@ -3,6 +3,7 @@ import json
 import random
 import httpx
 import asyncio
+from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from helpers.utils import get_logger
@@ -10,15 +11,18 @@ from app.config import settings
 
 logger = get_logger(__name__)
 
-# NOTE: No need to cache right now. 
+# NOTE: No need to cache right now.
 # Loading a small json and finding the message for the tool and language code should be very fast anyway now.
+
+# Resolve assets path from this file so it works regardless of process cwd (e.g. Docker, different CWD).
+_NUDGE_MESSAGES_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "nudge_messages.json"
 
 
 def get_random_nudge_message(lang_code: str = "en") -> str:
     """Get a random nudge (hold) message for the given language from assets/nudge_messages.json.
     Expects a "hold_messages" key with per-lang lists of messages; falls back to "en" if lang missing.
     """
-    with open("assets/nudge_messages.json", "r") as f:
+    with open(_NUDGE_MESSAGES_PATH, "r") as f:
         data = json.load(f)
     hold = data.get("hold_messages", {})
     messages = hold.get(lang_code) or hold.get("en") or []
@@ -31,7 +35,7 @@ def get_nudge_message(tool: str, lang_code: str = "en") -> str:
     """Get a nudge message for a specific tool and action in the specified language.
     Load json and then return the message for the tool and language code.
     """
-    with open('assets/nudge_messages.json', 'r') as f:
+    with open(_NUDGE_MESSAGES_PATH, "r") as f:
         nudge_data = json.load(f)
     return nudge_data[tool][lang_code]
 

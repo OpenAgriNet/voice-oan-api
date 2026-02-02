@@ -167,40 +167,53 @@ async def stream_voice_message(
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
         # Nudge only if agent doesn't respond within configured time; use received language for message.
+        # Task is cancelled when first chunk is yielded or when stream block exits.
         first_chunk_sent = [False]
         nudge_lang = (target_lang or "en").strip().lower()
 
         async def maybe_send_nudge_after_timeout() -> None:
-            await asyncio.sleep(settings.nudge_timeout_seconds)
-            if first_chunk_sent[0]:
-                return
-            first_chunk_sent[0] = True
-            msg = get_random_nudge_message(nudge_lang)
-            await send_nudge_message_raya(msg, session_id, process_id)
-            logger.info("Nudge sent (agent did not respond within timeout)")
+            try:
+                await asyncio.sleep(settings.nudge_timeout_seconds)
+                if first_chunk_sent[0]:
+                    return
+                first_chunk_sent[0] = True
+                msg = get_random_nudge_message(nudge_lang)
+                await send_nudge_message_raya(msg, session_id, process_id)
+                logger.info("Nudge sent (agent did not respond within timeout)")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.exception("Nudge task failed (nudge not sent): %s", e)
 
-        nudge_timeout_task = None
-        if provider == "RAYA":
-            nudge_timeout_task = asyncio.create_task(maybe_send_nudge_after_timeout())
+        nudge_timeout_task = asyncio.create_task(maybe_send_nudge_after_timeout())
 
-        async with voice_agent.run_stream(
-            user_prompt=user_message,
-            message_history=trimmed_history,
-            deps=deps,
-        ) as response_stream:
-            async for chunk in response_stream.stream_text(delta=True):
-                if not first_chunk_sent[0] and nudge_timeout_task is not None:
-                    first_chunk_sent[0] = True
-                    nudge_timeout_task.cancel()
-                    try:
-                        await nudge_timeout_task
-                    except asyncio.CancelledError:
-                        pass
-                yield chunk
+        try:
+            async with voice_agent.run_stream(
+                user_prompt=user_message,
+                message_history=trimmed_history,
+                deps=deps,
+            ) as response_stream:
+                async for chunk in response_stream.stream_text(delta=True):
+                    if not first_chunk_sent[0] and nudge_timeout_task is not None:
+                        first_chunk_sent[0] = True
+                        nudge_timeout_task.cancel()
+                        try:
+                            await nudge_timeout_task
+                        except asyncio.CancelledError:
+                            pass
+                    yield chunk
 
-            logger.info(f"Streaming complete for session {session_id}")
-            # Capture the data we need while response_stream is still available
-            new_messages = response_stream.new_messages()
+                logger.info(f"Streaming complete for session {session_id}")
+                # Capture the data we need while response_stream is still available
+                new_messages = response_stream.new_messages()
+        finally:
+            # Cancel nudge task if stream ended or failed before first chunk (e.g. error, client disconnect).
+            if nudge_timeout_task is not None and not nudge_timeout_task.done():
+                nudge_timeout_task.cancel()
+                try:
+                    await nudge_timeout_task
+                except asyncio.CancelledError:
+                    pass
 
         # Post-processing happens AFTER streaming is complete
         messages = [
