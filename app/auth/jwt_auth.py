@@ -30,12 +30,22 @@ class OptionalOAuth2PasswordBearer(OAuth2PasswordBearer):
 # OAuth2 scheme for FastAPI - optional in development
 oauth2_scheme = OptionalOAuth2PasswordBearer(tokenUrl="token")
 
-# Construct the absolute path to the public key using settings
-public_key_path = settings.base_dir / settings.jwt_public_key_path
 
-with open(public_key_path, 'rb') as key_file:
-    public_key = serialization.load_pem_public_key(key_file.read())
-logger.info(f"Successfully loaded JWT Public Key from: {public_key_path}")
+def _load_public_key():
+    """Load JWT public key from env value (JWT_PUBLIC_KEY) or fall back to file path (JWT_PUBLIC_KEY_PATH)."""
+    if settings.jwt_public_key and settings.jwt_public_key.strip():
+        key_bytes = settings.jwt_public_key.strip().encode("utf-8")
+        key = serialization.load_pem_public_key(key_bytes)
+        logger.info("Successfully loaded JWT Public Key from JWT_PUBLIC_KEY env")
+        return key
+    public_key_path = settings.base_dir / settings.jwt_public_key_path
+    with open(public_key_path, "rb") as key_file:
+        key = serialization.load_pem_public_key(key_file.read())
+    logger.info(f"Successfully loaded JWT Public Key from file: {public_key_path}")
+    return key
+
+
+public_key = _load_public_key()
 
 async def get_current_user(token: str | None = Depends(oauth2_scheme)):
     """
