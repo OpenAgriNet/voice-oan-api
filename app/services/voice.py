@@ -179,7 +179,11 @@ async def stream_voice_message(
                 first_chunk_sent[0] = True
                 msg = get_random_nudge_message(nudge_lang)
                 await send_nudge_message_raya(msg, session_id, process_id)
-                logger.info("Nudge sent (agent did not respond within timeout)")
+                logger.info(
+                    "Nudge sent (agent did not respond within timeout); session_id=%s process_id=%s",
+                    session_id,
+                    process_id,
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -201,6 +205,11 @@ async def stream_voice_message(
                             await nudge_timeout_task
                         except asyncio.CancelledError:
                             pass
+                        logger.info(
+                            "Nudge not sent (agent responded in time); session_id=%s process_id=%s",
+                            session_id,
+                            process_id,
+                        )
                     yield chunk
 
                 logger.info(f"Streaming complete for session {session_id}")

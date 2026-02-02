@@ -66,13 +66,34 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
             headers={"Content-Type": "application/json"},
             timeout=5
         )
-        
+        response_body = response.text
         if response.status_code == 200:
-            logger.info(f"Nudge message sent successfully: {message}")
+            logger.info(
+                "Nudge message sent; session_id=%s process_id=%s api_status=%s response=%s",
+                session_id,
+                process_id,
+                response.status_code,
+                response_body,
+            )
         else:
-            logger.warning(f"Failed to send nudge message. Status: {response.status_code}")
-            
+            logger.warning(
+                "Nudge message API failed; session_id=%s process_id=%s api_status=%s response=%s",
+                session_id,
+                process_id,
+                response.status_code,
+                response_body,
+            )
     except httpx.RequestException as e:
-        logger.error(f"Error sending nudge message: {e}")
+        logger.error(
+            "Error sending nudge message; session_id=%s process_id=%s error=%s",
+            session_id,
+            process_id,
+            e,
+        )
     except Exception as e:
-        logger.error(f"Unexpected error sending nudge message: {e}")
+        logger.error(
+            "Unexpected error sending nudge message; session_id=%s process_id=%s error=%s",
+            session_id,
+            process_id,
+            e,
+        )
