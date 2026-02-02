@@ -198,21 +198,30 @@ async def stream_voice_message(
             deps=deps,
         ) as response_stream:
             stream_iter = response_stream.stream_text(delta=True)
-            first_chunk_yet = True
+            first_text_chunk_received = False
+            
             try:
                 async for chunk in stream_iter:
-                    if first_chunk_yet:
-                        first_chunk_yet = False
+                    # According to pydantic_ai API: stream_text(delta=True) yields string chunks
+                    # Only cancel nudge on actual text content: must be str, non-empty, non-whitespace-only
+                    if (not first_text_chunk_received 
+                        and isinstance(chunk, str) 
+                        and chunk 
+                        and chunk.strip()):
+                        first_text_chunk_received = True
                         nudge_task.cancel()
                         logger.info(
-                            "Nudge canceled (first chunk received); session_id=%s process_id=%s",
+                            "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
                             session_id,
                             process_id,
+                            chunk[:50] if len(chunk) > 50 else chunk,
                         )
                         try:
                             await nudge_task
                         except asyncio.CancelledError:
                             pass
+                    
+                    # Yield all chunks to client (including empty/whitespace if any)
                     yield chunk
             except StopAsyncIteration:
                 pass
