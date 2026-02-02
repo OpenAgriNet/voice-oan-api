@@ -6,11 +6,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, Te
 
 from agents.voice import voice_agent
 from agents.tools.farmer import normalize_phone_to_mobile, fetch_farmer_info_raw
-from agents.tools.common import (
-    get_random_nudge_message,
-    send_nudge_message_raya,
-    send_feedback_prompt_raya,
-)
+from agents.tools.common import get_random_nudge_message
 from helpers.utils import get_logger
 from app.config import settings
 from app.utils import (
@@ -166,63 +162,59 @@ async def stream_voice_message(
 
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
-        # Nudge only if agent doesn't respond within configured time; use received language for message.
-        # Task is cancelled when first chunk is yielded or when stream block exits.
-        first_chunk_sent = [False]
         nudge_lang = (target_lang or "en").strip().lower()
 
-        async def maybe_send_nudge_after_timeout() -> None:
+        async with voice_agent.run_stream(
+            user_prompt=user_message,
+            message_history=trimmed_history,
+            deps=deps,
+        ) as response_stream:
+            stream_iter = response_stream.stream_text(delta=True)
+            first_chunk_task = asyncio.create_task(stream_iter.__anext__())
+            timeout_task = asyncio.create_task(
+                asyncio.sleep(settings.nudge_timeout_seconds)
+            )
+
             try:
-                await asyncio.sleep(settings.nudge_timeout_seconds)
-                if first_chunk_sent[0]:
-                    return
-                first_chunk_sent[0] = True
-                msg = get_random_nudge_message(nudge_lang)
-                await send_nudge_message_raya(msg, session_id, process_id)
-                logger.info(
-                    "Nudge sent (agent did not respond within timeout); session_id=%s process_id=%s",
-                    session_id,
-                    process_id,
+                done, pending = await asyncio.wait(
+                    [first_chunk_task, timeout_task],
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.exception("Nudge task failed (nudge not sent): %s", e)
 
-        nudge_timeout_task = asyncio.create_task(maybe_send_nudge_after_timeout())
+                if timeout_task in done:
+                    # Agent slow: yield nudge as if agent said it via response stream
+                    nudge_msg = get_random_nudge_message(nudge_lang)
+                    yield nudge_msg
+                    logger.info(
+                        "Nudge yielded via stream (agent slow); session_id=%s",
+                        session_id,
+                    )
+                    try:
+                        first_chunk = await first_chunk_task
+                        yield first_chunk
+                    except StopAsyncIteration:
+                        pass
+                else:
+                    # Agent responded in time; cancel timeout
+                    timeout_task.cancel()
+                    try:
+                        await timeout_task
+                    except asyncio.CancelledError:
+                        pass
+                    try:
+                        first_chunk = first_chunk_task.result()
+                        yield first_chunk
+                    except StopAsyncIteration:
+                        pass
 
-        try:
-            async with voice_agent.run_stream(
-                user_prompt=user_message,
-                message_history=trimmed_history,
-                deps=deps,
-            ) as response_stream:
-                async for chunk in response_stream.stream_text(delta=True):
-                    if not first_chunk_sent[0] and nudge_timeout_task is not None:
-                        first_chunk_sent[0] = True
-                        nudge_timeout_task.cancel()
-                        try:
-                            await nudge_timeout_task
-                        except asyncio.CancelledError:
-                            pass
-                        logger.info(
-                            "Nudge not sent (agent responded in time); session_id=%s process_id=%s",
-                            session_id,
-                            process_id,
-                        )
+                async for chunk in stream_iter:
                     yield chunk
 
-                logger.info(f"Streaming complete for session {session_id}")
-                # Capture the data we need while response_stream is still available
-                new_messages = response_stream.new_messages()
-        finally:
-            # Cancel nudge task if stream ended or failed before first chunk (e.g. error, client disconnect).
-            if nudge_timeout_task is not None and not nudge_timeout_task.done():
-                nudge_timeout_task.cancel()
-                try:
-                    await nudge_timeout_task
-                except asyncio.CancelledError:
-                    pass
+            except StopAsyncIteration:
+                pass
+
+            logger.info(f"Streaming complete for session {session_id}")
+            new_messages = response_stream.new_messages()
 
         # Post-processing happens AFTER streaming is complete
         messages = [
@@ -233,7 +225,7 @@ async def stream_voice_message(
         logger.info(f"Updating message history for session {session_id} with {len(messages)} messages")
         await update_message_history(session_id, messages)
 
-        # --- Feedback: trigger feedback question if agent signaled conversation_closing or user_frustration ---
+        # --- Feedback: yield feedback question via stream if agent signaled conversation_closing or user_frustration ---
         feedback_state = await get_feedback_state(session_id)
         if not feedback_state.get("initiated"):
             events = extract_conversation_events_from_messages(new_messages)
@@ -242,8 +234,9 @@ async def stream_voice_message(
                 if e in ("conversation_closing", "user_frustration"):
                     trigger = e
                     break
-            if trigger and provider == "RAYA":
+            if trigger:
                 await set_feedback_initiated(session_id, trigger)
-                nudge_lang = (target_lang or "gu").strip().lower()
-                await send_feedback_prompt_raya(session_id, process_id, nudge_lang)
-                logger.info(f"Feedback prompt sent (trigger={trigger})")
+                feedback_lang = (target_lang or "gu").strip().lower()
+                feedback_question = get_feedback_question(feedback_lang)
+                yield " " + feedback_question
+                logger.info(f"Feedback question yielded via stream (trigger={trigger})")
