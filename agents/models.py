@@ -1,5 +1,6 @@
 import os
 from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from dotenv import load_dotenv
 from openai import AsyncAzureOpenAI
@@ -26,6 +27,12 @@ elif LLM_PROVIDER == 'openai':
             api_key=os.getenv('OPENAI_API_KEY'),
         ),
     )
+elif LLM_PROVIDER == 'anthropic':
+    # AnthropicModel reads ANTHROPIC_API_KEY from the environment
+    # and uses the Anthropic SDK under the hood.
+    if not LLM_MODEL_NAME:
+        raise ValueError("LLM_MODEL_NAME environment variable is required when using 'anthropic' provider")
+    LLM_MODEL = AnthropicModel(LLM_MODEL_NAME)
 elif LLM_PROVIDER == 'azure-openai':
     azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
     azure_api_key = os.getenv('AZURE_OPENAI_API_KEY')
@@ -52,4 +59,6 @@ elif LLM_PROVIDER == 'azure-openai':
         provider=OpenAIProvider(openai_client=azure_client),
     )
 else:
-    raise ValueError(f"Invalid LLM_PROVIDER: {LLM_PROVIDER}. Must be one of: 'vllm', 'openai', 'azure-openai'")
+    raise ValueError(
+        f"Invalid LLM_PROVIDER: {LLM_PROVIDER}. Must be one of: 'vllm', 'openai', 'azure-openai', 'anthropic'"
+    )
