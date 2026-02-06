@@ -118,7 +118,7 @@ async def stream_voice_message(
                 msg = (
                     "Could not fetch farmer data, continuing to call"
                     if (target_lang or "gu") != "gu"
-                    else "કૃષિકાર ડેટા મેળવી શકાયો નથી, કૉલ ચાલુ રાખી રહ્યા છીએ"
+                    else "કૃષિકાર ડેટા મેળવી શકાયું નથી, કૉલ ચાલુ રાખી રહ્યાં છીએ"
                 )
                 farmer_info = {"message": msg}
 

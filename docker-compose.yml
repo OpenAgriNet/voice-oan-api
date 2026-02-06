@@ -1,6 +1,6 @@
 services:
   app:
-    container_name: sva_app
+    container_name: amul_voice_app
     build: .
     ports:
       - "8003:8003"
@@ -9,11 +9,14 @@ services:
     volumes:
       - .:/app
     env_file:
-      - .env  
+      - .env
+    environment:
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
     restart: unless-stopped
     networks:
-      - svanetwork
+      - amul-network
       
 networks:
-  svanetwork:
+  amul-network:
     external: true
