@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     default_cache_ttl: int = 60 * 60 * 24  # 24 hours
     feedback_state_ttl: int = 10 * 60  # 10 min; expires if user never responds (e.g. cuts call). Set FEEDBACK_STATE_TTL env to override.
 
+    # Feedback parsing: small model to classify if user response is a 1-5 rating or a normal message
+    feedback_parse_model: str = os.getenv("FEEDBACK_PARSE_MODEL", "gpt-5-nano-2025-08-07")
+
     # Logging Configuration
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
