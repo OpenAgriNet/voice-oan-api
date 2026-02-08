@@ -1,0 +1,10 @@
+{
+  "hi": {
+    "user": "नमस्ते",
+    "assistant": "नमस्ते! मैं भारत विस्तार की आवाज़ सहायक हूं। मैं आपकी कृषि संबंधी जानकारी में कैसे मदद कर सकती हूं?"
+  },
+  "en": {
+    "user": "Hello",
+    "assistant": "Hello! I'm BharatVistaar's voice assistant. How can I help you with agricultural information today?"
+  }
+}

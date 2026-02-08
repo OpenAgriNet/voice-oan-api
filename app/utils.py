@@ -1,4 +1,6 @@
-from typing import List
+from typing import List, Dict
+import json
+import os
 from app.core.cache import cache  # Import cache instance from core
 from helpers.utils import get_logger, count_tokens_for_part, get_prompt, get_today_date_str
 from copy import deepcopy
@@ -18,6 +20,13 @@ HISTORY_SUFFIX = "_SVA"
 DEFAULT_CACHE_TTL = 60*60*24 # 24 hours
 
 logger = get_logger(__name__)
+
+# Load welcome messages from assets file
+def _load_welcome_messages() -> Dict[str, Dict[str, str]]:
+    """Load welcome messages from assets/welcome_messages.json."""
+    file_path = os.path.join(os.path.dirname(__file__), "..", "assets", "welcome_messages.json")
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 # Cache utility functions
 async def get_cache(key: str):
@@ -110,17 +119,8 @@ async def _get_message_history(session_id: str, target_lang: str = "hi") -> List
         return ModelMessagesTypeAdapter.validate_python(message_history)
     
     # New session - create welcome messages
-    # Default welcome messages based on language
-    welcome_messages = {
-        "hi": {
-            "user": "नमस्ते",
-            "assistant": "नमस्ते! मैं भारत विस्तार की आवाज़ सहायक हूं। मैं आपकी कृषि संबंधी जानकारी में कैसे मदद कर सकती हूं?"
-        },
-        "en": {
-            "user": "Hello",
-            "assistant": "Hello! I'm BharatVistaar's voice assistant. How can I help you with agricultural information today?"
-        }
-    }
+    # Load welcome messages from assets file
+    welcome_messages = _load_welcome_messages()
     
     # Get welcome messages for the target language, default to Hindi
     welcome = welcome_messages.get(target_lang, welcome_messages["hi"])
