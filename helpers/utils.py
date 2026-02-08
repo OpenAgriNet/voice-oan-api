@@ -2,7 +2,8 @@
 
 import os
 import re
-from typing import List, Dict
+from pathlib import Path
+from typing import List, Dict, Optional
 import logging
 import boto3
 from dotenv import load_dotenv
@@ -11,10 +12,13 @@ import tiktoken
 import unicodedata as ud
 from datetime import datetime
 import simplejson as json
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, Template
 import pytz
 
 load_dotenv()
+
+# In-memory prompt template cache (populated at app startup; no disk I/O at request time)
+PROMPT_TEMPLATES_CACHE: Dict[str, str] = {}
 
 
 def get_s3_client():
@@ -190,34 +194,48 @@ def post_process_translation(translation: str) -> str:
 
 
 
+def load_prompt_templates(prompt_dir: Path) -> None:
+    """Load all .md prompt templates from the given directory into PROMPT_TEMPLATES_CACHE.
+    Call once at app startup (e.g. in FastAPI lifespan) to avoid disk I/O at request time.
+    """
+    prompt_dir = Path(prompt_dir)
+    if not prompt_dir.is_dir():
+        return
+    for path in prompt_dir.glob("*.md"):
+        key = path.stem  # e.g. voice_system_gu
+        try:
+            PROMPT_TEMPLATES_CACHE[key] = path.read_text(encoding="utf-8")
+        except Exception as e:
+            _log = logging.getLogger(__name__)
+            _log.warning("Failed to load prompt template %s: %s", path, e)
+
+
 def get_prompt(prompt_file: str, context: Dict = {}, prompt_dir: str = "assets/prompts") -> str:
-    """Load a prompt from a file and format it with a context using Jinja2 templating.
+    """Load a prompt from in-memory cache (if populated at startup) or disk, and render with context.
 
     Args:
-        prompt_file (str): Name of the prompt file.
+        prompt_file (str): Name of the prompt file (with or without .md).
         context (dict, optional): Context to format the prompt with. Defaults to {}.
-        prompt_dir (str, optional): Path to the prompt directory. Defaults to 'assets/prompts'.
+        prompt_dir (str, optional): Path to the prompt directory (used only if not in cache).
 
     Returns:
-        str: prompt
+        str: Rendered prompt.
     """
-    # if extension is not .md, add it
     if not prompt_file.endswith(".md"):
         prompt_file += ".md"
+    cache_key = Path(prompt_file).stem  # e.g. voice_system_gu
 
-    # Create Jinja2 environment
+    if cache_key in PROMPT_TEMPLATES_CACHE:
+        template = Template(PROMPT_TEMPLATES_CACHE[cache_key], autoescape=False)
+        return template.render(**context) if context else template.render()
+
+    # Fallback: load from disk (e.g. tests or if startup load was skipped)
     env = Environment(
         loader=FileSystemLoader(prompt_dir),
-        autoescape=False  # We don't want HTML escaping for our prompts
+        autoescape=False,
     )
-
-    # Get the template
     template = env.get_template(prompt_file)
-
-    # Render the template with the context
-    prompt = template.render(**context) if context else template.render()
-    
-    return prompt
+    return template.render(**context) if context else template.render()
 
 
 def upload_audio_to_s3(audio_base64: str, session_id: str, bucket_name: str = None) -> Dict:

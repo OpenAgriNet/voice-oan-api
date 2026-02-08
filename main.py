@@ -20,6 +20,9 @@ async def lifespan(app: FastAPI):
     print(f"📍 Environment: {settings.environment}")
     print(f"🔧 Debug mode: {settings.debug}")
     print(f"🌐 CORS origins: {settings.allowed_origins}")
+    # Load prompt templates into memory (no disk I/O at request time)
+    from helpers.utils import load_prompt_templates
+    load_prompt_templates(settings.base_dir / "assets" / "prompts")
     yield
     # Shutdown
     print(f"🛑 {settings.app_name} shutting down...")

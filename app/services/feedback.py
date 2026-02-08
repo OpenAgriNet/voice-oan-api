@@ -4,6 +4,7 @@ Uses a small LLM to classify whether the user's response is a 1-5 feedback ratin
 or a normal message to the agent; only accepted feedback is recorded and counts
 toward the one-feedback-per-session limit.
 """
+import asyncio
 import json
 import os
 import re
@@ -15,6 +16,11 @@ from app.config import settings
 
 logger = get_logger(__name__)
 
+# Load feedback messages once at module load (no disk I/O at request time)
+_FEEDBACK_MESSAGES_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "feedback_messages.json"
+with open(_FEEDBACK_MESSAGES_PATH, "r", encoding="utf-8") as _f:
+    _FEEDBACK_MESSAGES: dict = json.load(_f)
+
 # Rating mappings for voice transcription (English and Gujarati)
 RATING_MAP = {
     "1": 1, "2": 2, "3": 3, "4": 4, "5": 5,
@@ -25,24 +31,15 @@ RATING_MAP = {
 }
 
 
-def _load_feedback_messages() -> dict:
-    # assets/ is at project root (sibling of app/)
-    path = Path(__file__).resolve().parent.parent.parent / "assets" / "feedback_messages.json"
-    with open(path, "r") as f:
-        return json.load(f)
-
-
 def get_feedback_question(lang_code: str = "gu") -> str:
     """Get the feedback question in the given language."""
-    data = _load_feedback_messages()
-    return data["question"].get(lang_code, data["question"]["gu"])
+    return _FEEDBACK_MESSAGES["question"].get(lang_code, _FEEDBACK_MESSAGES["question"]["gu"])
 
 
 def get_feedback_ack(rating: int, lang_code: str = "gu") -> str:
     """Get the acknowledgment message based on rating (1-3 vs 4-5)."""
-    data = _load_feedback_messages()
     key = "ack_low" if rating <= 3 else "ack_high"
-    return data[key].get(lang_code, data[key]["gu"])
+    return _FEEDBACK_MESSAGES[key].get(lang_code, _FEEDBACK_MESSAGES[key]["gu"])
 
 
 def parse_rating_from_text(text: str) -> Optional[int]:
@@ -167,21 +164,23 @@ async def send_feedback(
         comment_parts.append(f"raw_input={raw_preview}")
     comment = "; ".join(comment_parts)
 
-    # Store in Langfuse as session-level score (matches propagate_attributes session_id)
+    # Store in Langfuse as session-level score (non-blocking: sync SDK runs in thread)
     try:
         from app.observability import langfuse_client
 
         if langfuse_client is not None:
-            # Value as float (1-5 scale); Langfuse supports NUMERIC for 0-5 range
-            langfuse_client.create_score(
-                session_id=session_id,
-                name="user-feedback",
-                value=float(rating),
-                comment=comment,
-                data_type="NUMERIC",
-                score_id=f"{session_id}-user-feedback",  # idempotency: one feedback per session
-            )
-            langfuse_client.flush()
+            def _create_and_flush() -> None:
+                langfuse_client.create_score(
+                    session_id=session_id,
+                    name="user-feedback",
+                    value=float(rating),
+                    comment=comment,
+                    data_type="NUMERIC",
+                    score_id=f"{session_id}-user-feedback",  # idempotency: one feedback per session
+                )
+                langfuse_client.flush()
+
+            await asyncio.to_thread(_create_and_flush)
             logger.info(
                 f"Feedback stored in Langfuse: session_id={session_id}, rating={rating}"
                 + (f" (unparseable raw_input)" if rating == 0 and raw_input else "")
