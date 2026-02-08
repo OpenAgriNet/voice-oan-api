@@ -22,6 +22,30 @@ import json  # Added for JSON serialization
 
 logger = get_logger(__name__)
 
+def _is_first_user_message(history: list) -> bool:
+    """Check if this is the first user message after welcome messages."""
+    if not history:
+        return True
+    
+    # Count user messages in history
+    user_message_count = 0
+    for msg in history:
+        for part in msg.parts:
+            if getattr(part, "part_kind", "") == "user-prompt":
+                user_message_count += 1
+                break
+    
+    # If there's only 1 user message (the welcome one), this is the first real user message
+    return user_message_count == 1
+
+def _get_recording_message(target_lang: str) -> str:
+    """Get the recording message in the target language."""
+    recording_messages = {
+        "hi": "यह कॉल रिकॉर्ड की जा रही है। ",
+        "en": "This call is being recorded. "
+    }
+    return recording_messages.get(target_lang, recording_messages["en"])
+
 async def stream_voice_message(
     query: str,
     session_id: str,
@@ -115,10 +139,17 @@ async def stream_voice_message(
     if agent_run and agent_run.result:
         final_output: VoiceOutput = agent_run.result.output
         
+        # Add recording message for first user message
+        audio_text = final_output.audio
+        if _is_first_user_message(history):
+            recording_msg = _get_recording_message(target_lang)
+            audio_text = recording_msg + audio_text
+            logger.info(f"Added recording message for first user message: {recording_msg}")
+        
         # Build output dict according to spec:
         # - If end_interaction is True, include it in the output
         # - Always include audio
-        output_dict = {"audio": final_output.audio, "end_interaction": final_output.end_interaction}
+        output_dict = {"audio": audio_text, "end_interaction": final_output.end_interaction}
         # if final_output.end_interaction:
         #     output_dict["end_interaction"] = True
         
