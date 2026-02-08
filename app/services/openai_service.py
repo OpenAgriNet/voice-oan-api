@@ -36,7 +36,7 @@ async def generate_openai_stream(
     query = user_messages[-1]
     
     # Get existing history for the session (already in ModelMessage format)
-    existing_history = await _get_message_history(session_id)
+    existing_history = await _get_message_history(session_id, target_lang=target_lang)
     
     # Stream response from voice agent - each chunk is a small piece of the JSON
     async for chunk in stream_voice_message(
@@ -104,7 +104,7 @@ async def generate_openai_response(
     query = user_messages[-1]
     
     # Get existing history for the session (already in ModelMessage format)
-    existing_history = await _get_message_history(session_id)
+    existing_history = await _get_message_history(session_id, target_lang=target_lang)
     
     # Collect response from voice agent (accumulates small JSON chunks)
     accumulated_content = ""
