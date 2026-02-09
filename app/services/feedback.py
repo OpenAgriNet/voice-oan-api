@@ -1,14 +1,25 @@
 """
 Feedback flow: rating parsing, messages, and send_feedback API (blackbox).
+Uses a small LLM to classify whether the user's response is a 1-5 feedback rating
+or a normal message to the agent; only accepted feedback is recorded and counts
+toward the one-feedback-per-session limit.
 """
+import asyncio
 import json
+import os
 import re
 from pathlib import Path
 from typing import Optional, Literal
 
 from helpers.utils import get_logger
+from app.config import settings
 
 logger = get_logger(__name__)
+
+# Load feedback messages once at module load (no disk I/O at request time)
+_FEEDBACK_MESSAGES_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "feedback_messages.json"
+with open(_FEEDBACK_MESSAGES_PATH, "r", encoding="utf-8") as _f:
+    _FEEDBACK_MESSAGES: dict = json.load(_f)
 
 # Rating mappings for voice transcription (English and Gujarati)
 RATING_MAP = {
@@ -20,24 +31,15 @@ RATING_MAP = {
 }
 
 
-def _load_feedback_messages() -> dict:
-    # assets/ is at project root (sibling of app/)
-    path = Path(__file__).resolve().parent.parent.parent / "assets" / "feedback_messages.json"
-    with open(path, "r") as f:
-        return json.load(f)
-
-
 def get_feedback_question(lang_code: str = "gu") -> str:
     """Get the feedback question in the given language."""
-    data = _load_feedback_messages()
-    return data["question"].get(lang_code, data["question"]["gu"])
+    return _FEEDBACK_MESSAGES["question"].get(lang_code, _FEEDBACK_MESSAGES["question"]["gu"])
 
 
 def get_feedback_ack(rating: int, lang_code: str = "gu") -> str:
     """Get the acknowledgment message based on rating (1-3 vs 4-5)."""
-    data = _load_feedback_messages()
     key = "ack_low" if rating <= 3 else "ack_high"
-    return data[key].get(lang_code, data[key]["gu"])
+    return _FEEDBACK_MESSAGES[key].get(lang_code, _FEEDBACK_MESSAGES[key]["gu"])
 
 
 def parse_rating_from_text(text: str) -> Optional[int]:
@@ -65,6 +67,64 @@ def parse_rating_from_text(text: str) -> Optional[int]:
     return None
 
 
+FEEDBACK_PARSE_SYSTEM = """You classify the user's reply after a voice assistant asked: "On a scale of 1 to 5, how helpful was this call?"
+
+Respond with JSON only: {"is_feedback": true|false, "rating": 1-5 or null}.
+
+- is_feedback: true only if the user is clearly giving a rating for the call (1-5 in any form: digit, word in English or Gujarati, or clear intent like "very helpful" = 5, "not helpful" = 1). false if they are asking a new question, giving a comment, saying something unrelated, or the intent is ambiguous.
+- rating: integer 1-5 only when is_feedback is true; otherwise null. Map verbal feedback to scale: "not helpful"/"bad" -> 1-2, "ok"/"average" -> 3, "helpful"/"good"/"very helpful" -> 4-5."""
+
+FEEDBACK_PARSE_USER_TEMPLATE = """User's reply (possibly in Gujarati or English): "{text}"
+
+Respond with exactly one JSON object: {"is_feedback": <true|false>, "rating": <1-5|null>}."""
+
+
+async def parse_feedback_with_llm(text: str, lang_code: str = "gu") -> dict:
+    """
+    Use a small model to decide if the user's response is a valid 1-5 feedback rating.
+    Returns {"is_feedback": bool, "rating": int | None}.
+    Only when is_feedback is True and rating is in 1-5 should feedback be recorded.
+    On API error or missing key, returns is_feedback=False so the message is sent to the agent.
+    """
+    if not text or not isinstance(text, str) or not text.strip():
+        return {"is_feedback": False, "rating": None}
+
+    api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning("No OPENAI_API_KEY for feedback parse; treating as non-feedback")
+        return {"is_feedback": False, "rating": None}
+
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=api_key)
+        response = await client.chat.completions.create(
+            model=settings.feedback_parse_model,
+            messages=[
+                {"role": "system", "content": FEEDBACK_PARSE_SYSTEM},
+                {"role": "user", "content": FEEDBACK_PARSE_USER_TEMPLATE.format(text=text.strip()[:500])},
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=80,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            return {"is_feedback": False, "rating": None}
+        data = json.loads(raw)
+        is_feedback = data.get("is_feedback") is True
+        rating = data.get("rating")
+        if rating is not None and isinstance(rating, (int, float)):
+            r = int(rating)
+            if 1 <= r <= 5:
+                return {"is_feedback": is_feedback, "rating": r}
+        return {"is_feedback": False, "rating": None}
+    except json.JSONDecodeError as e:
+        logger.warning("Feedback parse LLM returned invalid JSON: %s", e)
+        return {"is_feedback": False, "rating": None}
+    except Exception as e:
+        logger.warning("Feedback parse LLM failed: %s", e)
+        return {"is_feedback": False, "rating": None}
+
+
 async def send_feedback(
     session_id: str,
     user_id: str,
@@ -73,7 +133,7 @@ async def send_feedback(
     trigger: Literal["conversation_closing", "user_frustration"],
     source_lang: str,
     target_lang: str,
-    message_history_summary: Optional[str] = None,
+    message_history_summary: Optional[dict] = None,
     farmer_info: Optional[dict] = None,
     raw_input: Optional[str] = None,
 ) -> None:
@@ -89,6 +149,7 @@ async def send_feedback(
     - rating: 1-5 (or 0 for unparseable)
     - trigger: what prompted feedback (conversation_closing | user_frustration)
     - source_lang, target_lang: for localization context
+    - message_history_summary: optional context (e.g. turn_count) for telemetry
     - raw_input: user's raw utterance when unparseable (stored in comment)
     """
     # Build comment with metadata for correlation
@@ -103,21 +164,23 @@ async def send_feedback(
         comment_parts.append(f"raw_input={raw_preview}")
     comment = "; ".join(comment_parts)
 
-    # Store in Langfuse as session-level score (matches propagate_attributes session_id)
+    # Store in Langfuse as session-level score (non-blocking: sync SDK runs in thread)
     try:
         from app.observability import langfuse_client
 
         if langfuse_client is not None:
-            # Value as float (1-5 scale); Langfuse supports NUMERIC for 0-5 range
-            langfuse_client.create_score(
-                session_id=session_id,
-                name="user-feedback",
-                value=float(rating),
-                comment=comment,
-                data_type="NUMERIC",
-                score_id=f"{session_id}-user-feedback",  # idempotency: one feedback per session
-            )
-            langfuse_client.flush()
+            def _create_and_flush() -> None:
+                langfuse_client.create_score(
+                    session_id=session_id,
+                    name="user-feedback",
+                    value=float(rating),
+                    comment=comment,
+                    data_type="NUMERIC",
+                    score_id=f"{session_id}-user-feedback",  # idempotency: one feedback per session
+                )
+                langfuse_client.flush()
+
+            await asyncio.to_thread(_create_and_flush)
             logger.info(
                 f"Feedback stored in Langfuse: session_id={session_id}, rating={rating}"
                 + (f" (unparseable raw_input)" if rating == 0 and raw_input else "")

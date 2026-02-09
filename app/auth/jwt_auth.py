@@ -1,3 +1,4 @@
+import asyncio
 import jwt
 import os
 from dotenv import load_dotenv
@@ -6,7 +7,7 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from helpers.utils import get_logger
-from app.config import settings # Import the application settings
+from app.config import settings
 
 load_dotenv()
 
@@ -67,21 +68,24 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)):
     if public_key is None:
         logger.error("JWT Public Key is not loaded, cannot verify tokens.")
         raise credentials_exception
-        
+
+    if token is None:
+        raise credentials_exception
+
+    # Run JWT decode in thread pool so it doesn't block the event loop when auth is enabled
     try:
-        decoded_token = jwt.decode(
+        decoded_token = await asyncio.to_thread(
+            jwt.decode,
             token,
             public_key,
             algorithms=[settings.jwt_algorithm],
             options={
                 "verify_signature": True,
                 "verify_aud": False,
-                "verify_iss": False
-            }
+                "verify_iss": False,
+            },
         )
-        
-        logger.info(f"Decoded token: {decoded_token}")
-        
+        logger.info("Decoded token: %s", decoded_token)
         return decoded_token
         
     except jwt.ExpiredSignatureError:

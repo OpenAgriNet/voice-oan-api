@@ -1,11 +1,13 @@
-import os
 import json
 from enum import Enum
+from pathlib import Path
 from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
 
-# Load term pairs from JSON file with UTF-8 encoding
-term_pairs = json.load(open('assets/glossary_terms.json', 'r', encoding='utf-8'))
+# Load term pairs once at module load (absolute path; no disk I/O at request time)
+_GLOSSARY_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "glossary_terms.json"
+with open(_GLOSSARY_PATH, "r", encoding="utf-8") as _f:
+    term_pairs = json.load(_f)
 
 class Language(str, Enum):
     ENGLISH = "en"

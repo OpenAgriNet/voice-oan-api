@@ -17,12 +17,13 @@ from app.utils import (
     get_feedback_state,
     set_feedback_initiated,
     set_feedback_rating_received,
+    clear_feedback_initiated,
     extract_conversation_events_from_messages,
 )
 from app.services.feedback import (
-    parse_rating_from_text,
     get_feedback_ack,
     get_feedback_question,
+    parse_feedback_with_llm,
     send_feedback,
 )
 # NOTE: Removing telemetry for now.
@@ -69,41 +70,50 @@ async def stream_voice_message(
     # Langfuse Sessions: session_id groups all agent runs for this conversation (same ID = one Session);
     # process_id in metadata for filtering by process in Langfuse UI/API.
     with _langfuse_session_context(session_id, user_id, process_id):
-        # --- Feedback: intercept rating if we're waiting for 1-5 ---
+        # --- Feedback: intercept only if we're waiting for 1-5 and user response qualifies as feedback ---
         feedback_state = await get_feedback_state(session_id)
         if feedback_state.get("initiated") and not feedback_state.get("rating_received"):
-            rating = parse_rating_from_text(query)
             target_lang = (target_lang or "gu").strip().lower()
             trigger = feedback_state.get("trigger") or "conversation_closing"
 
-            # Use high ack for unparseable (graceful fallback); low/high based on 1-3 vs 4-5 when parsed
-            ack = get_feedback_ack(rating if rating else 4, target_lang)
+            # Use small model to classify: is this a valid 1-5 rating or a normal message to the agent?
+            parsed = await parse_feedback_with_llm(query, target_lang)
+            is_feedback = parsed.get("is_feedback") is True
+            rating = parsed.get("rating") if isinstance(parsed.get("rating"), int) else None
+            valid_rating = rating is not None and 1 <= rating <= 5
 
-            # Always send feedback: parsed rating (1-5) or 0 for unparseable with raw_input in metadata
-            await send_feedback(
-                session_id=session_id,
-                user_id=user_id,
-                process_id=process_id,
-                rating=rating if rating is not None else 0,
-                trigger=trigger,
-                source_lang=source_lang or "gu",
-                target_lang=target_lang,
-                message_history_summary={"turn_count": len(history)},
-                farmer_info=None,
-                raw_input=query if rating is None else None,
+            if is_feedback and valid_rating:
+                # Accepted feedback: record it and count as the one feedback for this session
+                ack = get_feedback_ack(rating, target_lang)
+                await send_feedback(
+                    session_id=session_id,
+                    user_id=user_id,
+                    process_id=process_id,
+                    rating=rating,
+                    trigger=trigger,
+                    source_lang=source_lang or "gu",
+                    target_lang=target_lang,
+                    message_history_summary={"turn_count": len(history)},
+                    farmer_info=None,
+                    raw_input=None,
+                )
+                await set_feedback_rating_received(session_id)
+
+                feedback_question = get_feedback_question(target_lang)
+                feedback_q_resp = ModelResponse(parts=[TextPart(content=feedback_question)])
+                rating_req = ModelRequest(parts=[UserPromptPart(content=query)])
+                ack_resp = ModelResponse(parts=[TextPart(content=ack)])
+                await update_message_history(session_id, [*history, feedback_q_resp, rating_req, ack_resp])
+
+                yield ack
+                return
+
+            # Not valid feedback: clear state and treat this message as a normal turn to the agent
+            await clear_feedback_initiated(session_id)
+            logger.info(
+                "Feedback not accepted (is_feedback=%s, rating=%s); routing query to agent",
+                is_feedback, rating,
             )
-            await set_feedback_rating_received(session_id)
-
-            # Append feedback question + user response + ack to history (useful for debugging unparsables)
-            feedback_question = get_feedback_question(target_lang)
-            feedback_q_resp = ModelResponse(parts=[TextPart(content=feedback_question)])
-            rating_req = ModelRequest(parts=[UserPromptPart(content=query)])
-            ack_resp = ModelResponse(parts=[TextPart(content=ack)])
-            await update_message_history(session_id, [*history, feedback_q_resp, rating_req, ack_resp])
-
-            # Stream the ack to the user
-            yield ack
-            return
 
         # user_id is expected to be phone number: clean it and proactively fetch farmer info
         mobile = normalize_phone_to_mobile(user_id)

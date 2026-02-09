@@ -65,6 +65,16 @@ async def set_feedback_initiated(session_id: str, trigger: str) -> None:
     )
 
 
+async def clear_feedback_initiated(session_id: str) -> None:
+    """Clear 'waiting for feedback' state so the next user message is treated as a normal agent turn.
+    Use when the user's response is not valid feedback (e.g. they asked a question instead of 1-5)."""
+    await set_cache(
+        f"{session_id}_{FEEDBACK_STATE_SUFFIX}",
+        {"initiated": False, "rating_received": False, "trigger": None},
+        ttl=settings.feedback_state_ttl
+    )
+
+
 def extract_conversation_events_from_messages(messages: list) -> list:
     """
     Extract signal_conversation_state events from message history.
