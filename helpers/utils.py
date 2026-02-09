@@ -1,4 +1,4 @@
-# sva/helpers/utils.py
+# helpers/utils.py
 
 import os
 import re
@@ -9,10 +9,9 @@ from dotenv import load_dotenv
 import base64
 import tiktoken
 import unicodedata as ud
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import simplejson as json
 from jinja2 import Environment, FileSystemLoader
-import pytz
 
 load_dotenv()
 
@@ -24,7 +23,7 @@ ENCODER = tiktoken.get_encoding(os.getenv("TIKTOKEN_ENCODING", "cl100k_base"))
 
 def get_today_date_str() -> str:
     """Get today's date as a string in the format Monday, 23rd May 2025."""
-    ist = pytz.timezone('Asia/Kolkata')
+    ist = timezone(timedelta(hours=5, minutes=30))
     today = datetime.now(ist)
     return today.strftime('%A, %d %B %Y')
 

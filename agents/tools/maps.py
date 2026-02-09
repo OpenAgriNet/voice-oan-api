@@ -4,8 +4,9 @@ Maps tool for geocoding using Photon.
 import os
 import httpx
 from dotenv import load_dotenv
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, field_validator
+from typing import Optional, Any
+from urllib.parse import urlparse
+from pydantic import BaseModel, field_validator
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -13,16 +14,20 @@ logger = get_logger(__name__)
 load_dotenv()
 
 # Photon configuration
-# PHOTON_HOST should be in format: http://host:port/api
-from urllib.parse import urlparse
-
-photon_url = os.getenv("PHOTON_HOST")
-parsed = urlparse(photon_url)
+photon_url  = os.getenv("PHOTON_HOST")
+parsed      = urlparse(photon_url)
 PHOTON_HOST = parsed.hostname or "10.128.188.19"
 PHOTON_PORT = parsed.port or 2322
 PHOTON_BASE_URL = f"http://{PHOTON_HOST}:{PHOTON_PORT}"
 
+# Shared async client for connection reuse
+_http_client = httpx.AsyncClient(base_url=PHOTON_BASE_URL, timeout=10.0)
+
 logger.info(f"Using Photon geocoder at {PHOTON_HOST}:{PHOTON_PORT}")
+
+# India bounding box [min_lon, min_lat, max_lon, max_lat]
+INDIA_BBOX = [68.0, 6.0, 98.0, 36.0]
+
 
 class Location(BaseModel):
     """Location model for the maps tool."""
@@ -36,13 +41,11 @@ class Location(BaseModel):
         if v is not None:
             return round(float(v), 3)
         return v
-    
+
     def model_post_init(self, __context__: Any) -> None:
         """Called after the model is initialized."""
         super().model_post_init(__context__)
-        # Note: Auto-reverse geocoding is skipped in model init (async not available)
-        # Users should call reverse_geocode() explicitly if place_name is needed
-    
+
     def _location_string(self):
         if self.latitude and self.longitude:
             return f"{self.place_name} (Latitude: {self.latitude}, Longitude: {self.longitude})"
@@ -53,124 +56,86 @@ class Location(BaseModel):
         return f"{self.place_name} ({self.latitude}, {self.longitude})"
 
 
-async def _photon_forward_geocode(place_name: str) -> Optional[List[Dict[str, Any]]]:
-    """Forward geocoding using Photon API."""
-    try:
-        url = f"{PHOTON_BASE_URL}/api"
-        params = {
-            "q": place_name,
-            "limit": 10,
-            "lang": "en"
-        }
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            return data.get("features", [])
-    except Exception as e:
-        logger.error(f"Photon forward geocoding error for '{place_name}': {e}")
-        return None
-
-
-async def _photon_reverse_geocode(latitude: float, longitude: float) -> Optional[Dict[str, Any]]:
-    """Reverse geocoding using Photon API."""
-    try:
-        url = f"{PHOTON_BASE_URL}/reverse"
-        params = {
-            "lat": latitude,
-            "lon": longitude,
-            "lang": "en"
-        }
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            feature = data.get("features", [])
-            if feature:
-                return feature[0]
-            return None
-    except Exception as e:
-        logger.error(f"Photon reverse geocoding error for ({latitude}, {longitude}): {e}")
-        return None
-
-
-def _photon_to_location(feature: Dict[str, Any], place_name: str = None) -> Location:
-    """Convert Photon feature to Location object."""
+def _feature_to_location(feature: dict, fallback_name: str = None) -> Location:
+    """Convert a Photon GeoJSON feature to a Location object."""
     props = feature.get("properties", {})
-    geometry = feature.get("geometry", {})
-    coords = geometry.get("coordinates", [])
-    
-    # Photon returns [lon, lat] format
+    coords = feature.get("geometry", {}).get("coordinates", [])
+
+    # Photon returns [lon, lat]
     longitude = coords[0] if len(coords) > 0 else None
     latitude = coords[1] if len(coords) > 1 else None
-    
-    # Build display name from Photon properties
-    # Format: Name, City/County, State, Country
+
+    # Build display name: Name, City/County, State, Country
     name_parts = []
     if props.get("name"):
         name_parts.append(props["name"])
-    
-    # Add city if available and different from name
     city = props.get("city")
     if city and city != props.get("name"):
         name_parts.append(city)
     elif props.get("county") and props.get("county") != props.get("name"):
         name_parts.append(props["county"])
-    
-    # Add state if available
     if props.get("state"):
         name_parts.append(props["state"])
-    
-    # Add country if available
     if props.get("country"):
         name_parts.append(props["country"])
-    
-    display_name = ", ".join(name_parts) if name_parts else (place_name or "Unknown Location")
-    
-    return Location(
-        place_name=display_name,
-        latitude=latitude,
-        longitude=longitude
-    )
+
+    display_name = ", ".join(name_parts) if name_parts else (fallback_name or "Unknown Location")
+
+    return Location(place_name=display_name, latitude=latitude, longitude=longitude)
 
 
-async def forward_geocode(place_name: str) -> Optional[Location]:
-    """Forward Geocoding to get latitude and longitude from place name.
+async def forward_geocode(place_name: str) -> str:
+    """Forward Geocoding to get latitude and longitude from a place name in India.
 
     Args:
-        place_name (str): The place name to geocode, in English.
+        place_name (str): The place name to geocode, in English. For best results, include additional context like district or state (e.g. "Pune, Maharashtra" or "Latur, Maharashtra").
 
     Returns:
-        Location: The location of the place, or None if not found.
+        str: The location details or an error message if not found in India.
     """
     try:
-        features = await _photon_forward_geocode(place_name)
+        response = await _http_client.get("/api", params={
+            "q": place_name,
+            "limit": 10,
+            "lang": "en",
+            "bbox": f"{INDIA_BBOX[0]},{INDIA_BBOX[1]},{INDIA_BBOX[2]},{INDIA_BBOX[3]}",
+        })
+        response.raise_for_status()
+        features = response.json().get("features", [])
+
         if features:
-            # India bounding box coordinates [min_lat, min_lon, max_lat, max_lon]
-            # Approximate coordinates for India
-            india_bbox = [6.0, 68.0, 36.0, 98.0]
-            
-            # Filter results to India region
+            # Prefer results within India bounding box
             for feature in features:
-                geometry = feature.get("geometry", {})
-                coords = geometry.get("coordinates", [])
+                coords = feature.get("geometry", {}).get("coordinates", [])
                 if len(coords) >= 2:
-                    lon = coords[0]
-                    lat = coords[1]
-                    
-                    # Check if coordinates are within India bounding box
-                    if (india_bbox[0] <= lat <= india_bbox[2] and 
-                        india_bbox[1] <= lon <= india_bbox[3]):
-                        return _photon_to_location(feature, place_name)
-            
-            # If no India-specific result found, return first result anyway
-            if len(features) > 0:
-                return _photon_to_location(features[0], place_name)
+                    lon, lat = coords[0], coords[1]
+                    if (INDIA_BBOX[1] <= lat <= INDIA_BBOX[3] and
+                            INDIA_BBOX[0] <= lon <= INDIA_BBOX[2]):
+                        return _feature_to_location(feature, place_name)._location_string()
+
+            # Fallback to first result if none matched India bbox
+            return _feature_to_location(features[0], place_name)._location_string()
         else:
             logger.info(f"No results found for place: {place_name}")
+            return f"No location found for '{place_name}'. Please check the spelling or try a different location name."
+
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        if status == 400:
+            logger.warning(f"Photon bad request for '{place_name}': {e.response.text}")
+            return f"Invalid geocoding request for '{place_name}'. Please check the place name and try again."
+        else:
+            logger.error(f"Photon server error ({status}) for '{place_name}': {e.response.text}")
+            return f"Unable to find location for '{place_name}'. Geocoding service returned an error. Please try again later."
+    except httpx.TimeoutException:
+        logger.error(f"Photon timeout for '{place_name}'")
+        return f"Unable to find location for '{place_name}'. The geocoding service timed out. Please try again later."
+    except httpx.ConnectError:
+        logger.error(f"Photon connection error for '{place_name}'")
+        return f"Unable to find location for '{place_name}'. Could not connect to the geocoding service."
     except Exception as e:
-        logger.error(f"Forward geocoding error for '{place_name}': {e}")
-    return None
+        logger.error(f"Unexpected error during forward geocoding for '{place_name}': {e}")
+        return f"Unable to find location for '{place_name}'. Please try again later."
 
 
 async def reverse_geocode(latitude: float, longitude: float) -> Optional[Location]:
@@ -181,17 +146,36 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[Locatio
         longitude (float): The longitude of the location.
 
     Returns:
-        Location: The location of the place, or None if not found.
+        Location: The location of the place.
     """
     try:
-        feature = await _photon_reverse_geocode(latitude, longitude)
-        if feature:
-            location = _photon_to_location(feature)
-            location.latitude = latitude
-            location.longitude = longitude
+        response = await _http_client.get("/reverse", params={
+            "lat": latitude,
+            "lon": longitude,
+            "lang": "en",
+            "bbox": f"{INDIA_BBOX[0]},{INDIA_BBOX[1]},{INDIA_BBOX[2]},{INDIA_BBOX[3]}",
+        })
+        response.raise_for_status()
+        features = response.json().get("features", [])
+
+        if features:
+            location = _feature_to_location(features[0])
+            location.latitude = round(latitude, 3)
+            location.longitude = round(longitude, 3)
             return location
         else:
             logger.info(f"No results found for coordinates: ({latitude}, {longitude})")
+            return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Photon HTTP error ({e.response.status_code}) for ({latitude}, {longitude}): {e.response.text}")
+        return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")
+    except httpx.TimeoutException:
+        logger.error(f"Photon timeout for ({latitude}, {longitude})")
+        return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")
+    except httpx.ConnectError:
+        logger.error(f"Photon connection error for ({latitude}, {longitude})")
+        return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")
     except Exception as e:
-        logger.error(f"Reverse geocoding error for ({latitude}, {longitude}): {e}")
-    return None
+        logger.error(f"Unexpected error during reverse geocoding for ({latitude}, {longitude}): {e}")
+        return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")

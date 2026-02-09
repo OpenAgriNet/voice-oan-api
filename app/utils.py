@@ -140,20 +140,9 @@ async def _get_message_history(session_id: str, target_lang: str = "hi") -> List
     
     return welcome_msg_pair
 
-async def _get_moderation_history(session_id: str) -> List[ModelMessage]:
-    """Get or initialize moderation history."""
-    moderation_history = await get_cache(f"{session_id}_{HISTORY_SUFFIX}_MODERATION")
-    if moderation_history:
-        return ModelMessagesTypeAdapter.validate_python(moderation_history)
-    return []
-
 async def update_message_history(session_id: str, all_messages: List[ModelMessage]):
     """Update message history."""
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(all_messages), ttl=DEFAULT_CACHE_TTL)
-
-async def update_moderation_history(session_id: str, moderation_messages: List[ModelMessage]):
-    """Update moderation history."""
-    await set_cache(f"{session_id}_{HISTORY_SUFFIX}_MODERATION", to_jsonable_python(moderation_messages), ttl=DEFAULT_CACHE_TTL)
 
 def filter_out_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
     """Filter out tool calls and tool returns from the message history.
@@ -265,133 +254,43 @@ def format_message_pairs(history: List[ModelMessage], limit: int = None) -> List
 def trim_history(
     history: List[ModelMessage],
     max_tokens: int = 28_000,
-    *,
-    include_system_prompts: bool = True,
-    include_tool_calls: bool = True,
+    # include_system_prompts=True,
+    # include_tool_calls=True,
 ) -> List[ModelMessage]:
-    # 1. Pre-process system parts: strip them or keep whole messages
-    prepped: List[ModelMessage] = []
-    for msg in history:
-        if include_system_prompts:
-            prepped.append(msg)
-        else:
-            # remove only the system parts, keep any other parts (like user-prompt)
-            new_parts = [p for p in msg.parts if not isinstance(p, SystemPromptPart)]
-            if new_parts:
-                m2 = deepcopy(msg)
-                m2.parts = new_parts
-                prepped.append(m2)
+    if not history:
+        return []
 
-    # 2. Split into "turns" at each user message
-    turns: List[List[ModelMessage]] = []
-    current: List[ModelMessage] = []
-    for msg in prepped:
-        is_user = any(getattr(p, "part_kind", "") == "user-prompt" for p in msg.parts)
-        if is_user and current:
-            turns.append(current)
-            current = [msg]
-        else:
-            current.append(msg)
-    if current:
-        turns.append(current)
+    convos = group_convos(history)
+    if not convos:
+        return []
 
-    # 3. Globally identify all paired tool calls/returns/retries across all turns
-    # This prevents orphaned tool calls/returns/retries from being retained
-    all_calls = set()
-    all_returns = set()
-    all_retries = set()
-    
-    # First pass: collect all tool call, return, and retry IDs globally across entire history
-    for turn in turns:
-        for m in turn:
-            for p in m.parts:
-                kind = getattr(p, "part_kind", "")
-                if kind == "tool-call" and hasattr(p, 'tool_call_id'):
-                    all_calls.add(p.tool_call_id)
-                elif kind == "tool-return" and hasattr(p, 'tool_call_id'):
-                    all_returns.add(p.tool_call_id)
-                elif kind == "retry-prompt" and hasattr(p, 'tool_call_id'):
-                    all_retries.add(p.tool_call_id)
-    
-    # Keep tool calls that have either a return OR a retry (both are valid responses)
-    good_ids = all_calls & (all_returns | all_retries)
-    
-    # 4. Filter each turn using the global good_ids to remove orphaned tool calls/returns/retries
-    clean_turns: List[List[ModelMessage]] = []
-    for turn in turns:
-        filtered: List[ModelMessage] = []
-        for m in turn:
-            kept = []
-            for p in m.parts:
-                # drop any part with an empty 'content' attribute
-                if hasattr(p, "content") and not getattr(p, "content"):
-                    continue
-                kind = getattr(p, "part_kind", "")
-                if kind in ("tool-call", "tool-return", "retry-prompt"):
-                    # Use global good_ids to filter out orphaned tool calls/returns/retries
-                    if not include_tool_calls or not hasattr(p, 'tool_call_id') or p.tool_call_id not in good_ids:
-                        continue
-                kept.append(p)
-            if kept:
-                m2 = deepcopy(m)
-                m2.parts = kept
-                filtered.append(m2)
-        if filtered:
-            clean_turns.append(filtered)
+    # Build list of (messages, tokens)
+    convo_infos = []
+    for convo in convos:
+        tokens = convo_token_usage(convo)
+        convo_infos.append({"messages": convo, "tokens": tokens})
 
-    # 5. Compute token-count per turn
-    turn_tokens = [
-        sum(count_tokens_for_part(p) for m in t for p in m.parts)
-        for t in clean_turns
-    ]
+    # Always keep convo 0 (system + first interaction)
+    first = convo_infos[0]
+    rest = convo_infos[1:]
 
-    # 6. Identify system turn and calculate its token usage
-    system_turn = None
-    system_turn_tokens = 0
-    
-    if include_system_prompts:
-        # Find the first turn with system prompt parts
-        for i, turn in enumerate(clean_turns):
-            # First, check if this turn actually has system prompt parts
-            has_system_part = any(
-                isinstance(p, SystemPromptPart) 
-                for m in turn 
-                for p in m.parts
-            )
-            if has_system_part:
-                system_turn = turn
-                system_turn_tokens = turn_tokens[i]
-                # Remove this turn from clean_turns and turn_tokens
-                clean_turns = clean_turns[:i] + clean_turns[i+1:]
-                turn_tokens = turn_tokens[:i] + turn_tokens[i+1:]
-                break
-    
-    # 7. Greedily pick most-recent turns until we hit max_tokens
-    remaining_tokens = max_tokens
-    
-    # Reduce remaining tokens if we have a system turn to include
-    if system_turn is not None:
-        remaining_tokens -= system_turn_tokens
-        # Make sure we don't go negative
-        remaining_tokens = max(0, remaining_tokens)
-    
-    # Select recent turns that fit in remaining token budget
-    selected_turns = []
-    total_tokens = 0
-    
-    for turn, tk in zip(reversed(clean_turns), reversed(turn_tokens)):
-        if total_tokens + tk <= remaining_tokens:
-            selected_turns.insert(0, turn)
-            total_tokens += tk
+    total_tokens = first["tokens"]
+    selected = []
+
+    # Walk from newest convo backwards
+    for info in reversed(rest):
+        if total_tokens + info["tokens"] <= max_tokens:
+            selected.insert(0, info)  # maintain chronological order
+            total_tokens += info["tokens"]
         else:
             break
-    
-    # 8. Combine system turn (if any) with selected recent turns
-    final_turns = []
-    if system_turn is not None:
-        final_turns.append(system_turn)
-    final_turns.extend(selected_turns)
-    
-    # 9. Flatten into a single list
-    trimmed = [msg for turn in final_turns for msg in turn if msg.parts]
+
+    final_convos = [first] + selected
+
+    trimmed: List[ModelMessage] = []
+    for info in final_convos:
+        trimmed.extend(info["messages"])
+
+    logger.info(f"Trimmed history: {total_tokens} tokens (max: {max_tokens})")
+
     return trimmed
