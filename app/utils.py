@@ -2,12 +2,11 @@ from typing import List, Dict
 import json
 import os
 from app.core.cache import cache  # Import cache instance from core
-from helpers.utils import get_logger, count_tokens_for_part, get_prompt, get_today_date_str
+from helpers.utils import get_logger, count_tokens_for_part
 from copy import deepcopy
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelMessage,
-    SystemPromptPart,
     UserPromptPart,
     TextPart,
     ModelRequest,
@@ -58,50 +57,21 @@ async def set_cache(key: str, value, ttl: int = DEFAULT_CACHE_TTL):
     return True
 
 
-def _get_system_prompt_content(target_lang: str = "hi") -> str:
-    """Get system prompt content for the given language.
-    
-    Args:
-        target_lang: Target language code (default: "hi")
-        
-    Returns:
-        System prompt content as string
-    """
-    # Map language codes to prompt file names (same as in agents/voice.py)
-    prompt_map = {
-        'hi': 'voice_hi',
-        'en': 'voice_en'
-    }
-    
-    # Default to 'voice_hi' if language not in map
-    prompt_name = prompt_map.get(target_lang, 'voice_hi')
-    return get_prompt(prompt_name, context={'today_date': get_today_date_str()})
+def _create_welcome_messages(user_message: str, assistant_message: str) -> List[ModelMessage]:
+    """Create default welcome message pair for new sessions.
 
+    Note: System prompt is NOT included here — it's injected by @voice_agent.system_prompt
+    decorator on every run, so storing it in history would cause duplication.
 
-def _create_welcome_messages(user_message: str, assistant_message: str, system_prompt: str = None) -> List[ModelMessage]:
-    """Create default welcome message pair for new sessions, optionally with system prompt.
-    
-    Args:
-        user_message: The default user message content
-        assistant_message: The default assistant message content
-        system_prompt: Optional system prompt content to include before welcome messages
-        
-    Returns:
-        List containing system prompt (if provided), user and assistant ModelMessage objects
+    The assistant message is wrapped in VoiceOutput JSON format so the model
+    sees the expected output pattern in the conversation history and continues
+    producing JSON (not plain text).
     """
-    messages = []
-    
-    # Add system prompt if provided
-    if system_prompt:
-        system_msg = ModelRequest(parts=[SystemPromptPart(content=system_prompt)])
-        messages.append(system_msg)
-    
-    # Add welcome user and assistant messages
     user_msg = ModelRequest(parts=[UserPromptPart(content=user_message)])
-    assistant_msg = ModelResponse(parts=[TextPart(content=assistant_message)])
-    messages.extend([user_msg, assistant_msg])
-    
-    return messages
+    # Wrap in VoiceOutput JSON format so model mimics this format
+    voice_output_json = json.dumps({"audio": assistant_message, "end_interaction": False}, ensure_ascii=False)
+    assistant_msg = ModelResponse(parts=[TextPart(content=voice_output_json)])
+    return [user_msg, assistant_msg]
 
 
 async def _get_message_history(session_id: str, target_lang: str = "hi") -> List[ModelMessage]:
@@ -125,17 +95,10 @@ async def _get_message_history(session_id: str, target_lang: str = "hi") -> List
     # Get welcome messages for the target language, default to Hindi
     welcome = welcome_messages.get(target_lang, welcome_messages["hi"])
     
-    # Get system prompt content for the target language
-    system_prompt_content = _get_system_prompt_content(target_lang)
-    
-    # Create welcome messages with system prompt
-    welcome_msg_pair = _create_welcome_messages(
-        welcome["user"], 
-        welcome["assistant"],
-        system_prompt=system_prompt_content
-    )
-    
-    # Save welcome messages (with system prompt) to cache so they persist
+    # Create welcome messages (system prompt is handled by @voice_agent.system_prompt)
+    welcome_msg_pair = _create_welcome_messages(welcome["user"], welcome["assistant"])
+
+    # Save welcome messages to cache so they persist
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(welcome_msg_pair), ttl=DEFAULT_CACHE_TTL)
     
     return welcome_msg_pair
@@ -249,6 +212,53 @@ def format_message_pairs(history: List[ModelMessage], limit: int = None) -> List
         formatted_messages.append(formatted_pair)
     
     return formatted_messages
+
+
+def group_convos(history: List[ModelMessage]) -> List[List[ModelMessage]]:
+    """Group messages into conversation turns.
+
+    Each conversation starts with a message containing a UserPromptPart.
+    The first group includes everything before the second user message
+    (system prompt + welcome exchange).
+    """
+    if not history:
+        return []
+
+    # Find indices where a new user turn starts
+    user_indices = []
+    for i, msg in enumerate(history):
+        for part in msg.parts:
+            if getattr(part, "part_kind", "") == "user-prompt":
+                user_indices.append(i)
+                break
+
+    if not user_indices:
+        # No user messages — return everything as one group
+        return [history]
+
+    groups = []
+    # First group: everything up to (but not including) the second user message
+    if len(user_indices) < 2:
+        return [history]
+
+    groups.append(history[:user_indices[1]])
+
+    # Subsequent groups: from each user message to the next
+    for idx in range(1, len(user_indices)):
+        start = user_indices[idx]
+        end = user_indices[idx + 1] if idx + 1 < len(user_indices) else len(history)
+        groups.append(history[start:end])
+
+    return groups
+
+
+def convo_token_usage(convo: List[ModelMessage]) -> int:
+    """Count total tokens in a conversation group."""
+    total = 0
+    for msg in convo:
+        for part in msg.parts:
+            total += count_tokens_for_part(part)
+    return total
 
 
 def trim_history(

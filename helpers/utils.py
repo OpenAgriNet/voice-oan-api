@@ -4,14 +4,13 @@ import os
 import re
 from typing import List, Dict
 import logging
-import boto3
 from dotenv import load_dotenv
-import base64
 import tiktoken
 import unicodedata as ud
 from datetime import datetime, timezone, timedelta
 import simplejson as json
 from jinja2 import Environment, FileSystemLoader
+from pydantic_ai.messages import ModelMessage
 
 load_dotenv()
 
@@ -234,3 +233,74 @@ def load_json_data(filename: str) -> List[Dict]:
         logger = get_logger(__name__)
         logger.error(f"Error parsing JSON file {filename}: {e}")
         return []
+
+
+def group_convos(history: List[ModelMessage]):
+    convos = []
+    current = []
+
+    for msg in history:
+        has_user = any(getattr(p, "part_kind", "") == "user-prompt" for p in msg.parts)
+
+        if has_user and current:
+            # close previous convo
+            convos.append(current)
+            current = [msg]
+        else:
+            current.append(msg)
+
+    if current:
+        convos.append(current)
+
+    return convos
+
+def convo_token_usage(convo: list[ModelMessage]) -> int:
+    tokens = 0
+    for msg in convo:
+        if getattr(msg, "kind", "") == "response" and getattr(msg, "usage", None):
+            tokens += msg.usage.total_tokens
+    return tokens
+
+def trim_history(
+    history: List[ModelMessage],
+    max_tokens: int = 28_000,
+    # include_system_prompts=True,
+    # include_tool_calls=True,
+) -> List[ModelMessage]:
+    if not history:
+        return []
+
+    convos = group_convos(history)
+    if not convos:
+        return []
+
+    # Build list of (messages, tokens)
+    convo_infos = []
+    for convo in convos:
+        tokens = convo_token_usage(convo)
+        convo_infos.append({"messages": convo, "tokens": tokens})
+
+    # Always keep convo 0 (system + first interaction)
+    first = convo_infos[0]
+    rest = convo_infos[1:]
+
+    total_tokens = first["tokens"]
+    selected = []
+
+    # Walk from newest convo backwards
+    for info in reversed(rest):
+        if total_tokens + info["tokens"] <= max_tokens:
+            selected.insert(0, info)  # maintain chronological order
+            total_tokens += info["tokens"]
+        else:
+            break
+
+    final_convos = [first] + selected
+
+    trimmed: List[ModelMessage] = []
+    for info in final_convos:
+        trimmed.extend(info["messages"])
+
+    logger.info(f"Trimmed history: {total_tokens} tokens (max: {max_tokens})")
+
+    return trimmed

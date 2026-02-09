@@ -48,8 +48,6 @@ class Settings(BaseSettings):
 
     # Cache Configuration
     default_cache_ttl: int = 60 * 60 * 24  # 24 hours
-    suggestions_cache_ttl: int = 60 * 30    # 30 minutes
-
     # Logging Configuration
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

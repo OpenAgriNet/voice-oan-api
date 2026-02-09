@@ -15,10 +15,6 @@ class TranscribeRequest(BaseModel):
     service_type: Literal['bhashini', 'whisper'] = Field('bhashini', description="Transcription service to use")
     session_id: Optional[str] = Field(None, description="Session ID")
 
-class SuggestionsRequest(BaseModel):
-    session_id: str = Field(..., description="Session ID to get suggestions for")
-    target_lang: str = Field('mr', description="Target language for suggestions")
-
 class TTSRequest(BaseModel):
     text: str = Field(..., description="Text to convert to speech")
     lang_code: str = Field('mr', description="Language code for TTS")

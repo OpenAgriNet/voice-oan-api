@@ -10,10 +10,6 @@ class TranscribeResponse(BaseResponse):
     lang_code: Optional[str] = Field(None, description="Detected language code")
     session_id: Optional[str] = Field(None, description="Session ID")
 
-class SuggestionsResponse(BaseResponse):
-    suggestions: Optional[List[str]] = Field(None, description="List of suggested responses")
-    session_id: Optional[str] = Field(None, description="Session ID")
-
 class TTSResponse(BaseResponse):
     audio_content: Optional[str] = Field(None, description="Base64 encoded audio content")
     session_id: Optional[str] = Field(None, description="Session ID")
