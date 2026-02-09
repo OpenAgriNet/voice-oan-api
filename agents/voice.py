@@ -5,7 +5,7 @@ from agents.tools import TOOLS
 from pydantic_ai.settings import ModelSettings
 from agents.deps import FarmerContext
 from pydantic import BaseModel, Field
-from pydantic_ai import ToolOutput, NativeOutput
+from pydantic_ai import NativeOutput
 import logging
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ voice_agent = Agent(
     )
 )
 
-@voice_agent.system_prompt(dynamic=True)
+@voice_agent.instructions
 def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
     # Choose prompt based on target language (lang_code from deps)
     target_lang = ctx.deps.lang_code if ctx.deps.lang_code else 'hi'

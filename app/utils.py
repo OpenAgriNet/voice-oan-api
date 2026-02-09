@@ -2,11 +2,12 @@ from typing import List, Dict
 import json
 import os
 from app.core.cache import cache  # Import cache instance from core
-from helpers.utils import get_logger, count_tokens_for_part
+from helpers.utils import get_logger, count_tokens_for_part, get_prompt, get_today_date_str
 from copy import deepcopy
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelMessage,
+    SystemPromptPart,
     UserPromptPart,
     TextPart,
     ModelRequest,
@@ -57,50 +58,46 @@ async def set_cache(key: str, value, ttl: int = DEFAULT_CACHE_TTL):
     return True
 
 
-def _create_welcome_messages(user_message: str, assistant_message: str) -> List[ModelMessage]:
+def _get_system_prompt_content(target_lang: str = "hi") -> str:
+    """Get system prompt content for the given language."""
+    prompt_map = {'hi': 'voice_hi', 'en': 'voice_en'}
+    prompt_name = prompt_map.get(target_lang, 'voice_hi')
+    return get_prompt(prompt_name, context={'today_date': get_today_date_str()})
+
+
+def _create_welcome_messages(user_message: str, assistant_message: str, system_prompt: str = None) -> List[ModelMessage]:
     """Create default welcome message pair for new sessions.
 
-    Note: System prompt is NOT included here — it's injected by @voice_agent.system_prompt
-    decorator on every run, so storing it in history would cause duplication.
-
     The assistant message is wrapped in VoiceOutput JSON format so the model
-    sees the expected output pattern in the conversation history and continues
-    producing JSON (not plain text).
+    sees the expected output pattern and continues producing JSON (not plain text).
     """
+    messages = []
+    if system_prompt:
+        messages.append(ModelRequest(parts=[SystemPromptPart(content=system_prompt)]))
     user_msg = ModelRequest(parts=[UserPromptPart(content=user_message)])
-    # Wrap in VoiceOutput JSON format so model mimics this format
     voice_output_json = json.dumps({"audio": assistant_message, "end_interaction": False}, ensure_ascii=False)
     assistant_msg = ModelResponse(parts=[TextPart(content=voice_output_json)])
-    return [user_msg, assistant_msg]
+    messages.extend([user_msg, assistant_msg])
+    return messages
 
 
 async def _get_message_history(session_id: str, target_lang: str = "hi") -> List[ModelMessage]:
-    """Get or initialize message history with welcome messages for new sessions.
-    
-    Args:
-        session_id: Session identifier
-        target_lang: Target language code for welcome messages (default: "hi")
-        
-    Returns:
-        List of ModelMessage objects, including welcome messages for new sessions
-    """
+    """Get or initialize message history with welcome messages for new sessions."""
     message_history = await get_cache(f"{session_id}_{HISTORY_SUFFIX}")
     if message_history:
         return ModelMessagesTypeAdapter.validate_python(message_history)
-    
-    # New session - create welcome messages
-    # Load welcome messages from assets file
-    welcome_messages = _load_welcome_messages()
-    
-    # Get welcome messages for the target language, default to Hindi
-    welcome = welcome_messages.get(target_lang, welcome_messages["hi"])
-    
-    # Create welcome messages (system prompt is handled by @voice_agent.system_prompt)
-    welcome_msg_pair = _create_welcome_messages(welcome["user"], welcome["assistant"])
 
-    # Save welcome messages to cache so they persist
+    welcome_messages = _load_welcome_messages()
+    welcome = welcome_messages.get(target_lang, welcome_messages["hi"])
+    system_prompt_content = _get_system_prompt_content(target_lang)
+
+    welcome_msg_pair = _create_welcome_messages(
+        welcome["user"],
+        welcome["assistant"],
+        system_prompt=system_prompt_content
+    )
+
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(welcome_msg_pair), ttl=DEFAULT_CACHE_TTL)
-    
     return welcome_msg_pair
 
 async def update_message_history(session_id: str, all_messages: List[ModelMessage]):
