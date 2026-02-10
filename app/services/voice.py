@@ -27,10 +27,12 @@ def _is_first_user_message(history: list) -> bool:
 def _get_recording_message(target_lang: str) -> str:
     """Get the recording message in the target language."""
     recording_messages = {
-        "hi": "यह कॉल रिकॉर्ड की जा रही है। ",
-        "en": "This call is being recorded. "
+       
+        "hi": "यह कॉल प्रशिक्षण और गुणवत्ता सुधार हेतु रिकॉर्ड की जा रही है। आपकी जानकारी सुरक्षित रहेगी।",
+        "en": "This call is being recorded for training and quality purposes. Your personal information will not be shared with any third party."
+    
     }
-    return recording_messages.get(target_lang, recording_messages["en"])
+    return recording_messages.get(target_lang, recording_messages["hi"])
 
 def _extract_audio_from_partial_json(text: str) -> str:
     """Extract the audio field value from partial/incomplete JSON text during streaming."""
