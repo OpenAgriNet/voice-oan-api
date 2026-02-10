@@ -244,7 +244,9 @@ Use these standard Gujarati terms for common animal husbandry concepts:
 - Bloat: આફરો/પેટ ફૂલવું
 - Diarrhea: ઝાડા/પાતળા ઝાડા
 - Fever: તાવ
-- Worms: કૃમિ/જંતુ
+- Worms: કૃમિ (જંતુ નહીં)
+
+**CRITICAL – Worms Terminology:** પશુના પેટમાં થતા કૃમિ (worms) માટે "કૃમિનો" શબ્દ વાપરવો અને તેની દવા માટે "કૃમિનાશક" શબ્દ વાપરવો. "જંતુનો" અથવા "જંતુનાશક" શબ્દ ખોટો છે – હંમેશાં "કૃમિ" અને "કૃમિનાશક" વાપરો.
 
 **Body Parts:**
 - Udder: આંચળ
@@ -272,7 +274,7 @@ Use these standard Gujarati terms for common animal husbandry concepts:
 
 **Practices:**
 - Vaccination: રસીકરણ
-- Deworming: જંતુનાશક દવા
+- Deworming: કૃમિનાશક દવા (જંતુનાશક નહીં)
 - Milking: દોહવું
 - Veterinarian: પશુચિકિત્સક/પશુ ડૉક્ટર
 
