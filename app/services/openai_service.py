@@ -17,28 +17,16 @@ async def generate_openai_stream(
 ) -> AsyncGenerator[str, None]:
     """
     Generate OpenAI-compatible SSE streaming response.
-    Streams structured JSON output incrementally as content deltas.
-    
-    The response format follows OpenAI's streaming structured output pattern:
-    - Each chunk contains a partial JSON string in the content delta
-    - Client reassembles the complete JSON from all content chunks
+
+    Each chunk contains the latest complete JSON payload in the content delta.
+    The client should use the most recent chunk as the current state.
     """
     completion_id = f"chatcmpl-{int(time.time())}-{uuid.uuid4().hex[:8]}"
     created_timestamp = int(time.time())
-    
-    # Get the last user message (this will be the current query)
-    user_messages = [msg.content for msg in request.messages if msg.role == "user"]
-    if not user_messages:
-        yield f"data: {json.dumps({'error': 'No user message found'})}\n\n"
-        yield "data: [DONE]\n\n"
-        return
-    
-    query = user_messages[-1]
-    
-    # Get existing history for the session (already in ModelMessage format)
-    existing_history = await _get_message_history(session_id)
-    
-    # Stream response from voice agent - each chunk is a small piece of the JSON
+    query = [msg.content for msg in request.messages if msg.role == "user"][-1]
+
+    existing_history = await _get_message_history(session_id, target_lang=target_lang)
+
     async for chunk in stream_voice_message(
         query=query,
         session_id=session_id,
@@ -48,7 +36,6 @@ async def generate_openai_stream(
         history=existing_history
     ):
         if chunk:
-            # Stream each chunk as content delta (standard OpenAI streaming format)
             chunk_data = {
                 "id": completion_id,
                 "object": "chat.completion.chunk",
@@ -56,15 +43,12 @@ async def generate_openai_stream(
                 "model": request.model,
                 "choices": [{
                     "index": 0,
-                    "delta": {
-                        "content": chunk
-                    },
+                    "delta": {"content": chunk},
                     "finish_reason": None
                 }]
             }
             yield f"data: {json.dumps(chunk_data)}\n\n"
-    
-    # Send finish chunk with empty delta
+
     finish_chunk = {
         "id": completion_id,
         "object": "chat.completion.chunk",
@@ -77,8 +61,6 @@ async def generate_openai_stream(
         }]
     }
     yield f"data: {json.dumps(finish_chunk)}\n\n"
-    
-    # Send [DONE]
     yield "data: [DONE]\n\n"
 
 async def generate_openai_response(
@@ -89,26 +71,16 @@ async def generate_openai_response(
 ) -> Dict[str, Any]:
     """
     Generate OpenAI-compatible non-streaming response.
-    Returns the complete structured JSON output as content.
+    Returns the final complete JSON output as content.
     """
     completion_id = f"chatcmpl-{int(time.time())}-{uuid.uuid4().hex[:8]}"
     created_timestamp = int(time.time())
-    
-    # Get the last user message (this will be the current query)
-    user_messages = [msg.content for msg in request.messages if msg.role == "user"]
-    if not user_messages:
-        return {
-            "error": "No user message found"
-        }
-    
-    query = user_messages[-1]
-    
-    # Get existing history for the session (already in ModelMessage format)
-    existing_history = await _get_message_history(session_id)
-    
-    # Collect response from voice agent (accumulates small JSON chunks)
-    accumulated_content = ""
-    
+    query = [msg.content for msg in request.messages if msg.role == "user"][-1]
+
+    existing_history = await _get_message_history(session_id, target_lang=target_lang)
+
+    # Only keep the last chunk (each chunk is a complete JSON object, not a delta)
+    last_chunk = ""
     async for chunk in stream_voice_message(
         query=query,
         session_id=session_id,
@@ -118,12 +90,8 @@ async def generate_openai_response(
         history=existing_history
     ):
         if chunk:
-            accumulated_content += chunk
-    
-    # Calculate token usage (approximate)
-    prompt_tokens = sum(len(msg.content.split()) for msg in request.messages) * 1.3
-    completion_tokens = len(accumulated_content.split()) * 1.3
-    
+            last_chunk = chunk
+
     return {
         "id": completion_id,
         "object": "chat.completion",
@@ -133,13 +101,8 @@ async def generate_openai_response(
             "index": 0,
             "message": {
                 "role": "assistant",
-                "content": accumulated_content
+                "content": last_chunk
             },
             "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": int(prompt_tokens),
-            "completion_tokens": int(completion_tokens),
-            "total_tokens": int(prompt_tokens + completion_tokens)
-        }
+        }]
     }

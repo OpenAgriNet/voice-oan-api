@@ -1,0 +1,2582 @@
+[
+  {
+    "question": "Which crops are best suited for my region?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "What crops can I grow in the current season?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "Which crop variety gives the best yield?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "What is the best time to sow wheat?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "When should I plant rice in my area?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "Which crops are suitable for rainfed conditions?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "What crops can I grow in summer?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "Which crops require less water?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "What is the best crop rotation for my field?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "Which crops are profitable this year?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "What is the recommended seed rate for wheat?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "How much seed do I need per acre for rice?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "What spacing should I follow for cotton?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "When is the best time to sow groundnut?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "How deep should I sow maize seeds?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "What is the ideal seed spacing for soybean?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "Which seed variety is best for my area?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "How to prepare seeds before sowing?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "What is the germination rate for this variety?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "Should I use treated seeds?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "How much fertilizer does wheat need?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "What fertilizer should I apply to rice?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "When should I apply urea to my crop?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "How much DAP should I use per acre?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "What is the recommended fertilizer dose for cotton?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "When to apply top dressing fertilizer?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "What organic fertilizers can I use?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "How to apply fertilizer to my crop?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "What micronutrients does my crop need?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "How much compost should I add?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "How often should I irrigate wheat?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "When should I irrigate rice fields?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "How much water does cotton need?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "What is the best irrigation method for my crop?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "When to stop irrigation before harvest?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "How to manage water during drought?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "What is the critical irrigation stage for maize?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "How to check if my crop needs water?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "What is the water requirement for soybean?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "How to save water in farming?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "How long does wheat take to mature?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "What is the growth stages of rice?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "When should I thin my crop?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "How to manage weeds in my field?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "What is the best time for weeding?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "How to improve crop yield?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "What is intercropping and how to do it?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "When should I harvest my crop?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "How to know if my crop is ready for harvest?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "What is the expected yield per acre?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "How to protect my crop from birds?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "What is the best way to store harvested crop?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "How to maintain soil health for next season?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "What cover crops can I grow?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "How to manage crop residues?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "What is mulching and how to do it?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "How to improve soil fertility naturally?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "What is crop rotation and why is it important?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "How to prepare land for next crop?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "What is the best time for land preparation?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "मेरे क्षेत्र के लिए कौन सी फसलें सबसे अच्छी हैं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "मैं इस मौसम में कौन सी फसलें उगा सकता हूं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "कौन सी फसल किस्म सबसे अच्छी पैदावार देती है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "गेहूं बोने का सबसे अच्छा समय क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "मुझे अपने क्षेत्र में चावल कब लगाना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "बारिश पर निर्भर स्थितियों के लिए कौन सी फसलें उपयुक्त हैं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "मैं गर्मी में कौन सी फसलें उगा सकता हूं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "कौन सी फसलें कम पानी की आवश्यकता होती हैं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "मेरे खेत के लिए सबसे अच्छा फसल चक्र क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "इस साल कौन सी फसलें लाभदायक हैं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_selection_and_planning"
+  },
+  {
+    "question": "गेहूं के लिए अनुशंसित बीज दर क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "चावल के लिए मुझे प्रति एकड़ कितने बीज की आवश्यकता है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "कपास के लिए मुझे क्या दूरी का पालन करना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "मूंगफली बोने का सबसे अच्छा समय कब है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "मुझे मक्का के बीज कितनी गहराई में बोने चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "सोयाबीन के लिए आदर्श बीज दूरी क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "मेरे क्षेत्र के लिए कौन सी बीज किस्म सबसे अच्छी है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "बुवाई से पहले बीज कैसे तैयार करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "इस किस्म के लिए अंकुरण दर क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "क्या मुझे उपचारित बीज का उपयोग करना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "seed_and_sowing"
+  },
+  {
+    "question": "गेहूं को कितने उर्वरक की आवश्यकता है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "मुझे चावल में कौन सा उर्वरक लगाना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "मुझे अपनी फसल में यूरिया कब लगाना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "मुझे प्रति एकड़ कितना डीएपी उपयोग करना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "कपास के लिए अनुशंसित उर्वरक खुराक क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "टॉप ड्रेसिंग उर्वरक कब लगाएं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "मैं कौन से जैविक उर्वरक उपयोग कर सकता हूं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "अपनी फसल में उर्वरक कैसे लगाएं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "मेरी फसल को किन सूक्ष्म पोषक तत्वों की आवश्यकता है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "मुझे कितना कम्पोस्ट जोड़ना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "fertilizer_and_nutrition"
+  },
+  {
+    "question": "मुझे गेहूं की कितनी बार सिंचाई करनी चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "मुझे चावल के खेतों की सिंचाई कब करनी चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "कपास को कितने पानी की आवश्यकता है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "मेरी फसल के लिए सबसे अच्छी सिंचाई विधि क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "कटाई से पहले सिंचाई कब बंद करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "सूखे के दौरान पानी का प्रबंधन कैसे करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "मक्का के लिए महत्वपूर्ण सिंचाई चरण क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "मैं कैसे जांचूं कि मेरी फसल को पानी की आवश्यकता है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "सोयाबीन के लिए पानी की आवश्यकता क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "खेती में पानी कैसे बचाएं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "irrigation_and_water_management"
+  },
+  {
+    "question": "गेहूं को पकने में कितना समय लगता है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "चावल की वृद्धि अवस्थाएं क्या हैं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "मुझे अपनी फसल को पतला करना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "अपने खेत में खरपतवार का प्रबंधन कैसे करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "निराई का सबसे अच्छा समय क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "फसल की पैदावार कैसे बढ़ाएं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "अंतर-फसल क्या है और इसे कैसे करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "मुझे अपनी फसल की कटाई कब करनी चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "मैं कैसे जानूं कि मेरी फसल कटाई के लिए तैयार है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "प्रति एकड़ अपेक्षित पैदावार क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_growth_and_management"
+  },
+  {
+    "question": "पक्षियों से अपनी फसल की रक्षा कैसे करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "कटाई की गई फसल को संग्रहीत करने का सबसे अच्छा तरीका क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "अगले मौसम के लिए मिट्टी के स्वास्थ्य को कैसे बनाए रखें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "मैं कौन सी कवर फसलें उगा सकता हूं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "फसल अवशेषों का प्रबंधन कैसे करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "मल्चिंग क्या है और इसे कैसे करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "प्राकृतिक रूप से मिट्टी की उर्वरता कैसे बढ़ाएं?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "फसल चक्र क्या है और यह क्यों महत्वपूर्ण है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "अगली फसल के लिए भूमि कैसे तैयार करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "भूमि तैयारी का सबसे अच्छा समय क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "What is the weather today?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "What is the temperature right now?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "Is it going to rain today?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "What is the weather forecast for today?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "How is the weather in my area?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "What is the current humidity?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "Is there any chance of rain today?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "What is the wind speed today?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "Will there be sunshine today?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "What is the weather condition now?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "What is the weather forecast for tomorrow?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "Will it rain tomorrow?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "What will be the temperature tomorrow?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "What is the weather forecast for the next 3 days?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "Will there be rain in the next few days?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "What is the forecast for this week?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "Should I irrigate my field today or tomorrow?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "Is it safe to spray pesticides today?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "Will the weather be suitable for harvesting?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "What is the weather prediction for the weekend?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "What is the weather forecast for the next week?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "Will it rain in the coming week?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "What will be the temperature for the next 7 days?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "Is there any chance of rain next week?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "What is the weather outlook for the next few days?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "Should I plan my sowing based on weather?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "Will the weather be favorable for crop growth?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "What is the extended forecast?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "Are there any weather warnings?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "What is the weather pattern for next week?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "What is the monsoon forecast this year?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "Will there be good rainfall this season?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "What is the seasonal weather prediction?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "How will the weather be during harvest season?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "What is the long-term weather forecast?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "Will there be drought conditions?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "What is the expected rainfall for this season?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "How will El Niño affect the weather?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "What is the winter forecast?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "What is the summer forecast?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "Is the weather suitable for sowing?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Should I delay my sowing due to weather?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Is it safe to apply fertilizer in this weather?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Can I harvest my crop in this weather?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Will the weather affect my crop yield?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Is the weather good for irrigation?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Should I protect my crop from weather?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "How will rain affect my crop?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Is the temperature suitable for my crop?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Will frost damage my crop?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "Are there any weather warnings?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "Is there a cyclone warning?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "Will there be heavy rainfall?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "Is there a heatwave warning?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "Are there any storm alerts?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "Will there be hailstorm?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "Is there a flood warning?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "Are there any extreme weather conditions?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "Should I take precautions for weather?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "What weather alerts are active?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "आज मौसम कैसा है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "अभी तापमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "क्या आज बारिश होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "आज के लिए मौसम पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "मेरे क्षेत्र में मौसम कैसा है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "वर्तमान आर्द्रता क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "क्या आज बारिश की कोई संभावना है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "आज हवा की गति क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "क्या आज धूप होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "अभी मौसम की स्थिति क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "current_weather"
+  },
+  {
+    "question": "कल के लिए मौसम पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "क्या कल बारिश होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "कल तापमान क्या होगा?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "अगले 3 दिनों के लिए मौसम पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "क्या अगले कुछ दिनों में बारिश होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "इस सप्ताह के लिए पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "क्या मुझे आज या कल अपने खेत की सिंचाई करनी चाहिए?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "क्या आज कीटनाशक स्प्रे करना सुरक्षित है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "क्या मौसम कटाई के लिए उपयुक्त होगा?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "सप्ताहांत के लिए मौसम भविष्यवाणी क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "अगले सप्ताह के लिए मौसम पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "क्या आने वाले सप्ताह में बारिश होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "अगले 7 दिनों के लिए तापमान क्या होगा?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "क्या अगले सप्ताह बारिश की कोई संभावना है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "अगले कुछ दिनों के लिए मौसम दृष्टिकोण क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "क्या मुझे मौसम के आधार पर अपनी बुवाई की योजना बनानी चाहिए?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "क्या मौसम फसल वृद्धि के लिए अनुकूल होगा?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "विस्तारित पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "क्या कोई मौसम चेतावनी है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "अगले सप्ताह के लिए मौसम पैटर्न क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "इस साल मानसून पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "क्या इस मौसम में अच्छी बारिश होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "मौसमी मौसम भविष्यवाणी क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "कटाई के मौसम के दौरान मौसम कैसा होगा?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "दीर्घकालिक मौसम पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "क्या सूखे की स्थिति होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "इस मौसम के लिए अपेक्षित वर्षा क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "अल नीनो मौसम को कैसे प्रभावित करेगा?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "सर्दियों का पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "गर्मी का पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "क्या मौसम बुवाई के लिए उपयुक्त है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या मुझे मौसम के कारण अपनी बुवाई में देरी करनी चाहिए?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या इस मौसम में उर्वरक लगाना सुरक्षित है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या मैं इस मौसम में अपनी फसल की कटाई कर सकता हूं?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या मौसम मेरी फसल की पैदावार को प्रभावित करेगा?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या मौसम सिंचाई के लिए अच्छा है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या मुझे मौसम से अपनी फसल की रक्षा करनी चाहिए?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "बारिश मेरी फसल को कैसे प्रभावित करेगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या तापमान मेरी फसल के लिए उपयुक्त है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या पाला मेरी फसल को नुकसान पहुंचाएगा?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "क्या कोई मौसम चेतावनी है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "क्या चक्रवात चेतावनी है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "क्या भारी बारिश होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "क्या गर्मी की लहर चेतावनी है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "क्या कोई तूफान अलर्ट है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "क्या ओलावृष्टि होगी?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "क्या बाढ़ चेतावनी है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "क्या कोई चरम मौसम स्थितियां हैं?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "क्या मुझे मौसम के लिए सावधानी बरतनी चाहिए?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "कौन से मौसम अलर्ट सक्रिय हैं?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  },
+  {
+    "question": "What pests attack wheat?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "How to identify aphids?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "What are the common pests in rice?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "How do I know if my crop has pests?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "What pests attack cotton?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "How to identify whiteflies?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "What are the symptoms of pest attack?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "Which pests are common in my area?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "How to identify thrips?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "What pests attack vegetables?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "How to control aphids in wheat?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "What pesticide should I use for whiteflies?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "How to get rid of pests naturally?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "When should I spray for pests?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "How often should I spray pesticides?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "What is the best way to control pests?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "How to prevent pest attack?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "What organic methods can I use for pest control?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "How to control pests without chemicals?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "What is integrated pest management?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "What diseases affect wheat?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "How to identify plant diseases?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "What are the symptoms of rice diseases?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "How do I know if my crop has a disease?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "What diseases attack cotton?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "How to identify fungal diseases?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "What are the common diseases in my area?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "How to identify bacterial diseases?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "What diseases affect vegetables?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "What are the signs of disease in plants?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "How to control wheat rust?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "What fungicide should I use?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "How to treat plant diseases?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "When should I apply disease control measures?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "How to prevent crop diseases?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "What is the best treatment for this disease?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "How to control fungal diseases?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "What organic methods can I use for disease control?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "How to manage crop diseases?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "What is integrated disease management?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "How to control aphids?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "What to do about whiteflies?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "How to get rid of caterpillars?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "How to control thrips?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "What to do about mealybugs?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "How to control mites?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "How to get rid of locusts?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "What to do about stem borers?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "How to control leaf miners?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "What to do about root-knot nematodes?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "How to control rust disease?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "What to do about blight?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "How to treat powdery mildew?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "How to control wilt disease?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "What to do about leaf spot?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "How to treat root rot?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "How to control smut disease?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "What to do about mosaic virus?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "How to treat bacterial blight?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "How to control downy mildew?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "How to prevent pest attacks?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "How to detect pests early?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "What are early signs of disease?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "How to monitor my crop for pests?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "What preventive measures should I take?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "How to keep my crop healthy?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "What is crop scouting?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "How to identify problems early?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "What should I check regularly?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "How to maintain crop health?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "What is the best pesticide for this pest?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "How much pesticide should I use?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "When is the best time to spray?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "How to mix pesticides correctly?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "What safety precautions should I take?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "How long to wait after spraying?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "What is the treatment for this disease?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "How to apply fungicides?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "What is the dosage for this treatment?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "How many times should I treat?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "गेहूं पर कौन से कीट हमला करते हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "एफिड्स की पहचान कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "चावल में सामान्य कीट क्या हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "मैं कैसे जानूं कि मेरी फसल में कीट हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "कपास पर कौन से कीट हमला करते हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "सफेद मक्खियों की पहचान कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "कीट हमले के लक्षण क्या हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "मेरे क्षेत्र में कौन से कीट सामान्य हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "थ्रिप्स की पहचान कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "सब्जियों पर कौन से कीट हमला करते हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "गेहूं में एफिड्स को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "सफेद मक्खियों के लिए मुझे कौन सा कीटनाशक उपयोग करना चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "कीटों से कैसे छुटकारा पाएं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "मुझे कीटों के लिए कब स्प्रे करना चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "मुझे कितनी बार कीटनाशक स्प्रे करना चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "कीटों को नियंत्रित करने का सबसे अच्छा तरीका क्या है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "कीट हमले को कैसे रोकें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "कीट नियंत्रण के लिए मैं कौन सी जैविक विधियां उपयोग कर सकता हूं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "रसायनों के बिना कीटों को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "एकीकृत कीट प्रबंधन क्या है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "pest_control_and_management"
+  },
+  {
+    "question": "कौन से रोग गेहूं को प्रभावित करते हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "पौधों के रोगों की पहचान कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "चावल रोगों के लक्षण क्या हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "मैं कैसे जानूं कि मेरी फसल में रोग है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "कपास पर कौन से रोग हमला करते हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "कवक रोगों की पहचान कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "मेरे क्षेत्र में सामान्य रोग क्या हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "जीवाणु रोगों की पहचान कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "कौन से रोग सब्जियों को प्रभावित करते हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "पौधों में रोग के संकेत क्या हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_identification"
+  },
+  {
+    "question": "गेहूं की जंग को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "मुझे कौन सा कवकनाशी उपयोग करना चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "पौधों के रोगों का इलाज कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "मुझे रोग नियंत्रण उपाय कब लागू करने चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "फसल रोगों को कैसे रोकें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "इस रोग के लिए सबसे अच्छा उपचार क्या है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "कवक रोगों को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "रोग नियंत्रण के लिए मैं कौन सी जैविक विधियां उपयोग कर सकता हूं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "फसल रोगों का प्रबंधन कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "एकीकृत रोग प्रबंधन क्या है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "disease_control_and_management"
+  },
+  {
+    "question": "एफिड्स को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "सफेद मक्खियों के बारे में क्या करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "कैटरपिलर से कैसे छुटकारा पाएं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "थ्रिप्स को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "मिलीबग्स के बारे में क्या करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "माइट्स को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "टिड्डियों से कैसे छुटकारा पाएं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "तना छेदक के बारे में क्या करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "पत्ती खनिक को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "जड़-गांठ निमेटोड के बारे में क्या करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "जंग रोग को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "झुलसा रोग के बारे में क्या करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "पाउडरी मिल्ड्यू का इलाज कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "विल्ट रोग को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "पत्ती धब्बा के बारे में क्या करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "जड़ सड़न का इलाज कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "काला किट्ट रोग को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "मोज़ेक वायरस के बारे में क्या करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "जीवाणु झुलसा का इलाज कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "डाउनी मिल्ड्यू को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "specific_diseases"
+  },
+  {
+    "question": "कीट हमलों को कैसे रोकें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "कीटों का जल्दी पता कैसे लगाएं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "रोग के प्रारंभिक संकेत क्या हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "कीटों के लिए अपनी फसल की निगरानी कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "मुझे कौन से निवारक उपाय करने चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "अपनी फसल को स्वस्थ कैसे रखें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "फसल स्काउटिंग क्या है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "समस्याओं का जल्दी पता कैसे लगाएं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "मुझे नियमित रूप से क्या जांचना चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "फसल स्वास्थ्य को कैसे बनाए रखें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "prevention_and_early_detection"
+  },
+  {
+    "question": "इस कीट के लिए सबसे अच्छा कीटनाशक क्या है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "मुझे कितना कीटनाशक उपयोग करना चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "स्प्रे करने का सबसे अच्छा समय कब है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "कीटनाशकों को सही तरीके से कैसे मिलाएं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "मुझे कौन सी सुरक्षा सावधानियां बरतनी चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "स्प्रे करने के बाद कितने समय तक प्रतीक्षा करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "इस रोग के लिए उपचार क्या है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "कवकनाशी कैसे लगाएं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "इस उपचार के लिए खुराक क्या है?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "मुझे कितनी बार उपचार करना चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "How to control aphids in wheat crop?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "What are the symptoms of rust disease in wheat?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "How to identify and treat bacterial blight in rice?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "What pesticides should I use for whiteflies in cotton?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "How to prevent powdery mildew in vegetables?",
+    "language": "en",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "What is the best time to sow wheat in my region?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "rabi_crops"
+  },
+  {
+    "question": "How much fertilizer does mustard crop need per acre?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "rabi_crops"
+  },
+  {
+    "question": "What is the recommended seed rate for gram (chana)?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "rabi_crops"
+  },
+  {
+    "question": "When should I plant rice and what spacing should I follow?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "kharif_crops"
+  },
+  {
+    "question": "How to manage irrigation for cotton during kharif season?",
+    "language": "en",
+    "category": "crop_advisory",
+    "subcategory": "kharif_crops"
+  },
+  {
+    "question": "गेहूं की फसल में एफिड्स को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "गेहूं में जंग रोग के लक्षण क्या हैं?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "चावल में जीवाणु झुलसा की पहचान और इलाज कैसे करें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "कपास में सफेद मक्खियों के लिए मुझे कौन सा कीटनाशक उपयोग करना चाहिए?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "सब्जियों में पाउडरी मिल्ड्यू को कैसे रोकें?",
+    "language": "hi",
+    "category": "pests_and_diseases",
+    "subcategory": "rabi_kharif_pests"
+  },
+  {
+    "question": "मेरे क्षेत्र में गेहूं बोने का सबसे अच्छा समय क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "rabi_crops"
+  },
+  {
+    "question": "सरसों की फसल को प्रति एकड़ कितने उर्वरक की आवश्यकता है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "rabi_crops"
+  },
+  {
+    "question": "चना (ग्राम) के लिए अनुशंसित बीज दर क्या है?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "rabi_crops"
+  },
+  {
+    "question": "मुझे चावल कब लगाना चाहिए और क्या दूरी का पालन करना चाहिए?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "kharif_crops"
+  },
+  {
+    "question": "खरीफ मौसम के दौरान कपास के लिए सिंचाई का प्रबंधन कैसे करें?",
+    "language": "hi",
+    "category": "crop_advisory",
+    "subcategory": "kharif_crops"
+  },
+  {
+    "question": "What is the weather forecast for the next 7 days in my area?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "Will it rain tomorrow? Should I delay my wheat sowing?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "What is the temperature and humidity forecast for this week?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "Is the weather suitable for spraying pesticides on my cotton crop?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "What is the weather forecast for the harvest season?",
+    "language": "en",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  },
+  {
+    "question": "मेरे क्षेत्र में अगले 7 दिनों के लिए मौसम पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "medium_term_forecast"
+  },
+  {
+    "question": "क्या कल बारिश होगी? क्या मुझे अपनी गेहूं की बुवाई में देरी करनी चाहिए?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "इस सप्ताह के लिए तापमान और आर्द्रता पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "short_term_forecast"
+  },
+  {
+    "question": "क्या मौसम मेरी कपास की फसल पर कीटनाशक स्प्रे करने के लिए उपयुक्त है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "weather_impact_on_farming"
+  },
+  {
+    "question": "कटाई के मौसम के लिए मौसम पूर्वानुमान क्या है?",
+    "language": "hi",
+    "category": "weather_forecast",
+    "subcategory": "long_term_forecast"
+  }
+]

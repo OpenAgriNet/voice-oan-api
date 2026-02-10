@@ -1,0 +1,77 @@
+[
+  {
+    "question": "एफिड्स को कैसे नियंत्रित करें?",
+    "language": "hi",
+    "status": "success",
+    "final_output": {
+      "audio": "एफिड्स यानी चेपाओं को नियंत्रित करने के लिए अग्रिम चरण में सरसों या जौ जैसी बाधा फसल लगा कर उनकी जनसंख्या घटाएँ, फील्ड में लेडीबग और किलोग्रास जैसे प्राकृतिक शत्रुओं को संरक्षित रखें, और मध्यम संक्रमण में नीम के बीज कण अर्क (पाँच प्रतिशत) का foliar छिड़काव करें। यदि समस्या बढ़े तो इमिडाक्लोप्रिड (शून्य point three पाँच सौ ग्राम प्रति हेक्टेयर) या थायमेथॉक्साम (साथ में दो सौ ग्राम) को बीज दुरस्थ पर लगाएँ। क्या आप इस कीट के लिये कोई विशेष फसल या समय क्षेत्र बताना चाहेंगे?",
+      "end_interaction": false
+    },
+    "stream_count": 162,
+    "duration_ms": 2255,
+    "tool_calls": 1,
+    "error": null,
+    "category": "pests_and_diseases",
+    "subcategory": "specific_pests"
+  },
+  {
+    "question": "कवकनाशी कैसे लगाएं?",
+    "language": "hi",
+    "status": "success",
+    "final_output": {
+      "audio": "कवकनाशी की सही मात्रा और समय के लिये स्थानीय कृषि विभाग या प्रमाणित विक्रेता से परामर्श करें, क्योंकि इसकी सांद्रता फसल और हालत पर निर्भर करती है। क्या आप अपनी फसल या कीट के बारे में और जानकारी देना चाहेंगे?",
+      "end_interaction": false
+    },
+    "stream_count": 60,
+    "duration_ms": 1545,
+    "tool_calls": 1,
+    "error": null,
+    "category": "pests_and_diseases",
+    "subcategory": "treatment_and_remedies"
+  },
+  {
+    "question": "गेहूं पर कौन से कीट हमला करते हैं?",
+    "language": "hi",
+    "status": "success",
+    "final_output": {
+      "audio": "गेहूं में तना छेदक, तना मक्खी, दीमक, चींटी और एपिड जैसे कीट मुख्य समस्याएँ हैं, साथ ही गेरू रोग भी मिलता है। इनकी रोकथाम के लिये कीट नियंत्रक फसल, समय पर हल्का फसल शौच और आवश्यकतानुसार जैविक या रसायनिक उपाय अपनाएँ। क्या आप इनकी कोई विशिष्ट नियंत्रण विधि जानना चाहते हैं?",
+      "end_interaction": false
+    },
+    "stream_count": 96,
+    "duration_ms": 1841,
+    "tool_calls": 1,
+    "error": null,
+    "category": "pests_and_diseases",
+    "subcategory": "pest_identification"
+  },
+  {
+    "question": "प्राकृतिक रूप से मिट्टी की उर्वरता कैसे बढ़ाएं?",
+    "language": "hi",
+    "status": "success",
+    "final_output": {
+      "audio": "सड़कों की काली मिट्टी में हरी खाद, गोबर की खाद और पत्तियों की कंपोस्ट डालने से प्राकृतिक उर्वरता बढ़ेगी। साथ ही फसल चक्र अपनाएं और फसल के बाद की ग्रीन मैनीचर बिड़े से नाइट्रोजन बढ़ेगा। क्या आप अपनी मिट्टी की वर्तमान स्थिति के बारे में कुछ विशेष जानकारी देना चाहेंगे?",
+      "end_interaction": false
+    },
+    "stream_count": 87,
+    "duration_ms": 660,
+    "tool_calls": 0,
+    "error": null,
+    "category": "crop_advisory",
+    "subcategory": "crop_care_and_maintenance"
+  },
+  {
+    "question": "क्या ओलावृष्टि होगी?",
+    "language": "hi",
+    "status": "success",
+    "final_output": {
+      "audio": "क्षमा कीजिए, अभी मौसम की जानकारी नहीं मिल पा रही है। कृपया बाद में फिर से पूछें।",
+      "end_interaction": false
+    },
+    "stream_count": 26,
+    "duration_ms": 1354,
+    "tool_calls": 2,
+    "error": null,
+    "category": "weather_forecast",
+    "subcategory": "weather_warnings_and_alerts"
+  }
+]
