@@ -7,7 +7,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, Te
 from agents.voice import voice_agent
 from agents.tools.farmer import normalize_phone_to_mobile, fetch_farmer_info_raw
 from agents.tools.common import get_random_nudge_message, send_nudge_message_raya
-from helpers.utils import get_logger
+from helpers.utils import get_logger, clean_output_by_language
 from app.config import settings
 from app.utils import (
     update_message_history,
@@ -230,9 +230,14 @@ async def stream_voice_message(
                             await nudge_task
                         except asyncio.CancelledError:
                             pass
-                    
+                    # Clean/normalize output based on target language before streaming
+                    cleaned_chunk = (
+                        clean_output_by_language(chunk, target_lang)
+                        if isinstance(chunk, str) and chunk
+                        else chunk
+                    )
                     # Yield all chunks to client (including empty/whitespace if any)
-                    yield chunk
+                    yield cleaned_chunk
             except StopAsyncIteration:
                 pass
             finally:
@@ -273,5 +278,5 @@ async def stream_voice_message(
                 await set_feedback_initiated(session_id, trigger)
                 feedback_lang = (target_lang or "gu").strip().lower()
                 feedback_question = get_feedback_question(feedback_lang)
-                yield " " + feedback_question
+                yield clean_output_by_language(" " + feedback_question, feedback_lang)
                 logger.info(f"Feedback question yielded via stream (trigger={trigger})")
