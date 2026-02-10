@@ -13,11 +13,14 @@ load_dotenv()
 
 logger = get_logger(__name__)
 
+
 class OptionalOAuth2PasswordBearer(OAuth2PasswordBearer):
-    """OAuth2 scheme that's optional in development"""
+    """OAuth2 scheme that's optional in development."""
+
     async def __call__(self, request: Request) -> str | None:
         if settings.environment == "development":
-            # In development, don't require the token
+            # In development, don't require the token – treat missing/invalid
+            # Authorization header as anonymous access.
             authorization = request.headers.get("Authorization")
             if not authorization:
                 return None
@@ -25,28 +28,56 @@ class OptionalOAuth2PasswordBearer(OAuth2PasswordBearer):
             if scheme.lower() != "bearer":
                 return None
             return param
-        # In production, use normal OAuth2 behavior
+
+        # In non-development environments, use normal OAuth2 behavior
         return await super().__call__(request)
+
 
 # OAuth2 scheme for FastAPI - optional in development
 oauth2_scheme = OptionalOAuth2PasswordBearer(tokenUrl="token")
 
 
 def _load_public_key():
-    """Load JWT public key from env value (JWT_PUBLIC_KEY) or fall back to file path (JWT_PUBLIC_KEY_PATH)."""
+    """
+    Load JWT public key from inline value or file path (value takes precedence).
+
+    Mirrors the behaviour used in `amul-oan-api` so that keys can be provided
+    either via `JWT_PUBLIC_KEY` (PEM as env var) or as a file in the app root
+    referenced by `JWT_PUBLIC_KEY_PATH`.
+    """
     if settings.jwt_public_key and settings.jwt_public_key.strip():
-        key_bytes = settings.jwt_public_key.strip().encode("utf-8")
-        key = serialization.load_pem_public_key(key_bytes)
-        logger.info("Successfully loaded JWT Public Key from JWT_PUBLIC_KEY env")
-        return key
-    public_key_path = settings.base_dir / settings.jwt_public_key_path
-    with open(public_key_path, "rb") as key_file:
-        key = serialization.load_pem_public_key(key_file.read())
-    logger.info(f"Successfully loaded JWT Public Key from file: {public_key_path}")
-    return key
+        try:
+            key_bytes = (
+                settings.jwt_public_key.strip().encode()
+                if isinstance(settings.jwt_public_key, str)
+                else settings.jwt_public_key
+            )
+            key = serialization.load_pem_public_key(key_bytes)
+            logger.info("Successfully loaded JWT Public Key from JWT_PUBLIC_KEY env")
+            return key
+        except Exception as e:
+            logger.warning(f"Failed to load JWT public key from JWT_PUBLIC_KEY value: {e}")
+
+    key_path = settings.base_dir / settings.jwt_public_key_path
+    if key_path.exists():
+        try:
+            with open(key_path, "rb") as key_file:
+                key = serialization.load_pem_public_key(key_file.read())
+            logger.info(f"Successfully loaded JWT Public Key from file: {key_path}")
+            return key
+        except Exception as e:
+            logger.warning(f"Failed to load JWT public key from {key_path}: {e}")
+
+    return None
 
 
 public_key = _load_public_key()
+if public_key is None:
+    logger.warning(
+        "JWT Public Key not loaded (no JWT_PUBLIC_KEY value and "
+        "JWT_PUBLIC_KEY_PATH file not found or invalid)"
+    )
+
 
 async def get_current_user(token: str | None = Depends(oauth2_scheme)):
     """
