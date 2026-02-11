@@ -15,6 +15,7 @@ async def lifespan(app: FastAPI):
     # Startup
     print(f"🚀 {settings.app_name} starting up...")
     print(f"📍 Environment: {settings.environment}")
+    print(f"🔐 Auth enabled: {settings.auth_enabled}")
     print(f"🔧 Debug mode: {settings.debug}")
     print(f"🌐 CORS origins: {settings.allowed_origins}")
     yield

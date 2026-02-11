@@ -13,10 +13,10 @@ load_dotenv()
 logger = get_logger(__name__)
 
 class OptionalOAuth2PasswordBearer(OAuth2PasswordBearer):
-    """OAuth2 scheme that's optional in development"""
+    """OAuth2 scheme that's optional when auth is disabled"""
     async def __call__(self, request: Request) -> str | None:
-        if settings.environment == "development":
-            # In development, don't require the token
+        if not settings.auth_enabled:
+            # When auth is disabled, don't require the token
             authorization = request.headers.get("Authorization")
             if not authorization:
                 return None
@@ -24,7 +24,7 @@ class OptionalOAuth2PasswordBearer(OAuth2PasswordBearer):
             if scheme.lower() != "bearer":
                 return None
             return param
-        # In production, use normal OAuth2 behavior
+        # When auth is enabled, require Bearer token
         return await super().__call__(request)
 
 # OAuth2 scheme for FastAPI - optional in development
@@ -40,8 +40,7 @@ logger.info(f"Successfully loaded JWT Public Key from: {public_key_path}")
 async def get_current_user(token: str | None = Depends(oauth2_scheme)):
     """
     FastAPI dependency to get current authenticated user from JWT token.
-    This replaces the Django middleware approach.
-    Bypasses authentication in development environment.
+    When auth is disabled, returns None. When auth is enabled, requires valid JWT.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -49,7 +48,11 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)):
         headers={"WWW-Authenticate": "Bearer"},
     )
     
-    # Check if token is provided
+    # When auth is disabled, token may be None
+    if not settings.auth_enabled and token is None:
+        return None
+
+    # Check if token is provided when auth is enabled
     if token is None:
         logger.warning("No token provided in Authorization header")
         raise credentials_exception
