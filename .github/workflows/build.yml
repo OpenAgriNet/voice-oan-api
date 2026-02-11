@@ -20,7 +20,7 @@ on:
       - bh-voice-dev
 
 env:
-  IMAGE_NAME: bhvoice1:latest
+  IMAGE_NAME: bhvoice1
   GCP_REGION: ${{ secrets.GCP_REGION }}
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   GCP_ARTIFACT_REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
