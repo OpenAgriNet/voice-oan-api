@@ -12,15 +12,15 @@ name: Build and Push to GCP Artifact Registry
 on:
   push:
     branches:
-      - bh-main
-      - bh-dev
+      - bh-voice-prod
+      - bh-voice-dev
   pull_request:
     branches:
-      - bh-main
-      - bh-dev
+      - bh-voice-prod
+      - bh-voice-dev
 
 env:
-  IMAGE_NAME: bh_voice_app
+  IMAGE_NAME: bhvoice1:latest
   GCP_REGION: ${{ secrets.GCP_REGION }}
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   GCP_ARTIFACT_REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
