@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     allowed_methods: List[str] = ["*"]
     allowed_headers: List[str] = ["*"]
 
+    # Auth Configuration
+    auth_enabled: bool = os.getenv("AUTH_ENABLED", "true").lower() in ("true", "1", "yes")
+
     # JWT Configuration
     jwt_algorithm: str = "RS256"
     jwt_public_key_path: str = os.getenv("JWT_PUBLIC_KEY_PATH", "jwt_public_key.pem")
