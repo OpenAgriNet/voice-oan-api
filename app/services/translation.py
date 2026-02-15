@@ -23,16 +23,27 @@ class BhashiniTranslationService:
         if not texts:
             return []
         
-        headers = {'Authorization': self.api_key, 'Content-Type': 'application/json'}
+        headers = {
+            "Accept": "/",
+            "Authorization": self.api_key,
+            "Content-Type": "application/json",
+        }
         data = {
-            "pipelineTasks": [{
-                "taskType": "translation",
-                "config": {
-                    "serviceId": "ai4bharat/indictrans-v2-all-gpu--t4",
-                    "language": {"sourceLanguage": source_lang, "targetLanguage": target_lang}
+            "pipelineTasks": [
+                {
+                    "taskType": "translation",
+                    "config": {
+                        "language": {
+                            "sourceLanguage": source_lang,
+                            "targetLanguage": target_lang,
+                        },
+                        "serviceId": "bhashini/ai4b/bhili-nmt",
+                    },
                 }
-            }],
-            "inputData": {"input": [{"source": text} for text in texts]}
+            ],
+            "inputData": {
+                "input": [{"source": text} for text in texts],
+            },
         }
         
         async with httpx.AsyncClient(timeout=30.0) as client:

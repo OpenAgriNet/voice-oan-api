@@ -112,19 +112,19 @@ async def get_voice_message_with_translation(
     provider: Optional[Literal['RAYA', 'RINGG']] = None,
     process_id: Optional[str] = None,
 ) -> str:
-    logger.info(f"Translating query from {source_lang} to mr (Marathi)")
+    logger.info(f"Translating query from {source_lang} to en (English)")
     translated_query = await translation_service.translate_text(
         text=query,
         source_lang=source_lang,
-        target_lang='mr'
+        target_lang='en'
     )
     logger.info(f"Translated query: {translated_query}")
     
-    # Use Marathi as the source_lang for the agent since we translated the query
+    # Use English as the source_lang for the agent since we translated the query
     deps = FarmerContext(
         query=translated_query,
-        lang_code='mr',
-        target_lang='mr',  
+        lang_code='en',
+        target_lang='en',  
         provider=provider,
         session_id=session_id,
         process_id=process_id
@@ -169,10 +169,10 @@ async def get_voice_message_with_translation(
     if full_response:
         # Always translate back to source_lang, even if source_lang is 'mr'
         # (translation service will handle no-op case)
-        logger.info(f"Translating response from mr (Marathi) to {source_lang}")
+        logger.info(f"Translating response from en (English) to {source_lang}")
         translated_response = await translation_service.translate_text(
             text=full_response,
-            source_lang='mr',
+            source_lang='en',
             target_lang=source_lang
         )
         logger.info(f"Successfully translated response to {source_lang}. Length: {len(translated_response)} chars")
@@ -180,7 +180,7 @@ async def get_voice_message_with_translation(
         
         # Post-processing: Update message history with original query and translated response
         # Note: We store the original query and the translated response in history
-        # The agent's internal messages are in Marathi, but we expose the translated version
+        # The agent's internal messages are in English, but we expose the translated version
         messages = [
             *history,
             *new_messages
