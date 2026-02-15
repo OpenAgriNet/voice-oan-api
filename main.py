@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 load_dotenv()
 
 # Import all routers
-from app.routers import  voice, health
+from app.routers import voice, voice_bhili, health
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -52,4 +52,5 @@ async def root():
 # Include all routers with API prefix from settings
 
 app.include_router(voice.router, prefix=settings.api_prefix)
+app.include_router(voice_bhili.router, prefix=settings.api_prefix)
 app.include_router(health.router, prefix=settings.api_prefix) 
