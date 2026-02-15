@@ -15,7 +15,7 @@ router = APIRouter(prefix="/voice", tags=["voice"])
 async def voice_endpoint(
 #    background_tasks: BackgroundTasks,
     request: ChatRequest = Depends(),
-#    user_info: dict = Depends(get_current_user)  # Authentication required
+    user_info: dict = Depends(get_current_user)  # Authentication required
 ):
     """
     Chat endpoint that streams responses back to the client.
@@ -25,7 +25,7 @@ async def voice_endpoint(
     
     logger.info(
         f"Chat request received - session_id: {session_id}, user_id: {request.user_id}, "
-#        f"authenticated_user: {user_info}, source_lang: {request.source_lang}, "
+        f"authenticated_user: {user_info}, source_lang: {request.source_lang}, "
         f"target_lang: {request.target_lang}, provider: {request.provider}, process_id: {request.process_id}, query: {request.query}"
     )
     
@@ -38,11 +38,11 @@ async def voice_endpoint(
             session_id=session_id,
             source_lang=request.source_lang,
             target_lang=request.target_lang,
-#            user_id=request.user_id,
+            user_id=request.user_id,
             history=history,
             provider=request.provider,
             process_id=request.process_id,
-#            user_info=user_info,
+            user_info=user_info,
 #            background_tasks=background_tasks
         ),
         media_type='text/event-stream'
