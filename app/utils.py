@@ -70,12 +70,13 @@ def _create_welcome_messages(user_message: str, assistant_message: str, system_p
 
     The assistant message is wrapped in VoiceOutput JSON format so the model
     sees the expected output pattern and continues producing JSON (not plain text).
+    Language is omitted from the welcome message; the user has not yet chosen.
     """
     messages = []
     if system_prompt:
         messages.append(ModelRequest(parts=[SystemPromptPart(content=system_prompt)]))
     user_msg = ModelRequest(parts=[UserPromptPart(content=user_message)])
-    voice_output_json = json.dumps({"audio": assistant_message, "end_interaction": False, "language": language}, ensure_ascii=False)
+    voice_output_json = json.dumps({"audio": assistant_message, "end_interaction": False}, ensure_ascii=False)
     assistant_msg = ModelResponse(parts=[TextPart(content=voice_output_json)])
     messages.extend([user_msg, assistant_msg])
     return messages

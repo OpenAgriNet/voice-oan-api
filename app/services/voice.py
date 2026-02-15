@@ -40,8 +40,8 @@ def _extract_audio_from_partial_json(text: str) -> str:
     return match.group(1) if match else ""
 
 
-def _voice_output_dict(audio: str, end_interaction: bool, language: str) -> dict:
-    """Build the voice response dict with all required keys (audio, end_interaction, language)."""
+def _voice_output_dict(audio: str, end_interaction: bool, language: str | None) -> dict:
+    """Build the voice response dict (audio, end_interaction, language). language may be None when asking for preference."""
     return {"audio": audio, "end_interaction": end_interaction, "language": language}
 
 
@@ -55,7 +55,9 @@ async def stream_voice_message(
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages using run_stream_events()."""
     deps = FarmerContext(query=query, lang_code=target_lang, session_id=session_id)
-    user_message = deps.get_user_message()
+    # Send only the user's words—do not send "Selected Language" so the model does not assume;
+    # language is set only when the user explicitly says "English" or "Hindi" in the conversation.
+    user_message = deps._query_string()
     logger.info(f"Running agent with user message: {user_message}")
 
     trimmed_history = trim_history(history, max_tokens=80_000)
@@ -96,18 +98,22 @@ async def stream_voice_message(
             final_output = agent_result.output
             new_messages = agent_result.new_messages()
 
-    # Yield the final complete output; always include language (use target_lang as source of truth)
+    # Yield the final complete output; pass through language null when asking for preference, else en/hi
     if final_output:
         if isinstance(final_output, dict):
             audio_text = recording_prefix + (final_output.get("audio") or "")
             end_flag = final_output.get("end_interaction", False)
-            out_lang = final_output.get("language") or target_lang
+            out_lang = final_output.get("language")
         else:
             audio_text = recording_prefix + (final_output.audio or "")
             end_flag = getattr(final_output, "end_interaction", False)
-            out_lang = getattr(final_output, "language", None) or target_lang
-        if out_lang not in ("en", "hi"):
+            out_lang = getattr(final_output, "language", None)
+        # When model returns null (asking for language), keep null; otherwise ensure en or hi
+        if out_lang is not None and out_lang not in ("en", "hi"):
             out_lang = target_lang if target_lang in ("en", "hi") else "hi"
+        elif out_lang is None and target_lang in ("en", "hi"):
+            # Model asked for language (null); keep null so client knows no language set yet
+            pass
         output_dict = _voice_output_dict(audio_text, end_flag, out_lang)
         yield json.dumps(output_dict, ensure_ascii=False)
         logger.info(f"Streaming complete - end_interaction: {end_flag}, language: {out_lang}")
