@@ -43,7 +43,6 @@ async def stream_voice_message(
     """Async generator for streaming chat messages."""
     # Generate a unique content ID for this query
     content_id = f"query_{session_id}_{len(history)//2 + 1}"
-    logger.info(f"User info: {user_info}")
     deps = FarmerContext(query=query,
                          lang_code=source_lang,
                          target_lang=target_lang,
