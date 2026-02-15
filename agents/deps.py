@@ -9,7 +9,6 @@ class FarmerContext(BaseModel):
     Args:
         query (str): The user's question.
         lang_code (str): The language code of the user's question.
-        target_lang (str): The target language for the response (hi=Hindi, mr=Marathi, en=English).
         provider (Optional[str]): The provider for the voice service.
         session_id (Optional[str]): The session ID for the user.
         process_id (Optional[str]): The process ID for tracking and hold messages.
@@ -21,7 +20,7 @@ class FarmerContext(BaseModel):
     """
     query: str = Field(description="The user's question.")
     lang_code: str = Field(description="The language code of the user's question.", default='mr')
-    target_lang: str = Field(description="The target language for the response (hi=Hindi, mr=Marathi, en=English).", default='mr')
+    target_lang: Optional[str] = Field(default=None, description="Target language for response.")
     provider: Optional[Literal['RAYA', 'RINGG']] = Field(default=None, description="The provider for the voice service - can be RAYA, RINGG, or None.")
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
@@ -38,14 +37,6 @@ class FarmerContext(BaseModel):
     def _query_string(self):
         """Get the query string for the agrinet agent."""
         return "**User:** " + '"' + self.query + '"'
-
-    # NOTE: Do not need to tell LLM which provider is used - we just need to store the provider value in deps.
-    # def _provider_string(self):
-    #     """Get the provider string for the agrinet agent."""
-    #     if self.provider:
-    #         return f"**Provider:** {self.provider}"
-    #     else:
-    #         return None
 
     def get_user_message(self):
         """Get the user message for the agrinet agent."""
