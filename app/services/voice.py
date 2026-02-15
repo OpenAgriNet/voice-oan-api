@@ -135,7 +135,7 @@ async def get_voice_message_with_translation(
     trimmed_history = _trim_voice_history(history)
     logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
-    response = voice_agent.run(
+    response = await voice_agent.run(
         user_prompt=user_message,
         message_history=trimmed_history,
         deps=deps,
