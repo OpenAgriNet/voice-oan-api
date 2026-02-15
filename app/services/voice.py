@@ -39,6 +39,12 @@ def _extract_audio_from_partial_json(text: str) -> str:
     match = re.search(r'"audio"\s*:\s*"((?:[^"\\]|\\.)*)', text)
     return match.group(1) if match else ""
 
+
+def _voice_output_dict(audio: str, end_interaction: bool, language: str) -> dict:
+    """Build the voice response dict with all required keys (audio, end_interaction, language)."""
+    return {"audio": audio, "end_interaction": end_interaction, "language": language}
+
+
 async def stream_voice_message(
     query: str,
     session_id: str,
@@ -77,7 +83,7 @@ async def stream_voice_message(
                 audio = _extract_audio_from_partial_json(text_buffer)
                 if audio and audio != prev_audio:
                     prev_audio = audio
-                    output_dict = {"audio": recording_prefix + audio, "end_interaction": False}
+                    output_dict = _voice_output_dict(recording_prefix + audio, False, target_lang)
                     yield json.dumps(output_dict, ensure_ascii=False)
 
         elif kind == 'function_tool_result':
@@ -90,12 +96,21 @@ async def stream_voice_message(
             final_output = agent_result.output
             new_messages = agent_result.new_messages()
 
-    # Yield the final complete output
+    # Yield the final complete output; always include language (use target_lang as source of truth)
     if final_output:
-        audio_text = recording_prefix + (final_output.audio or "")
-        output_dict = {"audio": audio_text, "end_interaction": final_output.end_interaction}
+        if isinstance(final_output, dict):
+            audio_text = recording_prefix + (final_output.get("audio") or "")
+            end_flag = final_output.get("end_interaction", False)
+            out_lang = final_output.get("language") or target_lang
+        else:
+            audio_text = recording_prefix + (final_output.audio or "")
+            end_flag = getattr(final_output, "end_interaction", False)
+            out_lang = getattr(final_output, "language", None) or target_lang
+        if out_lang not in ("en", "hi"):
+            out_lang = target_lang if target_lang in ("en", "hi") else "hi"
+        output_dict = _voice_output_dict(audio_text, end_flag, out_lang)
         yield json.dumps(output_dict, ensure_ascii=False)
-        logger.info(f"Streaming complete - end_interaction: {final_output.end_interaction}")
+        logger.info(f"Streaming complete - end_interaction: {end_flag}, language: {out_lang}")
 
     # Update message history
     if new_messages:

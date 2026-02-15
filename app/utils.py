@@ -65,7 +65,7 @@ def _get_system_prompt_content(target_lang: str = "hi") -> str:
     return get_prompt(prompt_name, context={'today_date': get_today_date_str()})
 
 
-def _create_welcome_messages(user_message: str, assistant_message: str, system_prompt: str = None) -> List[ModelMessage]:
+def _create_welcome_messages(user_message: str, assistant_message: str, system_prompt: str = None, language: str = "hi") -> List[ModelMessage]:
     """Create default welcome message pair for new sessions.
 
     The assistant message is wrapped in VoiceOutput JSON format so the model
@@ -75,7 +75,7 @@ def _create_welcome_messages(user_message: str, assistant_message: str, system_p
     if system_prompt:
         messages.append(ModelRequest(parts=[SystemPromptPart(content=system_prompt)]))
     user_msg = ModelRequest(parts=[UserPromptPart(content=user_message)])
-    voice_output_json = json.dumps({"audio": assistant_message, "end_interaction": False}, ensure_ascii=False)
+    voice_output_json = json.dumps({"audio": assistant_message, "end_interaction": False, "language": language}, ensure_ascii=False)
     assistant_msg = ModelResponse(parts=[TextPart(content=voice_output_json)])
     messages.extend([user_msg, assistant_msg])
     return messages
@@ -94,7 +94,8 @@ async def _get_message_history(session_id: str, target_lang: str = "hi") -> List
     welcome_msg_pair = _create_welcome_messages(
         welcome["user"],
         welcome["assistant"],
-        system_prompt=system_prompt_content
+        system_prompt=system_prompt_content,
+        language=target_lang
     )
 
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(welcome_msg_pair), ttl=DEFAULT_CACHE_TTL)

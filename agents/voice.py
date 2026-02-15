@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic_ai import Agent, RunContext
 from helpers.utils import get_prompt, get_today_date_str
 from agents.models import LLM_AGRINET_MODEL
@@ -16,9 +17,11 @@ class VoiceOutput(BaseModel):
     Attributes:
         audio: The audio content of the response. This is the text that will be converted to audio by the TTS engine.
         end_interaction: Set to true ONLY when the user explicitly indicates they have no more questions. Default is false.
+        language: Language of the response: 'en' for English or 'hi' for Hindi.
     """
     audio: str = Field(default=None, description="The audio content of the response. This is the text that will be converted to audio by the TTS engine.", min_length=1)
     end_interaction: bool = Field(default=False, description="Set to true ONLY when the user explicitly indicates they have no more questions. Defaults to false.")
+    language: Literal["en", "hi"] = Field(default="hi", description="Language of the response: 'en' for English or 'hi' for Hindi.")
 
 
 voice_agent = Agent(
