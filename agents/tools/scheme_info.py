@@ -268,23 +268,23 @@ def get_scheme_info(scheme_name: Optional[Literal["kcc", "pmkisan", "pmfby", "sh
         )
         
         if response.status_code != 200:
-            logger.error(f"Scheme API returned status code {response.status_code}")
+            logger.error(f"Scheme API returned status code {response.status_code}", exc_info=True)
             return "Scheme service unavailable. Retrying"
-            
+
         scheme_response = SchemeResponse.model_validate(response.json())
         return str(scheme_response)
-                
+
     except httpx.TimeoutException as e:
-        logger.error(f"Scheme API request timed out: {str(e)}")
+        logger.error(f"Scheme API request timed out: {e!r}", exc_info=True)
         return "Scheme request timed out. Please try again later."
-    
+
     except httpx.RequestError as e:
-        logger.error(f"Scheme API request failed: {e}")
+        logger.error(f"Scheme API request failed: {e!r}", exc_info=True)
         return f"Scheme request failed: {str(e)}"
-    
+
     except UnexpectedModelBehavior as e:
         logger.warning("Scheme request exceeded retry limit")
         return "Scheme data is temporarily unavailable. Please try again later."
     except Exception as e:
-        logger.error(f"Error getting scheme data: {e}")
+        logger.error(f"Error getting scheme data: {e!r}", exc_info=True)
         raise ModelRetry(f"Unexpected error in scheme request. {str(e)}") 

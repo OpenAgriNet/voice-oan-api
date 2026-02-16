@@ -39,52 +39,70 @@ async def chat_completions(
     session_id = x_session_id
     target_lang = x_language
     
-    # Validate language code
-    valid_languages = ["en", "hi","none"]
-    if target_lang not in valid_languages:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid language code '{target_lang}'. Supported languages: {', '.join(valid_languages)}"
-        )
-    
     logger.info(
-        f"OpenAI chat completion request - user_id: {user_id}, tenant_id: {tenant_id}, "
+        f"Voice API chat completions request - user_id: {user_id}, tenant_id: {tenant_id}, "
         f"session_id: {session_id}, language: {target_lang}, stream: {request.stream}, model: {request.model}"
     )
-    
-    # Validate messages
+
+    valid_languages = ["en", "hi", "none"]
+    if target_lang not in valid_languages:
+        logger.error(
+            f"Voice API invalid language code: {target_lang}, session_id: {session_id}",
+            stack_info=True,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid language code '{target_lang}'. Supported languages: {', '.join(valid_languages)}"
+        )
+
     if not request.messages:
+        logger.error(f"Voice API missing messages field, session_id: {session_id}", stack_info=True)
         raise HTTPException(status_code=400, detail="messages field is required")
-    
-    # Check if there's at least one user message
+
     user_messages = [msg for msg in request.messages if msg.role == "user"]
     if not user_messages:
+        logger.error(f"Voice API no user message in request, session_id: {session_id}", stack_info=True)
         raise HTTPException(status_code=400, detail="At least one user message is required")
-    
-    # Handle streaming response
+
     if request.stream:
-        return StreamingResponse(
-            generate_openai_stream(
+        logger.info(f"Voice API starting streaming response, session_id: {session_id}")
+        try:
+            return StreamingResponse(
+                generate_openai_stream(
+                    request=request,
+                    session_id=session_id,
+                    user_id=user_id,
+                    target_lang=target_lang
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
+            )
+        except Exception as e:
+            logger.error(
+                f"Voice API streaming error, session_id: {session_id}, error: {e!r}",
+                exc_info=True,
+            )
+            raise
+    else:
+        logger.info(f"Voice API starting non-streaming response, session_id: {session_id}")
+        try:
+            response = await generate_openai_response(
                 request=request,
                 session_id=session_id,
                 user_id=user_id,
                 target_lang=target_lang
-            ),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            }
-        )
-    else:
-        # Non-streaming response
-        response = await generate_openai_response(
-            request=request,
-            session_id=session_id,
-            user_id=user_id,
-            target_lang=target_lang
-        )
-        return response
+            )
+            logger.info(f"Voice API non-streaming response ready, session_id: {session_id}")
+            return response
+        except Exception as e:
+            logger.error(
+                f"Voice API non-streaming error, session_id: {session_id}, error: {e!r}",
+                exc_info=True,
+            )
+            raise
 
 @router.get("/")
 async def openai_root():

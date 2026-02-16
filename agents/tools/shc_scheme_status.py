@@ -586,26 +586,26 @@ async def check_shc_status(
             )
         
             if response.status_code != 200:
-                logger.error(f"Soil health card status API returned status code {response.status_code}")
+                logger.error(f"Soil health card status API returned status code {response.status_code}", exc_info=True)
                 return f"Soil health card status service unavailable. Status code: {response.status_code}"
-            
+
             scheme_response = SHCStatusResponse.model_validate(response.json())
-            
+
             # Cache HTML content and replace URLs
             modified_response = await cache_html_and_replace_urls(scheme_response, phone_number, cycle)
             return str(modified_response)
-                
+
     except httpx.TimeoutException as e:
-        logger.error(f"Soil health card status API request timed out: {str(e)}")
+        logger.error(f"Soil health card status API request timed out: {e!r}", exc_info=True)
         return "Soil health card status request timed out. Please try again later."
-    
+
     except httpx.RequestError as e:
-        logger.error(f"Soil health card status API request failed: {e}")
+        logger.error(f"Soil health card status API request failed: {e!r}", exc_info=True)
         return f"Soil health card status request failed: {str(e)}"
-    
+
     except UnexpectedModelBehavior as e:
         logger.warning("Soil health card status request exceeded retry limit")
         return "Soil health card status service is temporarily unavailable. Please try again later."
     except Exception as e:
-        logger.error(f"Error in soil health card status: {e}")
+        logger.error(f"Error in soil health card status: {e!r}", exc_info=True)
         raise ModelRetry(f"Unexpected error in soil health card status request. {str(e)}")

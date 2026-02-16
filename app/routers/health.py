@@ -3,6 +3,9 @@ from app.utils import cache
 from app.config import settings
 import time
 from typing import Dict, Any
+from helpers.utils import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -21,6 +24,10 @@ async def check_cache_connection() -> Dict[str, Any]:
             "latency_ms": 0  # TODO: Add actual latency measurement
         }
     except Exception as e:
+        logger.error(
+            f"Health check cache connection failed: {e!r}",
+            exc_info=True,
+        )
         return {
             "status": "unhealthy",
             "error": str(e)
@@ -41,13 +48,17 @@ async def readiness():
     Used by Kubernetes to know when to send traffic to the pod
     """
     cache_health = await check_cache_connection()
-    
+
     if cache_health["status"] != "healthy":
+        logger.error(
+            f"Readiness check failed: cache unhealthy, detail: {cache_health.get('error', cache_health)}",
+            stack_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"status": "not ready", "cache": cache_health}
         )
-    
+
     return {"status": "ready", "cache": cache_health}
 
 @router.get("/", status_code=status.HTTP_200_OK)
@@ -71,11 +82,14 @@ async def health_check():
         }
     }
     
-    # If any critical dependency is unhealthy, return 503
     if cache_health["status"] != "healthy":
+        logger.error(
+            f"Health check failed: cache unhealthy, detail: {cache_health.get('error', cache_health)}",
+            stack_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=health_status
         )
-    
+
     return health_status 
