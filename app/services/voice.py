@@ -57,7 +57,7 @@ async def stream_voice_message(
     deps = FarmerContext(query=query, lang_code=target_lang, session_id=session_id)
     # Send only the user's words—do not send "Selected Language" so the model does not assume;
     # language is set only when the user explicitly says "English" or "Hindi" in the conversation.
-    user_message = deps._query_string()
+    user_message = deps._query_string() if target_lang is "none" else deps.get_user_message()
     logger.info(f"Running agent with user message: {user_message}")
 
     trimmed_history = trim_history(history, max_tokens=80_000)

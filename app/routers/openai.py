@@ -14,7 +14,7 @@ async def chat_completions(
     x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
     x_user_id: str = Header(..., alias="X-User-ID"),
     x_session_id: str = Header(..., alias="X-Session-ID"),
-    x_language: str = Header("hi", alias="X-Language"),
+    x_language: str = Header("none", alias="X-Language"),
 ):
     """
     OpenAI-compatible chat completions endpoint with streaming support.
@@ -40,7 +40,7 @@ async def chat_completions(
     target_lang = x_language
     
     # Validate language code
-    valid_languages = ["en", "hi"]
+    valid_languages = ["en", "hi","none"]
     if target_lang not in valid_languages:
         raise HTTPException(
             status_code=400, 
