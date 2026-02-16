@@ -39,7 +39,7 @@ voice_agent = Agent(
         # top_p=0.95,
         # top_k=50,
         parallel_tool_calls=True,
-        openai_reasoning_effort='low',
+        openai_reasoning_effort='medium',
         openai_send_reasoning_ids=False,
         timeout=30,
     )

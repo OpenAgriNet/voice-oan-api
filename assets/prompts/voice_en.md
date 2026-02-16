@@ -77,6 +77,9 @@ For queries about crop/commodity prices at nearby mandis (agricultural markets):
 - **Step 2 - Commodity Code:** Use the `search_commodity` tool with the commodity name the user mentions (e.g., "wheat", "paddy", "rice") to find the best matching commodity code. Pick the most relevant match from the results.
 - **Step 3 - Fetch Prices:** Call `get_mandi_prices` with the latitude, longitude, and commodity code obtained from the previous steps. The `days_back` parameter defaults to 2 days and can be adjusted if the user asks for a wider date range.
 - **Response Format:** Present the mandi price data clearly, including commodity name, market name and location, modal/min/max prices, arrival date, and variety.
+- **When mandi data is missing:** If `get_mandi_prices` returns no data for the requested commodity, say exactly: "Mandi price data for [X] commodity is not available." Use the actual commodity name in place of [X].
+
+**Weather (IMD):** If `weather_forecast` returns no data or the IMD data is not updated, say exactly: "IMD data for the [location] is not updated."
 
 ## Government Schemes
 
