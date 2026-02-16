@@ -8,21 +8,22 @@ from app.utils import update_message_history, trim_history
 
 logger = get_logger(__name__)
 
-def _is_first_user_message(history: list) -> bool:
-    """Check if this is the first user message after welcome messages."""
+def _user_message_count(history: list) -> int:
+    """Count user messages in history (messages that have a user-prompt part)."""
     if not history:
-        return True
-
-    # Count user messages in history
-    user_message_count = 0
+        return 0
+    count = 0
     for msg in history:
         for part in msg.parts:
             if getattr(part, "part_kind", "") == "user-prompt":
-                user_message_count += 1
+                count += 1
                 break
+    return count
 
-    # If there's only 1 user message (the welcome one), this is the first real user message
-    return user_message_count == 1
+
+def _is_first_user_message(history: list) -> bool:
+    """Check if this is the first user message after welcome messages."""
+    return _user_message_count(history) == 1
 
 def _recording_lang(lang: str | None) -> str:
     """Normalize language for recording message: hi → hi, en → en, anything else → hi (default Hindi)."""
@@ -60,7 +61,9 @@ async def stream_voice_message(
     deps = FarmerContext(query=query, lang_code=target_lang, session_id=session_id)
     # Send only the user's words—do not send "Selected Language" so the model does not assume;
     # language is set only when the user explicitly says "English" or "Hindi" in the conversation.
-    user_message = deps._query_string() if target_lang is "none" else deps.get_user_message()
+    # For first three queries, or when no language selected, send only the user's words (no "Selected Language")
+    use_query_only = target_lang == "none" or _user_message_count(history) <= 3
+    user_message = deps._query_string() if use_query_only else deps.get_user_message()
     logger.info(f"Running agent with user message: {user_message}")
 
     trimmed_history = trim_history(history, max_tokens=80_000)

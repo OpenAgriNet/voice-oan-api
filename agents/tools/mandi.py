@@ -281,8 +281,8 @@ class MandiRequest(BaseModel):
             Dict[str, Any]: The dictionary representation of the request payload.
         """
         now = datetime.now(timezone.utc)
-        start_date = "2025-08-01T00:00:00.000Z"
-        end_date = "2025-08-01T23:59:59.999Z"
+        start_date = (now - timedelta(days=self.days_back)).strftime("%Y-%m-%dT00:00:00.000Z")
+        end_date = now.strftime("%Y-%m-%dT00:00:00.000Z")
 
         return {
             "context": {
