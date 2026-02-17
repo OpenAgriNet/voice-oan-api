@@ -3,82 +3,54 @@ name: Build and Push to GCP Artifact Registry
 on:
   push:
     branches:
-      - bh-voice-prod
-      - bh-voice-dev
+      - main
+      - bh-dev
   pull_request:
     branches:
-      - bh-voice-prod
-      - bh-voice-dev
+      - main
+      - bh-dev
 
 env:
-  BASE_IMAGE_NAME: bh-voice-api
+  BASE_IMAGE_NAME: voice-oan-api
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name }}
-
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Upload app artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: app
-          path: .
-          retention-days: 7
-
-  docker-push:
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'push'
-    environment: ${{ github.ref_name }}
-
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Extract app version
-        id: app-version
-        run: |
-          if [ -f pyproject.toml ]; then
-            VERSION=$(python -c "import tomllib; f=open('pyproject.toml','rb'); print(tomllib.load(f)['project']['version'])")
-          else
-            VERSION="0.0.0"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Set image name and tags based on branch
         id: set-tags
         run: |
-          BRANCH="${{ github.ref_name }}"
-          BUILD_TYPE=$(echo "$BRANCH" | awk -F'-' '{print $NF}')
+          # Determine the branch name depending on event type
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BRANCH="${{ github.base_ref }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          
+          echo "Selected Branch: $BRANCH"
+          
+          BUILD_TAG=$(echo "$BRANCH" | sed 's/\//-/g')
+          # Extract simple tag (e.g., bh-dev -> dev, main -> main)
+          if [[ "$BRANCH" == "bh-dev" ]]; then
+              SIMPLE_TAG="dev"
+          else
+              SIMPLE_TAG=$(echo "$BRANCH" | sed 's/^.*-//')
+          fi
 
           echo "IMAGE_NAME=${{ env.BASE_IMAGE_NAME }}" >> $GITHUB_OUTPUT
-          echo "BUILD_TAG=${BUILD_TYPE}" >> $GITHUB_OUTPUT
-          echo "LATEST_TAG=${BUILD_TYPE}-latest" >> $GITHUB_OUTPUT
-
-      - name: Download app artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: app
-          path: .
+          echo "BUILD_TAG=${BUILD_TAG}" >> $GITHUB_OUTPUT
+          echo "SIMPLE_TAG=${SIMPLE_TAG}" >> $GITHUB_OUTPUT
+          echo "LATEST_TAG=${SIMPLE_TAG}-latest" >> $GITHUB_OUTPUT
 
       - name: Authenticate to Google Cloud
+        id: auth
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -89,19 +61,25 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and Push Docker image
+      - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
+          push: false
+          load: true
           tags: |
             ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.LATEST_TAG }}
-            ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.app-version.outputs.VERSION }}-${{ steps.set-tags.outputs.BUILD_TAG }}
-            ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ github.sha }}
             ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.BUILD_TAG }}
+            ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.SIMPLE_TAG }}
+            ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ github.sha }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Push Docker image
+        if: github.event_name == 'push'
+        run: |
+          docker push ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.LATEST_TAG }}
+          docker push ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.BUILD_TAG }}
+          docker push ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.SIMPLE_TAG }}
+          docker push ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ github.sha }}
