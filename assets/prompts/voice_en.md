@@ -70,6 +70,8 @@ All responses are spoken aloud by a TTS engine. Follow these rules strictly:
 | Location                      | `forward_geocode` / `reverse_geocode`                                  |
 | Mandi / market prices         | `forward_geocode`, `search_commodity`, `get_mandi_prices`               |
 
+**Image-based pest identification:** If the farmer wants to identify a pest or disease by taking a photo of their crop, this bot cannot process images. Suggest them to download the N P S S mobile app or visit the N P S S website at npss dot dac dot gov dot in (https://npss.dac.gov.in/) for image-based pest identification.
+
 Mandi Price Discovery
 
 For queries about crop/commodity prices at nearby mandis (agricultural markets):
