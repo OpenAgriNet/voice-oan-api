@@ -3,15 +3,15 @@ name: Build and Push to GCP Artifact Registry
 on:
   push:
     branches:
-      - bh-voice-prod
-      - bh-voice-dev
+      - main
+      - dev
   pull_request:
     branches:
-      - bh-voice-prod
-      - bh-voice-dev
+      - main
+      - dev
 
 env:
-  BASE_IMAGE_NAME: bh-voice-api
+  BASE_IMAGE_NAME: voice-oan-api
 
 jobs:
   build:
@@ -52,25 +52,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract app version
-        id: app-version
-        run: |
-          if [ -f pyproject.toml ]; then
-            VERSION=$(python -c "import tomllib; f=open('pyproject.toml','rb'); print(tomllib.load(f)['project']['version'])")
-          else
-            VERSION="0.0.0"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Set image name and tags based on branch
         id: set-tags
         run: |
           BRANCH="${{ github.ref_name }}"
-          BUILD_TYPE=$(echo "$BRANCH" | awk -F'-' '{print $NF}')
+          SANITIZED_BRANCH=$(echo "$BRANCH" | sed 's/\//-/g')
 
           echo "IMAGE_NAME=${{ env.BASE_IMAGE_NAME }}" >> $GITHUB_OUTPUT
-          echo "BUILD_TAG=${BUILD_TYPE}" >> $GITHUB_OUTPUT
-          echo "LATEST_TAG=${BUILD_TYPE}-latest" >> $GITHUB_OUTPUT
+          echo "BUILD_TAG=${SANITIZED_BRANCH}" >> $GITHUB_OUTPUT
+          echo "LATEST_TAG=${SANITIZED_BRANCH}-latest" >> $GITHUB_OUTPUT
 
       - name: Download app artifacts
         uses: actions/download-artifact@v4
@@ -99,7 +89,6 @@ jobs:
           push: true
           tags: |
             ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.LATEST_TAG }}
-            ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.app-version.outputs.VERSION }}-${{ steps.set-tags.outputs.BUILD_TAG }}
             ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ github.sha }}
             ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.BUILD_TAG }}
           platforms: linux/amd64
