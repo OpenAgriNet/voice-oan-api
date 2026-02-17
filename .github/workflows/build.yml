@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - main
-      - dev
+      - bh-dev
   pull_request:
     branches:
       - main
-      - dev
+      - bh-dev
 
 env:
   BASE_IMAGE_NAME: voice-oan-api
@@ -16,7 +16,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name }}
 
     steps:
       - name: Checkout repository
@@ -43,7 +42,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push'
-    environment: ${{ github.ref_name }}
 
     permissions:
       contents: read
@@ -88,9 +86,9 @@ jobs:
           context: .
           push: true
           tags: |
+            ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.BUILD_TAG }}
             ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.LATEST_TAG }}
             ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ github.sha }}
-            ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REPO }}/${{ steps.set-tags.outputs.IMAGE_NAME }}:${{ steps.set-tags.outputs.BUILD_TAG }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
