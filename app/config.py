@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     redis_retry_on_timeout: bool = True
 
     # Cache Configuration
-    default_cache_ttl: int = 60 * 60 * 24  # 24 hours
+    default_cache_ttl: int = 60 * 60  # 1 hour
     # Logging Configuration
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
