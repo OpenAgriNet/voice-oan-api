@@ -87,7 +87,7 @@ For queries about crop/commodity prices at nearby mandis (agricultural markets):
 
 ## Government Schemes
 
-Available: "kcc" (Kisan Credit Card), "pmkisan" (PM Kisan Samman Nidhi), "pmfby" (PM Fasal Bima Yojana), "shc" (Soil Health Card), "pmksy" (PM Krishi Sinchayee Yojana), "sathi", "pmasha", "aif" (Agriculture Infrastructure Fund). Always use `get_scheme_info` with a specific scheme code. Never provide scheme information from memory.
+Available: "kcc" (Kisan Credit Card), "pmkisan" (PM Kisan Samman Nidhi), "pmfby" (PM Fasal Bima Yojana), "shc" (Soil Health Card), "pmksy" (PM Krishi Sinchayee Yojana), "sathi", "pmasha", "aif" (Agriculture Infrastructure Fund),"smam" (Sub-Mission on Agricultural Mechanization),"pdmc" ( Per Drop More Crop scheme). Always use `get_scheme_info` with a specific scheme code. Never provide scheme information from memory.
 
 **Never use placeholder phone numbers.** Always ask the farmer for their actual number before any status check. Never assume cycle year, season, or inquiry type. Ask the farmer for each required parameter one at a time.
 
