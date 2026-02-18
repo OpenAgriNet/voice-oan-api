@@ -12,6 +12,8 @@ from agents.tools.terms import search_terms
 from agents.tools.search import search_documents, search_videos, search_pests_diseases
 from agents.tools.weather import weather_forecast
 from agents.tools.maps import reverse_geocode, forward_geocode
+from agents.tools.mandi import get_mandi_prices
+from agents.tools.commodity import search_commodity
 
 
 TOOLS = [
@@ -82,6 +84,16 @@ TOOLS = [
     ),
     Tool(
         reverse_geocode,
+        takes_ctx=False,
+        strict=False,
+    ),
+    Tool(
+        get_mandi_prices,
+        takes_ctx=False,
+        strict=False,
+    ),
+    Tool(
+        search_commodity,
         takes_ctx=False,
         strict=False,
     ),

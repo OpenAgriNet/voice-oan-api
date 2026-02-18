@@ -48,5 +48,8 @@ async def send_telemetry(telemetry_data: Dict) -> Dict:
         return result
         
     except Exception as e:
-        logger.error(f"Error sending telemetry: {str(e)}")
+        logger.error(
+            f"Error sending telemetry: {e!r}",
+            exc_info=True,
+        )
         return {"error": str(e)} 

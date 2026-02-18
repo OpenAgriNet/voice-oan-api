@@ -1,10 +1,1 @@
-{
-  "hi": {
-      "user": "नमस्ते",
-      "assistant": " नमस्कार। मैं भारती हूँ, कृषि एवं किसान कल्याण मंत्रालय द्वारा विकसित आपकी डिजिटल कृषि सहायक हूँ।मैं आपको मौसम, फसल सलाह, मंडी भाव और सरकारी योजनाओं की जानकारी दे सकती हूँ।,कृपया बताइए, मैं आपकी कैसे सहायता कर सकती हूँ?"
-    },
-    "en": {
-      "user": "Hello",
-      "assistant": "Namaskar. You have called Bharati, your digital farming assistant developed by the Ministry of Agriculture Department and farmer's welfare. I can help you with weather, crop advice, Mandi price and government schemes.Please tell me, how can I help you today?"
-    }
-}
+{"hi":{"user":"नमस्ते","assistant":" नमस्कार। मैं भारती हूँ, कृषि एवं किसान कल्याण मंत्रालय द्वारा विकसित आपकी डिजिटल कृषि सहायक हूँ। मैं आपको मौसम, फसल सलाह, मंडी भाव और सरकारी योजनाओं की जानकारी दे सकती हूँ।"},"en":{"user":"Hello","assistant":"Namaskar. You have called Bharati, your digital farming assistant developed by the Ministry of Agriculture and farmer's welfare. I can help you with weather, crop advice, Mandi price and government schemes."}}

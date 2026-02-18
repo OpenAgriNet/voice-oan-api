@@ -56,5 +56,8 @@ async def log_audio_task(
         return s3_result
         
     except Exception as e:
-        logger.error(f"Error in log_audio_task: {str(e)}")
+        logger.error(
+            f"Error in log_audio_task: {e!r}",
+            exc_info=True,
+        )
         return {"error": str(e)} 

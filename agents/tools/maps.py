@@ -125,16 +125,19 @@ async def forward_geocode(place_name: str) -> str:
             logger.warning(f"Photon bad request for '{place_name}': {e.response.text}")
             return f"Invalid geocoding request for '{place_name}'. Please check the place name and try again."
         else:
-            logger.error(f"Photon server error ({status}) for '{place_name}': {e.response.text}")
+            logger.error(
+                f"Photon server error ({status}) for '{place_name}': {e.response.text}",
+                exc_info=True,
+            )
             return f"Unable to find location for '{place_name}'. Geocoding service returned an error. Please try again later."
     except httpx.TimeoutException:
-        logger.error(f"Photon timeout for '{place_name}'")
+        logger.error(f"Photon timeout for '{place_name}'", exc_info=True)
         return f"Unable to find location for '{place_name}'. The geocoding service timed out. Please try again later."
     except httpx.ConnectError:
-        logger.error(f"Photon connection error for '{place_name}'")
+        logger.error(f"Photon connection error for '{place_name}'", exc_info=True)
         return f"Unable to find location for '{place_name}'. Could not connect to the geocoding service."
     except Exception as e:
-        logger.error(f"Unexpected error during forward geocoding for '{place_name}': {e}")
+        logger.error(f"Unexpected error during forward geocoding for '{place_name}': {e!r}", exc_info=True)
         return f"Unable to find location for '{place_name}'. Please try again later."
 
 
@@ -168,14 +171,17 @@ async def reverse_geocode(latitude: float, longitude: float) -> Optional[Locatio
             return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"Photon HTTP error ({e.response.status_code}) for ({latitude}, {longitude}): {e.response.text}")
+        logger.error(
+            f"Photon HTTP error ({e.response.status_code}) for ({latitude}, {longitude}): {e.response.text}",
+            exc_info=True,
+        )
         return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")
     except httpx.TimeoutException:
-        logger.error(f"Photon timeout for ({latitude}, {longitude})")
+        logger.error(f"Photon timeout for ({latitude}, {longitude})", exc_info=True)
         return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")
     except httpx.ConnectError:
-        logger.error(f"Photon connection error for ({latitude}, {longitude})")
+        logger.error(f"Photon connection error for ({latitude}, {longitude})", exc_info=True)
         return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")
     except Exception as e:
-        logger.error(f"Unexpected error during reverse geocoding for ({latitude}, {longitude}): {e}")
+        logger.error(f"Unexpected error during reverse geocoding for ({latitude}, {longitude}): {e!r}", exc_info=True)
         return Location(latitude=latitude, longitude=longitude, place_name="Unknown Location")

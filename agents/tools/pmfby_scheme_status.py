@@ -460,23 +460,23 @@ def check_pmfby_status(
         )
         
         if response.status_code != 200:
-            logger.error(f"PFMBY status API returned status code {response.status_code}")
+            logger.error(f"PFMBY status API returned status code {response.status_code}", exc_info=True)
             return f"PFMBY status service unavailable. Status code: {response.status_code}"
-            
+
         scheme_response = StatusResponse.model_validate(response.json())
         return str(scheme_response)
-                
+
     except httpx.TimeoutException as e:
-        logger.error(f"PFMBY status API request timed out: {str(e)}")
+        logger.error(f"PFMBY status API request timed out: {e!r}", exc_info=True)
         return "PFMBY status request timed out. Please try again later."
-    
+
     except httpx.RequestError as e:
-        logger.error(f"PFMBY status API request failed: {e}")
+        logger.error(f"PFMBY status API request failed: {e!r}", exc_info=True)
         return f"PFMBY status request failed: {str(e)}"
-    
+
     except UnexpectedModelBehavior as e:
         logger.warning("PFMBY status request exceeded retry limit")
         return "PFMBY status service is temporarily unavailable. Please try again later."
     except Exception as e:
-        logger.error(f"Error in PFMBY status: {e}")
+        logger.error(f"Error in PFMBY status: {e!r}", exc_info=True)
         raise ModelRetry(f"Unexpected error in PFMBY status request. {str(e)}")
