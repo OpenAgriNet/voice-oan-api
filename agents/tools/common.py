@@ -88,7 +88,7 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
                 response.status_code,
                 response_body,
             )
-    except httpx.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error(
             "Error sending nudge message; session_id=%s process_id=%s error=%s",
             session_id,
