@@ -5,7 +5,7 @@ Tools for the BharatVistaar AI Agent.
 from pydantic_ai import Tool
 from agents.tools.scheme_info import get_scheme_info
 from agents.tools.pmkisan_scheme_status import initiate_pm_kisan_status_check, check_pm_kisan_status_with_otp
-from agents.tools.pmfby_scheme_status import check_pmfby_status
+from agents.tools.pmfby_scheme_status import initiate_pmfby_status_check, check_pmfby_status_with_otp
 from agents.tools.shc_scheme_status import check_shc_status
 from agents.tools.grievance import submit_grievance, grievance_status
 from agents.tools.terms import search_terms
@@ -33,8 +33,13 @@ TOOLS = [
         strict=False,
     ),
     Tool(
-        check_pmfby_status,
-        takes_ctx=False,
+        initiate_pmfby_status_check,
+        takes_ctx=True,
+        strict=False,
+    ),
+    Tool(
+        check_pmfby_status_with_otp,
+        takes_ctx=True,
         strict=False,
     ),
     Tool(
