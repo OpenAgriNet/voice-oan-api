@@ -39,6 +39,8 @@ async def stream_voice_message(
     history: list,
     provider: Optional[Literal['RAYA', 'RINGG']] = None,
     process_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    user_info: Optional[dict] = None,
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming chat messages."""
     # Generate a unique content ID for this query
