@@ -90,4 +90,10 @@ class Settings(BaseSettings):
         env_file = ".env"
         extra = 'ignore'  # Ignore extra fields from .env
 
-settings = Settings() 
+settings = Settings()
+
+
+def get_default_httpx_timeout():
+    """Default timeout for external HTTP calls (e.g. scheme/BAP APIs)."""
+    import httpx
+    return httpx.Timeout(20.0, read=30.0)
