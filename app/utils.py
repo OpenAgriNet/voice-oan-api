@@ -2,12 +2,11 @@ from typing import List, Dict
 import json
 import os
 from app.core.cache import cache  # Import cache instance from core
-from helpers.utils import get_logger, count_tokens_for_part, get_prompt, get_today_date_str
+from helpers.utils import get_logger, count_tokens_for_part
 from copy import deepcopy
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelMessage,
-    SystemPromptPart,
     UserPromptPart,
     TextPart,
     ModelRequest,
@@ -17,7 +16,7 @@ from pydantic_core import to_jsonable_python
 
 HISTORY_SUFFIX = "_SVA"
 
-DEFAULT_CACHE_TTL = 60*60*24 # 24 hours
+DEFAULT_CACHE_TTL = 60*60*1 # 1 hour
 
 logger = get_logger(__name__)
 
@@ -58,23 +57,15 @@ async def set_cache(key: str, value, ttl: int = DEFAULT_CACHE_TTL):
     return True
 
 
-def _get_system_prompt_content(target_lang: str = "hi") -> str:
-    """Get system prompt content for the given language."""
-    prompt_map = {'hi': 'voice_hi', 'en': 'voice_en'}
-    prompt_name = prompt_map.get(target_lang, 'voice_hi')
-    return get_prompt(prompt_name, context={'today_date': get_today_date_str()})
-
-
-def _create_welcome_messages(user_message: str, assistant_message: str, system_prompt: str = None, language: str = "hi") -> List[ModelMessage]:
+def _create_welcome_messages(user_message: str, assistant_message: str, language: str = "hi") -> List[ModelMessage]:
     """Create default welcome message pair for new sessions.
 
     The assistant message is wrapped in VoiceOutput JSON format so the model
     sees the expected output pattern and continues producing JSON (not plain text).
     Language is omitted from the welcome message; the user has not yet chosen.
+    System prompt is not included here; the agent applies it via instructions.
     """
     messages = []
-    if system_prompt:
-        messages.append(ModelRequest(parts=[SystemPromptPart(content=system_prompt)]))
     user_msg = ModelRequest(parts=[UserPromptPart(content=user_message)])
     voice_output_json = json.dumps({"audio": assistant_message, "end_interaction": False}, ensure_ascii=False)
     assistant_msg = ModelResponse(parts=[TextPart(content=voice_output_json)])
@@ -90,12 +81,10 @@ async def _get_message_history(session_id: str, target_lang: str = "hi") -> List
 
     welcome_messages = _load_welcome_messages()
     welcome = welcome_messages.get(target_lang, welcome_messages["hi"])
-    system_prompt_content = _get_system_prompt_content(target_lang)
 
     welcome_msg_pair = _create_welcome_messages(
         welcome["user"],
         welcome["assistant"],
-        system_prompt=system_prompt_content,
         language=target_lang
     )
 
@@ -218,7 +207,7 @@ def group_convos(history: List[ModelMessage]) -> List[List[ModelMessage]]:
 
     Each conversation starts with a message containing a UserPromptPart.
     The first group includes everything before the second user message
-    (system prompt + welcome exchange).
+    (welcome exchange).
     """
     if not history:
         return []
@@ -279,7 +268,7 @@ def trim_history(
         tokens = convo_token_usage(convo)
         convo_infos.append({"messages": convo, "tokens": tokens})
 
-    # Always keep convo 0 (system + first interaction)
+    # Always keep convo 0 (first interaction / welcome exchange)
     first = convo_infos[0]
     rest = convo_infos[1:]
 

@@ -1,13 +1,32 @@
 import uuid
+import json
 from datetime import datetime, timezone
 from helpers.utils import get_logger
 import httpx
+from app.config import get_default_httpx_timeout
 from pydantic import BaseModel, AnyHttpUrl
 from typing import List, Optional, Dict, Any, Literal, ClassVar
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
+from pydantic_ai.tools import RunContext
+from agents.deps import FarmerContext
 import os
 
 logger = get_logger(__name__)
+
+
+def generate_transaction_id(session_id: str, key: str) -> str:
+    """Generate a consistent transaction ID for init and status calls."""
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, (session_id + key)))
+
+
+def normalize_phone_for_api(phone: str) -> str:
+    """Strip to digits only. BAP expects 10-digit Indian number (no country code), e.g. 9953947674."""
+    digits = "".join(c for c in str(phone).strip() if c.isdigit())
+    if len(digits) == 12 and digits.startswith("91"):
+        return digits[2:]
+    if len(digits) == 11 and digits.startswith("0"):
+        return digits[1:]
+    return digits if digits else phone.strip()
 
 # -----------------------
 # Basic Models
@@ -326,34 +345,20 @@ class StatusResponse(BaseModel):
             return "No data available."
         return "\n".join(str(response) for response in self.responses if str(response))
 
-class PMfbyStatusRequest(BaseModel):
-    """PMfbyStatusRequest model for checking PFMBY scheme status.
+class PMfbyInitRequest(BaseModel):
+    """PMfbyInitRequest model for initiating PMFBY OTP (get_otp).
     
-    Args:
-        inquiry_type (str): Type of inquiry - 'policy_status' or 'claim_status' (required)
-        year (str): Year for which status is requested (required)
-        season (str): Season for which status is requested (required):
-            - "Kharif" - Kharif season
-            - "Rabi" - Rabi season
-            - "Summer" - Summer season
-        phone_number (str): Phone number registered with the scheme (required)
+    Init only needs phone_number; inquiry_type, year, season are for status call.
+    Matches BAP init spec: request_type=get_otp, provider=pmfby-agri, timestamp=Unix.
     """
-    inquiry_type: Literal["policy_status", "claim_status"]  # Required field, no default
-    year: str  # Required field, no default
-    season: Literal["Kharif", "Rabi", "Summer"]  # Required field, no default
-    phone_number: str  # Required field, no default
-    
+    phone_number: str
+    transaction_id: str
+
     def get_payload(self) -> Dict[str, Any]:
-        """
-        Convert the PMfbyStatusRequest object to a dictionary.
-        
-        Returns:
-            Dict[str, Any]: The dictionary representation of the PMfbyStatusRequest object
-        """
         now = datetime.now(timezone.utc)
-        # Convert to Unix timestamp (seconds since epoch) as string
-        unix_timestamp = str(int(now.timestamp()))
-        
+        phone = normalize_phone_for_api(self.phone_number)
+        # BAP init expects Unix timestamp as string (e.g. "1770634282")
+        timestamp_str = str(int(now.timestamp()))
         return {
             "context": {
                 "domain": "schemes:vistaar",
@@ -363,57 +368,95 @@ class PMfbyStatusRequest(BaseModel):
                 "bap_uri": os.getenv("BAP_URI"),
                 "bpp_id": os.getenv("BPP_ID"),
                 "bpp_uri": os.getenv("BPP_URI"),
-                "transaction_id": str(uuid.uuid4()),
+                "transaction_id": self.transaction_id,
                 "message_id": str(uuid.uuid4()),
-                "timestamp": unix_timestamp,
+                "timestamp": timestamp_str,
                 "ttl": "PT10M",
                 "location": {
-                    "country": {
-                        "code": "IND"
-                    },
-                    "city": {
-                        "code": "*"
-                    }
+                    "country": {"code": "IND"},
+                    "city": {"code": "*"}
                 }
             },
             "message": {
                 "order": {
-                    "provider": {
-                        "id": "schemes-agri"
-                    },
-                    "items": [
-                        {
-                            "id": "pmfby"
-                        }
-                    ],
+                    "provider": {"id": "pmfby-agri"},
+                    "items": [{"id": "pmfby"}],
                     "fulfillments": [
                         {
                             "customer": {
                                 "person": {
                                     "tags": [
-                                        {
-                                            "descriptor": {
-                                                "code": "inquiry_type"
-                                            },
-                                            "value": self.inquiry_type
-                                        },
-                                        {
-                                            "descriptor": {
-                                                "code": "year"
-                                            },
-                                            "value": self.year
-                                        },
-                                        {
-                                            "descriptor": {
-                                                "code": "season"
-                                            },
-                                            "value": self.season
-                                        }
+                                        {"descriptor": {"code": "request_type"}, "value": "get_otp"},
+                                        {"descriptor": {"code": "phone_number"}, "value": phone}
                                     ]
                                 },
-                                "contact": {
-                                    "phone": self.phone_number
-                                }
+                                "contact": {"phone": phone}
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+
+class PMfbyStatusWithOtpRequest(BaseModel):
+    """PMfbyStatusWithOtpRequest model for status call with OTP validation.
+    
+    Args:
+        order_id (str): OTP received via SMS (used as order_id in API)
+        transaction_id (str): Same transaction_id used in init call
+        inquiry_type: policy_status or claim_status
+        year: Year for status
+        season: Kharif, Rabi, or Summer
+        phone_number: Phone number registered with scheme
+    """
+    order_id: str
+    transaction_id: str
+    inquiry_type: Literal["policy_status", "claim_status"]
+    year: str
+    season: Literal["Kharif", "Rabi", "Summer"]
+    phone_number: str
+
+    def get_payload(self) -> Dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        # BAP expects Unix timestamp as string (e.g. "1770623357")
+        timestamp_str = str(int(now.timestamp()))
+        phone = normalize_phone_for_api(self.phone_number)
+        return {
+            "context": {
+                "domain": "schemes:vistaar",
+                "action": "status",
+                "version": "1.1.0",
+                "bap_id": os.getenv("BAP_ID"),
+                "bap_uri": os.getenv("BAP_URI"),
+                "bpp_id": os.getenv("BPP_ID"),
+                "bpp_uri": os.getenv("BPP_URI"),
+                "transaction_id": self.transaction_id,
+                "message_id": str(uuid.uuid4()),
+                "timestamp": timestamp_str,
+                "ttl": "PT10M",
+                "location": {
+                    "country": {"code": "IND"},
+                    "city": {"code": "*"}
+                }
+            },
+            "message": {
+                "order_id": self.order_id,
+                "order": {
+                    "id": "order-1",
+                    "provider": {"id": "pmfby-agri"},
+                    "items": [{"id": "pmfby"}],
+                    "fulfillments": [
+                        {
+                            "customer": {
+                                "person": {
+                                    "tags": [
+                                        {"descriptor": {"code": "inquiry_type"}, "value": self.inquiry_type},
+                                        {"descriptor": {"code": "year"}, "value": self.year},
+                                        {"descriptor": {"code": "season"}, "value": self.season}
+                                    ]
+                                },
+                                "contact": {"phone": phone}
                             }
                         }
                     ]
@@ -425,58 +468,162 @@ class PMfbyStatusRequest(BaseModel):
 # Functions
 # -----------------------
 
-def check_pmfby_status(
+def initiate_pmfby_status_check(ctx: RunContext[FarmerContext], phone_number: str) -> str:
+    """Initiate PMFBY status check by sending OTP to farmer's mobile.
+    
+    Use this tool to initiate the process. Sends an OTP to the farmer's registered mobile.
+    After OTP is received, use check_pmfby_status_with_otp with the OTP and inquiry details.
+    
+    Args:
+        phone_number (str): Phone number registered with PMFBY (required)
+    
+    Returns:
+        str: Response from the scheme init service (OTP sent confirmation)
+    """
+    try:
+        session_id = ctx.deps.session_id
+        transaction_id = generate_transaction_id(session_id, phone_number)
+        
+        payload = PMfbyInitRequest(
+            phone_number=phone_number,
+            transaction_id=transaction_id
+        ).get_payload()
+        
+        endpoint = os.getenv("BAP_ENDPOINT").rstrip("/") + "/init"
+        logger.info(f"[PMFBY INIT] Request URL: {endpoint}")
+        logger.info(f"[PMFBY INIT] Request Payload: {json.dumps(payload, indent=2)}")
+        
+        response = httpx.post(
+            endpoint,
+            json=payload,
+            timeout=get_default_httpx_timeout()
+        )
+        
+        logger.info(f"[PMFBY INIT] Response Status: {response.status_code}")
+        logger.info(f"[PMFBY INIT] Response Payload: {response.text}")
+        
+        if response.status_code != 200:
+            logger.error(f"PMFBY init API returned status code {response.status_code}")
+            return f"PMFBY init service unavailable. Status code: {response.status_code}"
+        
+        response_text = response.text.strip()
+        if not response_text:
+            return "OTP has been sent to your registered mobile. Please enter the OTP you received to see your policy/claim status."
+        
+        try:
+            response_json = response.json()
+            scheme_response = StatusResponse.model_validate(response_json)
+            resp_str = str(scheme_response)
+            # Return actual API response so user sees errors (e.g. phone not registered, invalid number)
+            if resp_str and resp_str != "No data available.":
+                return resp_str
+            # Empty/minimal response usually means OTP sent
+            return "OTP has been sent to your registered mobile. Please enter the OTP you received to see your policy/claim status."
+        except json.JSONDecodeError:
+            logger.warning(f"[PMFBY INIT] Non-JSON response: {response_text[:300]}")
+            return "OTP has been sent to your registered mobile. Please enter the OTP you received to see your policy/claim status."
+                
+    except httpx.TimeoutException as e:
+        logger.error(f"PMFBY init API request timed out: {str(e)}")
+        return "PMFBY init request timed out. Please try again later."
+    
+    except httpx.RequestError as e:
+        logger.error(f"PMFBY init API request failed: {e}")
+        return f"PMFBY init request failed: {str(e)}"
+    
+    except Exception as e:
+        logger.error(f"Error in PMFBY init: {e}")
+        raise ModelRetry(f"Unexpected error in PMFBY init request. {str(e)}")
+
+
+def check_pmfby_status_with_otp(
+    ctx: RunContext[FarmerContext],
+    otp: str,
     phone_number: str,
     inquiry_type: Literal["policy_status", "claim_status"],
     year: str,
     season: Literal["Kharif", "Rabi", "Summer"]
 ) -> str:
-    """Check PFMBY scheme status (policy or claim).
+    """Check PMFBY status using OTP after initiating the OTP check.
     
-    Use this tool to check either policy status or claim status for a farmer's PFMBY scheme.
-    You must ask the user for inquiry_type, year, season, and phone_number if not provided.
+    Use this tool to check policy or claim status using the OTP received via SMS
+    after calling initiate_pmfby_status_check.
     
     Args:
-        phone_number (str): Phone number registered with the scheme (required)
-        inquiry_type (str): Type of inquiry - 'policy_status' or 'claim_status' (required). You must ask the user which type of inquiry they want.
-        year (str): Year for which status is requested (required). You must ask the user for the year.
-        season (str): Season for which status is requested (required). You must ask the user for the season (Kharif, Rabi, or Summer).
+        otp (str): 6-digit OTP received via SMS (used as order_id for API)
+        phone_number (str): Phone number registered with PMFBY (required)
+        inquiry_type (str): Type of inquiry - 'policy_status' or 'claim_status' (required)
+        year (str): Year for which status is requested (required)
+        season (str): Season - Kharif, Rabi, or Summer (required)
     
     Returns:
-        str: Detailed scheme status information based on the inquiry type
+        str: Detailed scheme status information
     """
     try:
-        payload = PMfbyStatusRequest(
+        otp_str = str(otp).strip() if otp else ""
+        if not otp_str:
+            raise ModelRetry("Invalid OTP. Please provide the OTP received via SMS.")
+        # PMFBY OTP is 6 digits only
+        digits = "".join(c for c in otp_str if c.isdigit())
+        if len(digits) != 6:
+            raise ModelRetry(
+                "PMFBY OTP must be exactly 6 digits. Please ask the farmer for the 6-digit OTP they received on their mobile."
+            )
+        otp_str = digits
+
+        session_id = ctx.deps.session_id
+        # Use same transaction_id key as init (phone_number only)
+        transaction_id = generate_transaction_id(session_id, phone_number)
+        
+        payload = PMfbyStatusWithOtpRequest(
+            order_id=otp_str,
+            transaction_id=transaction_id,
             inquiry_type=inquiry_type,
             year=year,
             season=season,
             phone_number=phone_number
         ).get_payload()
         
+        endpoint = os.getenv("BAP_ENDPOINT").rstrip("/") + "/status"
+        logger.info(f"[PMFBY STATUS] Request URL: {endpoint}")
+        logger.info(f"[PMFBY STATUS] Request Payload: {json.dumps(payload, indent=2)}")
+        
         response = httpx.post(
-            os.getenv("BAP_ENDPOINT").rstrip("/") + "/init",
+            endpoint,
             json=payload,
-            timeout=httpx.Timeout(10.0, read=15.0)
+            timeout=get_default_httpx_timeout()
         )
         
+        logger.info(f"[PMFBY STATUS] Response Status: {response.status_code}")
+        logger.info(f"[PMFBY STATUS] Response Payload: {response.text}")
+        
         if response.status_code != 200:
-            logger.error(f"PFMBY status API returned status code {response.status_code}", exc_info=True)
-            return f"PFMBY status service unavailable. Status code: {response.status_code}"
-
-        scheme_response = StatusResponse.model_validate(response.json())
-        return str(scheme_response)
-
+            logger.error(f"PMFBY status API returned status code {response.status_code}")
+            return f"PMFBY status service unavailable. Status code: {response.status_code}"
+        
+        response_text = response.text.strip()
+        if not response_text:
+            return "PMFBY status service returned empty response. Please try again later."
+        
+        try:
+            response_json = response.json()
+            scheme_response = StatusResponse.model_validate(response_json)
+            if not scheme_response._has_valid_data():
+                record_type = "policy" if inquiry_type == "policy_status" else "claim"
+                return f"No {record_type} record found for {year} {season}."
+            return str(scheme_response)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from PMFBY status API: {e}")
+            return "Invalid response from PMFBY status service. Please try again later."
+                
     except httpx.TimeoutException as e:
-        logger.error(f"PFMBY status API request timed out: {e!r}", exc_info=True)
-        return "PFMBY status request timed out. Please try again later."
-
+        logger.error(f"PMFBY status API request timed out: {str(e)}")
+        return "PMFBY status request timed out. Please try again later."
+    
     except httpx.RequestError as e:
-        logger.error(f"PFMBY status API request failed: {e!r}", exc_info=True)
-        return f"PFMBY status request failed: {str(e)}"
-
-    except UnexpectedModelBehavior as e:
-        logger.warning("PFMBY status request exceeded retry limit")
-        return "PFMBY status service is temporarily unavailable. Please try again later."
+        logger.error(f"PMFBY status API request failed: {e}")
+        return f"PMFBY status request failed: {str(e)}"
+    
     except Exception as e:
-        logger.error(f"Error in PFMBY status: {e!r}", exc_info=True)
-        raise ModelRetry(f"Unexpected error in PFMBY status request. {str(e)}")
+        logger.error(f"Error in PMFBY status: {e}")
+        raise ModelRetry(f"Unexpected error in PMFBY status request. {str(e)}")
