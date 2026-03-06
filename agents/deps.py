@@ -18,6 +18,7 @@ class FarmerContext(BaseModel):
     query: str = Field(description="The user's question.")
     lang_code: str = Field(description="The language code of the user's question.", default='hi')
     session_id: str = Field(description="The session ID for the conversation.")
+    user_id: str = Field(description="The user ID for the conversation.")
 
     def _language_string(self):
         """Get the language string for the agrinet agent."""
