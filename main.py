@@ -18,6 +18,7 @@ async def lifespan(app: FastAPI):
     print(f"🔐 Auth enabled: {settings.auth_enabled}")
     print(f"🔧 Debug mode: {settings.debug}")
     print(f"🌐 CORS origins: {settings.allowed_origins}")
+    print(f"📡 Chat completions: POST {settings.api_prefix}/v1/chat-dev/completions and POST /v1/chat-dev/completions")
     yield
     # Shutdown
     print(f"🛑 {settings.app_name} shutting down...")
@@ -51,6 +52,7 @@ async def root():
     }
 
 # Include all routers with API prefix from settings
-
 app.include_router(health.router, prefix=settings.api_prefix)
-app.include_router(openai.router, prefix=settings.api_prefix) 
+app.include_router(openai.router, prefix=settings.api_prefix)
+# Also mount v1 under root so /v1/chat-dev/completions works when proxy strips /api
+app.include_router(openai.router, prefix="") 
