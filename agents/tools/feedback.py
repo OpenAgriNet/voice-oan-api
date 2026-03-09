@@ -1,22 +1,16 @@
 """
 Feedback tool for collecting call feedback (like/dislike) and improvement suggestions before ending the interaction.
 """
-import os
 from typing import Literal, Optional
 
-import requests
 from pydantic import BaseModel, Field
 from pydantic_ai.tools import RunContext
 
 from agents.deps import FarmerContext
-from helpers.telemetry import TelemetryRequest, create_feedback_event
+from helpers.telemetry import TelemetryRequest, create_feedback_event, post_telemetry_payload
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
-
-TELEMETRY_API_URL = os.getenv(
-    "TELEMETRY_API_URL"
-)
 
 
 class FeedbackInput(BaseModel):
@@ -56,36 +50,26 @@ def submit_feedback(ctx: RunContext[FarmerContext], feedback: FeedbackInput) -> 
 
     ).strip()
 
-    # Build and send Ekstep telemetry (OE_ITEM_RESPONSE with type=Feedback)
+    # Build and send Ekstep telemetry (OE_ITEM_RESPONSE with type=Feedback), with retries on failure
     try:
         event = create_feedback_event(
             session_id=session_id,
             feedback_type=feedback_type,
             feedback_text=feedback_text,
             uid=user_id,
-            #rating=feedback.rating,
         )
         telemetry_request = TelemetryRequest(events=[event])
         payload = telemetry_request.model_dump(mode="json")
-        response = requests.post(
-            TELEMETRY_API_URL,
-            headers={
-                "Accept": "*/*",
-                "Content-Type": "application/json",
-                "X-Requested-With": "XMLHttpRequest",
-                "dataType": "json",
-            },
-            json=payload,
-            timeout=(30, 60),
-        )
-        if response.status_code == 200:
+        response = post_telemetry_payload(payload)
+        if response is not None and response.status_code == 200:
             logger.info("Feedback telemetry sent successfully")
-        else:
+        elif response is not None:
             logger.warning(
                 "Feedback telemetry returned status %s: %s",
                 response.status_code,
                 response.text[:200],
             )
+        # If response is None, post_telemetry_payload already logged the failure after retries
     except Exception as e:
         logger.exception("Failed to send feedback telemetry: %s", e)
 
