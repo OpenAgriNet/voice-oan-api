@@ -13,7 +13,7 @@ load_dotenv()
 logger = get_logger(__name__)
 
 # TODO: Make sure env has correct value
-TELEMETRY_API_URL = os.getenv("TELEMETRY_API_URL", "https://vistaar.kenpath.ai/observability-service/action/data/v3/telemetry")
+TELEMETRY_API_URL = os.getenv("TELEMETRY_API_URL")
 
 async def send_telemetry(telemetry_data: Dict) -> Dict:
     """

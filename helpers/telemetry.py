@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
 from enum import Enum
+import os
 from pydantic import BaseModel, Field, field_validator
 import hashlib
 import time
@@ -39,6 +40,7 @@ class Target(BaseModel):
     type: str
     parent: Optional[Dict[str, str]] = None
     questionsDetails: Optional[Dict[str, Any]] = None
+    telefeedbackDetails: Optional[Dict[str, Any]] = None
 
 
 class BaseEventData(BaseModel):
@@ -52,6 +54,11 @@ class ItemResponseEks(BaseEventData):
     qid: str
     type: str
     state: str
+
+
+class FeedbackEventEks(BaseEventData):
+    """Extended data for OE_ITEM_RESPONSE feedback events (eid=OE_ITEM_RESPONSE, target.type=TeleFeedback)"""
+    target: Target
 
 
 class EndEventEks(BaseEventData):
@@ -182,7 +189,7 @@ def create_event(
         did=did,
         edata=EData(eks=event_data)
     )
-    event.eid   = event.eid.value
+    # Keep eid as EventType so Pydantic serializes it correctly (str Enum → string in JSON)
     event.edata.eks = event.edata.eks.model_dump()
     return event
 
@@ -254,6 +261,55 @@ def create_item_response_event(
         gdata_id=gdata_id,
         gdata_ver=gdata_ver,
         timestamp=timestamp
+    )
+
+
+def create_feedback_event(
+    session_id: str,
+    feedback_type: str,
+    feedback_text: str,
+    uid: str,
+    channel: Optional[str] = None,
+    did: str = "DEFAULT-USER",
+    pdata_id: str = "BharatVistaar",
+    pdata_ver: str = "v0.1",
+    gdata_id: str = "content_id",
+    gdata_ver: str = "content_ver",
+    timestamp: Optional[int] = None,
+) -> TelemetryEvent:
+    """
+    Creates an OE_ITEM_RESPONSE telemetry event for feedback (Ekstep format).
+    feedback_type should be "like" or "dislike".
+    uid should be the user id passed from feedback (or context).
+    channel is read from TELEMETRY_CHANNEL env if not passed.
+    """
+    if channel is None:
+        channel = os.getenv(
+            "TELEMETRY_CHANNEL"
+        )
+    target = Target(
+        id="default",
+        ver="v0.1",
+        type="TeleFeedback",
+        parent={"id": "p1", "type": "default"},
+        telefeedbackDetails={
+            "feedbackText": feedback_text or "",
+            "sessionId": session_id,
+            "feedbackType": feedback_type,
+        },
+    )
+    return create_event(
+        event_type=EventType.OE_ITEM_RESPONSE,
+        event_data=FeedbackEventEks(target=target),
+        uid=uid,
+        sid=session_id,
+        channel=channel,
+        did=did,
+        pdata_id=pdata_id,
+        pdata_ver=pdata_ver,
+        gdata_id=gdata_id,
+        gdata_ver=gdata_ver,
+        timestamp=timestamp,
     )
 
 

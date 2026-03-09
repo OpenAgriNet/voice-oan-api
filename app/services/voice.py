@@ -58,7 +58,7 @@ async def stream_voice_message(
     history: list
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages using run_stream_events()."""
-    deps = FarmerContext(query=query, lang_code=target_lang, session_id=session_id)
+    deps = FarmerContext(query=query, lang_code=target_lang, session_id=session_id, user_id=user_id)
     # Send only the user's words—do not send "Selected Language" so the model does not assume;
     # language is set only when the user explicitly says "English" or "Hindi" in the conversation.
     # For first three queries, or when no language selected, send only the user's words (no "Selected Language")
