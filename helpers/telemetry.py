@@ -40,7 +40,7 @@ class Target(BaseModel):
     type: str
     parent: Optional[Dict[str, str]] = None
     questionsDetails: Optional[Dict[str, Any]] = None
-    feedbackDetails: Optional[Dict[str, Any]] = None
+    telefeedbackDetails: Optional[Dict[str, Any]] = None
 
 
 class BaseEventData(BaseModel):
@@ -57,7 +57,7 @@ class ItemResponseEks(BaseEventData):
 
 
 class FeedbackEventEks(BaseEventData):
-    """Extended data for OE_ITEM_RESPONSE feedback events (eid=OE_ITEM_RESPONSE, target.type=Feedback)"""
+    """Extended data for OE_ITEM_RESPONSE feedback events (eid=OE_ITEM_RESPONSE, target.type=TeleFeedback)"""
     target: Target
 
 
@@ -290,9 +290,9 @@ def create_feedback_event(
     target = Target(
         id="default",
         ver="v0.1",
-        type="Feedback",
+        type="TeleFeedback",
         parent={"id": "p1", "type": "default"},
-        feedbackDetails={
+        telefeedbackDetails={
             "feedbackText": feedback_text or "",
             "sessionId": session_id,
             "feedbackType": feedback_type,
