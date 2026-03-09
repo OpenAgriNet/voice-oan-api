@@ -1,5 +1,5 @@
 """
-Feedback tool for collecting call rating and improvement suggestions before ending the interaction.
+Feedback tool for collecting call feedback (like/dislike) and improvement suggestions before ending the interaction.
 """
 import os
 from typing import Literal, Optional
@@ -20,11 +20,11 @@ TELEMETRY_API_URL = os.getenv(
 
 
 class FeedbackInput(BaseModel):
-    """Input for submitting call feedback. Call this tool only after the user has given a 1-5 rating (and optionally what went wrong or how to improve)."""
+    """Input for submitting call feedback. Call this tool only after the user has given a feedback type (and optionally what went wrong or how to improve)."""
 
-    rating: Literal[1, 2, 3, 4, 5] = Field(
+    feedback_type: Literal["like", "dislike"] = Field(
         ...,
-        description="The rating the user gave: 1 = not at all useful, 5 = very useful. Set only when the user has stated their rating.",
+        description="The type of feedback: 'like' for positive feedback, 'dislike' for negative feedback. Set only when the user has stated their feedback.",
     )
     feedback_text: str = Field(
         default=None,
@@ -36,24 +36,24 @@ def submit_feedback(ctx: RunContext[FarmerContext], feedback: FeedbackInput) -> 
     """
     Submit call feedback before ending the interaction. Use this tool ONLY when:
     (1) The farmer has indicated they want to end the call, and
-    (2) You have asked for a 1-5 rating and the farmer has given a number 1-5, and
+    (2) You have asked for a feedback type and the farmer has given a feedback type, and
     (3) You have asked what went wrong or how to improve (the farmer may skip or say nothing).
-    Call this tool with the rating and any improvement text the user provided, then  thank them for the feedback and give your closing response and set end_interaction to true.
+    Call this tool with the feedback type and any improvement text the user provided, then  thank them for the feedback and give your closing response and set end_interaction to true.
     """
     session_id = ctx.deps.session_id
     user_id = ctx.deps.user_id or "guest"
     logger.info(
-        "Voice feedback: session_id=%s, user_id=%s, rating=%s, what_went_wrong_or_improvement=%s",
+        "Voice feedback: session_id=%s, user_id=%s, feedback_type=%s, feedback_text=%s",
         session_id,
         user_id,
-        feedback.rating,
+        feedback.feedback_type,
         feedback.feedback_text or "(none)",
     )
 
-    # Map rating 1-5 to feedbackType: 1-3 = dislike, 4-5 = like
-    feedback_type = "like" if feedback.rating >= 4 else "dislike"
+    feedback_type = feedback.feedback_type
     feedback_text = (
-        feedback.feedback_text or f"Rating: {feedback.rating}"
+        feedback.feedback_text or f"Feedback type: {feedback.feedback_type}"
+
     ).strip()
 
     # Build and send Ekstep telemetry (OE_ITEM_RESPONSE with type=Feedback)
@@ -63,7 +63,7 @@ def submit_feedback(ctx: RunContext[FarmerContext], feedback: FeedbackInput) -> 
             feedback_type=feedback_type,
             feedback_text=feedback_text,
             uid=user_id,
-            rating=feedback.rating,
+            #rating=feedback.rating,
         )
         telemetry_request = TelemetryRequest(events=[event])
         payload = telemetry_request.model_dump(mode="json")

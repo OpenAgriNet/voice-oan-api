@@ -269,7 +269,6 @@ def create_feedback_event(
     feedback_type: str,
     feedback_text: str,
     uid: str,
-    rating: Optional[int] = None,
     channel: Optional[str] = None,
     did: str = "DEFAULT-USER",
     pdata_id: str = "BharatVistaar",
@@ -297,7 +296,6 @@ def create_feedback_event(
             "feedbackText": feedback_text or "",
             "sessionId": session_id,
             "feedbackType": feedback_type,
-            "rating": rating,
         },
     )
     return create_event(
