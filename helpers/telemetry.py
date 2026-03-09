@@ -7,6 +7,18 @@ import hashlib
 import time
 import random
 
+import requests
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+
+from helpers.utils import get_logger
+
+logger = get_logger(__name__)
+
 class EventType(str, Enum):
     """Types of telemetry events"""
     OE_START = "OE_START"
@@ -142,6 +154,56 @@ class TelemetryRequest(BaseModel):
     ver: str = "2.2"
     ets: int = Field(default_factory=lambda: int(datetime.now().timestamp() * 1000))
     events: List[TelemetryEvent]
+
+
+class TelemetryServerError(Exception):
+    """Raised when telemetry API returns 500 or 429 so callers can retry."""
+
+    def __init__(self, response: requests.Response):
+        self.response = response
+        super().__init__(f"Telemetry API returned {response.status_code}: {response.text[:200]}")
+
+
+TELEMETRY_HEADERS = {
+    "Accept": "*/*",
+    "Content-Type": "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+    "dataType": "json",
+}
+
+
+def post_telemetry_payload(payload: Dict[str, Any]) -> Optional[requests.Response]:
+    """
+    POST payload to TELEMETRY_API_URL with retries (transient errors and 5xx/429).
+    Returns the response on success, or None if all retries failed or URL is unset.
+    """
+    url = os.getenv("TELEMETRY_API_URL")
+    if not url:
+        logger.warning("TELEMETRY_API_URL not set, skipping telemetry")
+        return None
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((requests.RequestException, TelemetryServerError)),
+        reraise=True,
+    )
+    def _post() -> requests.Response:
+        resp = requests.post(
+            url,
+            headers=TELEMETRY_HEADERS,
+            json=payload,
+            timeout=(30, 60),
+        )
+        if resp.status_code == 429 or 500 <= resp.status_code:
+            raise TelemetryServerError(resp)
+        return resp
+
+    try:
+        return _post()
+    except (requests.RequestException, TelemetryServerError) as e:
+        logger.exception("Telemetry POST failed after retries: %s", e)
+        return None
 
 
 
