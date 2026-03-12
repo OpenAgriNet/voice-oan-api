@@ -3,8 +3,10 @@ import json
 import re
 from agents.voice import voice_agent, VoiceOutput
 from agents.deps import FarmerContext
+from agents.tools.language import LANGUAGE_CACHE_SUFFIX
 from helpers.utils import get_logger
 from app.utils import update_message_history, trim_history
+from app.core.cache import cache
 
 logger = get_logger(__name__)
 
@@ -58,20 +60,23 @@ async def stream_voice_message(
     history: list
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages using run_stream_events()."""
-    deps = FarmerContext(query=query, lang_code=target_lang, session_id=session_id, user_id=user_id)
-    # Send only the user's words—do not send "Selected Language" so the model does not assume;
-    # language is set only when the user explicitly says "English" or "Hindi" in the conversation.
-    # For first three queries, or when no language selected, send only the user's words (no "Selected Language")
-    use_query_only = target_lang == "none" or _user_message_count(history) <= 3
+    # Load session language from cache; once set it takes priority over the request header
+    cached_lang: str | None = await cache.get(f"{session_id}{LANGUAGE_CACHE_SUFFIX}")
+    # effective_lang: cached value wins, fallback to request header for session-level operations
+    effective_lang = cached_lang if cached_lang in ("en", "hi") else target_lang
+    deps = FarmerContext(query=query, lang_code=effective_lang, session_id=session_id, user_id=user_id, selected_language=cached_lang)
+    # Include "Selected Language" in the user message as soon as the language cache is available
+    # (i.e., the set_language tool has been called). Until then, send only the user's words.
+    use_query_only = cached_lang not in ("en", "hi")
     user_message = deps._query_string() if use_query_only else deps.get_user_message()
-    logger.info(f"Running agent with user message: {user_message}")
+    logger.info(f"Running agent with user message: {user_message} (effective_lang={effective_lang})")
 
     trimmed_history = trim_history(history, max_tokens=80_000)
     logger.info(f"Trimmed history: {len(trimmed_history)} messages")
 
     is_first_message = _is_first_user_message(history)
-    # Streaming: use target_lang for recording message (hi → Hindi, en → English, else → Hindi)
-    recording_prefix = _get_recording_message(target_lang) if is_first_message else ""
+    # Use effective_lang for recording message so it matches the frozen session language
+    recording_prefix = _get_recording_message(effective_lang) if is_first_message else ""
 
     final_output = None
     new_messages = None
@@ -105,22 +110,19 @@ async def stream_voice_message(
             final_output = agent_result.output
             new_messages = agent_result.new_messages()
 
-    # Yield the final complete output; pass through language null when asking for preference, else en/hi
+    # Yield the final complete output; language comes from set_language tool call (deps.selected_language)
+    # or falls back to the session's target_lang header value
     if final_output:
         if isinstance(final_output, dict):
             end_flag = final_output.get("end_interaction", False)
-            out_lang = final_output.get("language")
             raw_audio = final_output.get("audio") or ""
         else:
             end_flag = getattr(final_output, "end_interaction", False)
-            out_lang = getattr(final_output, "language", None)
             raw_audio = final_output.audio or ""
-        # When model returns null (asking for language), keep null; otherwise ensure en or hi
-        if out_lang is not None and out_lang not in ("en", "hi"):
-            out_lang = target_lang if target_lang in ("en", "hi") else "hi"
-        elif out_lang is None and target_lang in ("en", "hi"):
-            # Model asked for language (null); keep null so client knows no language set yet
-            pass
+        # Use language set by set_language tool call; fall back to effective_lang (cache wins over header)
+        out_lang = deps.selected_language
+        if out_lang is None:
+            out_lang = effective_lang if effective_lang in ("en", "hi") else None
         # Final recording message by response language: hi → Hindi, en → English, else → Hindi
         final_recording_prefix = _get_recording_message(out_lang) if is_first_message else ""
         audio_text = final_recording_prefix + raw_audio
