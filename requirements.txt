@@ -51,7 +51,7 @@ starlette
 httpx
 
 # Search and Data
-marqo==3.11.0
+marqo==3.18.0
 rapidfuzz
 
 # Authentication and Security
