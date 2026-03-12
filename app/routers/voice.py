@@ -24,9 +24,7 @@ async def voice_endpoint(
     session_id is used for message history and Langfuse Sessions: same ID groups all agent runs for one conversation.
     """
     session_id = request.session_id or str(uuid.uuid4())
-    use_translation_pipeline = settings.enable_translation_pipeline and bool(request.use_translation_pipeline)
-    if request.use_translation_pipeline and not settings.enable_translation_pipeline:
-        logger.warning("Translation pipeline requested but disabled by ENABLE_TRANSLATION_PIPELINE")
+    use_translation_pipeline = settings.enable_translation_pipeline
 
     logger.info(
         f"Voice request received - session_id: {session_id}, user_id: {request.user_id}, "
