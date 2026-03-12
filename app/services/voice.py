@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import nullcontext
 from functools import lru_cache
+import time
 from typing import AsyncGenerator, Optional, Literal
 import re
 
@@ -143,6 +144,7 @@ async def stream_voice_message(
     
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming chat messages."""
+    request_started_at = time.monotonic()
     # Langfuse Sessions: session_id groups all agent runs for this conversation (same ID = one Session);
     # process_id in metadata for filtering by process in Langfuse UI/API.
     with _langfuse_session_context(session_id, user_id, process_id):
@@ -297,15 +299,26 @@ async def stream_voice_message(
         nudge_lang = (requested_target_lang or "en").strip().lower()
 
         async def send_nudge_after_timeout() -> None:
-            """After nudge_timeout_seconds, send nudge via API. Cancelled if first chunk yielded first."""
+            """Send nudge after end-to-end timeout from request start. Cancelled if first chunk yields first."""
             try:
-                await asyncio.sleep(settings.nudge_timeout_seconds)
+                elapsed = max(0.0, time.monotonic() - request_started_at)
+                remaining = max(0.0, settings.nudge_timeout_seconds - elapsed)
+                logger.info(
+                    "Nudge timer armed; session_id=%s process_id=%s elapsed=%.3fs remaining=%.3fs timeout=%.3fs",
+                    session_id,
+                    process_id,
+                    elapsed,
+                    remaining,
+                    settings.nudge_timeout_seconds,
+                )
+                await asyncio.sleep(remaining)
                 nudge_msg = get_random_nudge_message(nudge_lang)
                 await send_nudge_message_raya(nudge_msg, session_id, process_id)
                 logger.info(
-                    "Nudge actually sent; session_id=%s process_id=%s",
+                    "Nudge actually sent; session_id=%s process_id=%s total_elapsed=%.3fs",
                     session_id,
                     process_id,
+                    time.monotonic() - request_started_at,
                 )
             except asyncio.CancelledError:
                 pass
