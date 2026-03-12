@@ -12,6 +12,7 @@ class FarmerContext(BaseModel):
         target_lang (str): The target language for the response (gu=Gujarati, en=English).        
         farmer_info (Optional[Dict[str, Any]]): Farmer's personal details and animals from JWT token.
         provider (Optional[str]): The provider for the voice service.
+        use_translation_pipeline (bool): When True, run the agent in English and translate externally.
         session_id (Optional[str]): The session ID for the user.
         process_id (Optional[str]): The process ID for tracking and hold messages.
 
@@ -24,6 +25,10 @@ class FarmerContext(BaseModel):
     lang_code: str = Field(description="The language code of the user's question.", default='gu')
     target_lang: str = Field(description="The target language for the response (gu=Gujarati, en=English).", default='gu')
     provider: Optional[Literal['RAYA']] = Field(default=None, description="The provider for the voice service - can be RAYA or None.")
+    use_translation_pipeline: bool = Field(
+        default=False,
+        description="When True, run the agent in English and translate externally.",
+    )
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
     farmer_info: Optional[Dict[str, Any]] = Field(default=None, description="Farmer's personal details and animals from JWT token.")
