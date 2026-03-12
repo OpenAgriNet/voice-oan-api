@@ -1,6 +1,10 @@
 import asyncio
 from contextlib import nullcontext
+from functools import lru_cache
 from typing import AsyncGenerator, Optional, Literal
+import re
+
+import regex
 # from fastapi import BackgroundTasks
 from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart
 
@@ -26,11 +30,82 @@ from app.services.feedback import (
     parse_feedback_with_llm,
     send_feedback,
 )
+from app.services.translation import (
+    INDIAN_LANGUAGES,
+    translate_text,
+    translate_text_stream_fast,
+    translate_to_english_with_gpt5_mini,
+)
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerContext
 
 logger = get_logger(__name__)
+
+
+class SentenceSegmenter:
+    sep = 'ŽžŽžSentenceSeparatorŽžŽž'
+    latin_terminals = '!?.'
+    jap_zh_terminals = '。！？'
+    terminals = latin_terminals + jap_zh_terminals
+
+    def __init__(self):
+        terminals = self.terminals
+        self._re = [
+            (regex.compile(r'(\P{N})([' + terminals + r'])(\p{Z}*)'), r'\1\2\3' + self.sep),
+            (regex.compile(r'(' + terminals + r')(\P{N})'), r'\1' + self.sep + r'\2'),
+        ]
+
+    @lru_cache(maxsize=2**16)
+    def __call__(self, line: str):
+        for (_re, repl) in self._re:
+            line = _re.sub(repl, line)
+        return [t for t in line.split(self.sep) if t != '']
+
+
+sentence_segmenter = SentenceSegmenter()
+
+
+def extract_complete_sentences(text: str):
+    if not text:
+        return [], ""
+    sentences = sentence_segmenter(text)
+    if len(sentences) <= 1:
+        return [], text
+    return sentences[:-1], sentences[-1]
+
+
+def _batch_starts_new_line_or_list(text: str) -> bool:
+    if not text or not text.strip():
+        return False
+    stripped = text.lstrip()
+    if text != stripped:
+        return True
+    if stripped.startswith(("-", "•")) and (len(stripped) == 1 or stripped[1:2].isspace() or stripped[1:2] == "."):
+        return True
+    if stripped.startswith("*") and (len(stripped) == 1 or stripped[1:2].isspace() or stripped[1:2] == "."):
+        return True
+    return bool(re.match(r"^\d+\.\s", stripped))
+
+
+def should_translate_batch(batch_text: str, word_count: int) -> bool:
+    min_words = 15
+    max_words = 80
+
+    if word_count < min_words:
+        text_end = batch_text.rstrip()
+        return text_end.endswith(('.', '!', '?')) and word_count >= 5
+    if word_count >= max_words:
+        return True
+
+    text_end = batch_text.rstrip()
+    if text_end.endswith('\n\n'):
+        return True
+    if text_end.endswith('\n') and len(batch_text.split('\n')) > 1:
+        last_line = batch_text.rstrip('\n').split('\n')[-1].strip()
+        if last_line.startswith(('-', '*', '•')) or re.match(r'^\d+\.', last_line):
+            return True
+    return text_end.endswith(('.', '!', '?'))
 
 # Langfuse Sessions: same session_id groups all traces for one conversation (session replay, session-level metrics).
 def _langfuse_session_context(session_id: str, user_id: str, process_id: Optional[str] = None):
@@ -63,6 +138,7 @@ async def stream_voice_message(
     provider: Optional[Literal['RAYA']] = None,
     process_id: Optional[str] = None,
     user_info: dict = None,
+    use_translation_pipeline: bool = False,
 #    background_tasks: BackgroundTasks,
     
 ) -> AsyncGenerator[str, None]:
@@ -115,6 +191,51 @@ async def stream_voice_message(
                 is_feedback, rating,
             )
 
+        requested_source_lang = (source_lang or "gu").strip().lower()
+        requested_target_lang = (target_lang or "gu").strip().lower()
+        needs_output_translation = use_translation_pipeline and requested_target_lang in INDIAN_LANGUAGES
+
+        processing_query = query
+        processing_lang = requested_source_lang
+
+        if use_translation_pipeline and requested_source_lang in {"gu", "gujarati"}:
+            logger.info(
+                "Translation pipeline enabled; pretranslating %s -> en with GPT-5-mini",
+                requested_source_lang,
+            )
+            try:
+                processing_query = await translate_to_english_with_gpt5_mini(
+                    text=query,
+                    source_lang=requested_source_lang,
+                )
+                processing_lang = "en"
+            except Exception as e:
+                logger.error(
+                    "GPT-5-mini pretranslation failed for session_id=%s source_lang=%s error=%s",
+                    session_id,
+                    requested_source_lang,
+                    e,
+                )
+                try:
+                    logger.info("Falling back to TranslateGemma pretranslation for session_id=%s", session_id)
+                    processing_query = await translate_text(
+                        text=query,
+                        source_lang=requested_source_lang,
+                        target_lang="english",
+                    )
+                    processing_lang = "en"
+                except Exception as fallback_error:
+                    logger.error(
+                        "TranslateGemma pretranslation fallback failed for session_id=%s error=%s",
+                        session_id,
+                        fallback_error,
+                    )
+                    processing_query = query
+                    processing_lang = requested_source_lang
+
+        if use_translation_pipeline and needs_output_translation:
+            processing_lang = "en"
+
         # user_id is expected to be phone number: clean it and proactively fetch farmer info
         mobile = normalize_phone_to_mobile(user_id)
         farmer_info = None
@@ -135,13 +256,14 @@ async def stream_voice_message(
         # Generate a unique content ID for this query
         content_id = f"query_{session_id}_{len(history)//2 + 1}"
         logger.info(f"User info: {user_info}")
-        deps = FarmerContext(query=query,
-                             lang_code=source_lang,
-                             target_lang=target_lang,
+        deps = FarmerContext(query=processing_query,
+                             lang_code=processing_lang,
+                             target_lang=requested_target_lang,
                              provider=provider,
                              session_id=session_id,
                              process_id=process_id,
-                             farmer_info=farmer_info
+                             farmer_info=farmer_info,
+                             use_translation_pipeline=use_translation_pipeline,
                              )
 
         message_pairs = "\n\n".join(format_message_pairs(history, 3))
@@ -172,7 +294,7 @@ async def stream_voice_message(
 
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
-        nudge_lang = (target_lang or "en").strip().lower()
+        nudge_lang = (requested_target_lang or "en").strip().lower()
 
         async def send_nudge_after_timeout() -> None:
             """After nudge_timeout_seconds, send nudge via API. Cancelled if first chunk yielded first."""
@@ -209,35 +331,160 @@ async def stream_voice_message(
         ) as response_stream:
             stream_iter = response_stream.stream_text(delta=True)
             first_text_chunk_received = False
+            sentence_buffer = ""
+            translation_batch: list[str] = []
+            batch_word_count = 0
+
+            async def _yield_translated_text(text_to_translate: str) -> AsyncGenerator[str, None]:
+                if not text_to_translate:
+                    return
+                try:
+                    async for translated_chunk in translate_text_stream_fast(
+                        text=text_to_translate,
+                        source_lang="english",
+                        target_lang=requested_target_lang,
+                    ):
+                        cleaned_chunk = (
+                            clean_output_by_language(translated_chunk, requested_target_lang)
+                            if isinstance(translated_chunk, str) and translated_chunk
+                            else translated_chunk
+                        )
+                        if (
+                            not first_text_chunk_received
+                            and isinstance(cleaned_chunk, str)
+                            and cleaned_chunk
+                            and cleaned_chunk.strip()
+                        ):
+                            nonlocal_first_text_chunk_received[0] = True
+                        yield cleaned_chunk
+                except Exception as e:
+                    logger.error(
+                        "Translation pipeline output translation failed for session_id=%s error=%s",
+                        session_id,
+                        e,
+                    )
+                    fallback_chunk = clean_output_by_language(text_to_translate, "en")
+                    if (
+                        not first_text_chunk_received
+                        and isinstance(fallback_chunk, str)
+                        and fallback_chunk
+                        and fallback_chunk.strip()
+                    ):
+                        nonlocal_first_text_chunk_received[0] = True
+                    yield fallback_chunk
+
+            nonlocal_first_text_chunk_received = [False]
             
             try:
                 async for chunk in stream_iter:
-                    # According to pydantic_ai API: stream_text(delta=True) yields string chunks
-                    # Only cancel nudge on actual text content: must be str, non-empty, non-whitespace-only
-                    if (not first_text_chunk_received 
-                        and isinstance(chunk, str) 
-                        and chunk 
-                        and chunk.strip()):
-                        first_text_chunk_received = True
-                        nudge_task.cancel()
-                        logger.info(
-                            "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
-                            session_id,
-                            process_id,
-                            chunk[:50] if len(chunk) > 50 else chunk,
+                    if not use_translation_pipeline or not needs_output_translation:
+                        if (not first_text_chunk_received 
+                            and isinstance(chunk, str) 
+                            and chunk 
+                            and chunk.strip()):
+                            first_text_chunk_received = True
+                            nudge_task.cancel()
+                            logger.info(
+                                "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
+                                session_id,
+                                process_id,
+                                chunk[:50] if len(chunk) > 50 else chunk,
+                            )
+                            try:
+                                await nudge_task
+                            except asyncio.CancelledError:
+                                pass
+
+                        cleaned_chunk = (
+                            clean_output_by_language(chunk, requested_target_lang)
+                            if isinstance(chunk, str) and chunk
+                            else chunk
                         )
-                        try:
-                            await nudge_task
-                        except asyncio.CancelledError:
-                            pass
-                    # Clean/normalize output based on target language before streaming
-                    cleaned_chunk = (
-                        clean_output_by_language(chunk, target_lang)
-                        if isinstance(chunk, str) and chunk
-                        else chunk
-                    )
-                    # Yield all chunks to client (including empty/whitespace if any)
-                    yield cleaned_chunk
+                        yield cleaned_chunk
+                        continue
+
+                    sentence_buffer += chunk
+                    complete_sentences, remaining = extract_complete_sentences(sentence_buffer)
+                    if complete_sentences:
+                        for sentence in complete_sentences:
+                            translation_batch.append(sentence)
+                            batch_word_count += len(sentence.split())
+
+                        batch_text = "".join(translation_batch)
+                        if should_translate_batch(batch_text, batch_word_count):
+                            if nonlocal_first_text_chunk_received[0] and _batch_starts_new_line_or_list(batch_text):
+                                yield "\n"
+                            async for translated_chunk in _yield_translated_text(batch_text):
+                                if (
+                                    not first_text_chunk_received
+                                    and isinstance(translated_chunk, str)
+                                    and translated_chunk
+                                    and translated_chunk.strip()
+                                ):
+                                    first_text_chunk_received = True
+                                    nudge_task.cancel()
+                                    logger.info(
+                                        "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
+                                        session_id,
+                                        process_id,
+                                    )
+                                    try:
+                                        await nudge_task
+                                    except asyncio.CancelledError:
+                                        pass
+                                yield translated_chunk
+                            translation_batch = []
+                            batch_word_count = 0
+
+                        sentence_buffer = remaining
+
+                if use_translation_pipeline and needs_output_translation:
+                    if translation_batch:
+                        batch_text = "".join(translation_batch)
+                        if nonlocal_first_text_chunk_received[0] and _batch_starts_new_line_or_list(batch_text):
+                            yield "\n"
+                        async for translated_chunk in _yield_translated_text(batch_text):
+                            if (
+                                not first_text_chunk_received
+                                and isinstance(translated_chunk, str)
+                                and translated_chunk
+                                and translated_chunk.strip()
+                            ):
+                                first_text_chunk_received = True
+                                nudge_task.cancel()
+                                logger.info(
+                                    "Nudge canceled (final translated batch); session_id=%s process_id=%s",
+                                    session_id,
+                                    process_id,
+                                )
+                                try:
+                                    await nudge_task
+                                except asyncio.CancelledError:
+                                    pass
+                            yield translated_chunk
+
+                    if sentence_buffer.strip():
+                        if nonlocal_first_text_chunk_received[0] and _batch_starts_new_line_or_list(sentence_buffer):
+                            yield "\n"
+                        async for translated_chunk in _yield_translated_text(sentence_buffer):
+                            if (
+                                not first_text_chunk_received
+                                and isinstance(translated_chunk, str)
+                                and translated_chunk
+                                and translated_chunk.strip()
+                            ):
+                                first_text_chunk_received = True
+                                nudge_task.cancel()
+                                logger.info(
+                                    "Nudge canceled (tail translated fragment); session_id=%s process_id=%s",
+                                    session_id,
+                                    process_id,
+                                )
+                                try:
+                                    await nudge_task
+                                except asyncio.CancelledError:
+                                    pass
+                            yield translated_chunk
             except StopAsyncIteration:
                 pass
             finally:
@@ -276,7 +523,7 @@ async def stream_voice_message(
                     break
             if trigger:
                 await set_feedback_initiated(session_id, trigger)
-                feedback_lang = (target_lang or "gu").strip().lower()
+                feedback_lang = (requested_target_lang or "gu").strip().lower()
                 feedback_question = get_feedback_question(feedback_lang)
                 yield clean_output_by_language(" " + feedback_question, feedback_lang)
                 logger.info(f"Feedback question yielded via stream (trigger={trigger})")

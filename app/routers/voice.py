@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from app.auth.jwt_auth import get_current_user
+from app.config import settings
 from app.services.voice import stream_voice_message
 from app.utils import _get_message_history
 from app.models.requests import ChatRequest
@@ -23,11 +24,13 @@ async def voice_endpoint(
     session_id is used for message history and Langfuse Sessions: same ID groups all agent runs for one conversation.
     """
     session_id = request.session_id or str(uuid.uuid4())
+    use_translation_pipeline = settings.enable_translation_pipeline
 
     logger.info(
         f"Voice request received - session_id: {session_id}, user_id: {request.user_id}, "
         f"source_lang: {request.source_lang}, "
-        f"target_lang: {request.target_lang}, provider: {request.provider}, process_id: {request.process_id}, query: {request.query}"
+        f"target_lang: {request.target_lang}, provider: {request.provider}, process_id: {request.process_id}, "
+        f"use_translation_pipeline: {use_translation_pipeline}, query: {request.query}"
     )
 
     history = await _get_message_history(session_id)
@@ -44,6 +47,7 @@ async def voice_endpoint(
             provider=request.provider,
             process_id=request.process_id,
             user_info=user_info,
+            use_translation_pipeline=use_translation_pipeline,
         ),
         media_type='text/event-stream'
     ) 
