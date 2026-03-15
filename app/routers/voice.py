@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from app.auth.jwt_auth import get_current_user
 from app.config import settings
 from app.services.voice import stream_voice_message
-from app.utils import _get_message_history
+from app.utils import _get_message_history, claim_session_request_ownership
 from app.models.requests import ChatRequest
 from helpers.utils import get_logger
 import uuid
@@ -14,6 +14,7 @@ router = APIRouter(prefix="/voice", tags=["voice"])
 
 @router.get("/")
 async def voice_endpoint(
+    http_request: Request,
     request: ChatRequest = Depends(),
     user_info: dict = Depends(get_current_user),
 ):
@@ -32,6 +33,14 @@ async def voice_endpoint(
         f"target_lang: {request.target_lang}, provider: {request.provider}, process_id: {request.process_id}, "
         f"use_translation_pipeline: {use_translation_pipeline}, query: {request.query}"
     )
+    owner = await claim_session_request_ownership(session_id)
+    logger.info(
+        "Session ownership claimed - session_id=%s epoch=%s token=%s process_id=%s",
+        session_id,
+        owner.epoch,
+        owner.request_token,
+        request.process_id,
+    )
 
     history = await _get_message_history(session_id)
     logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
@@ -48,6 +57,8 @@ async def voice_endpoint(
             process_id=request.process_id,
             user_info=user_info,
             use_translation_pipeline=use_translation_pipeline,
+            owner=owner,
+            http_request=http_request,
         ),
         media_type='text/event-stream'
     ) 
