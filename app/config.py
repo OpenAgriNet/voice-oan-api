@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     default_cache_ttl: int = 60 * 60 * 24  # 24 hours
     feedback_state_ttl: int = 10 * 60  # 10 min; expires if user never responds (e.g. cuts call). Set FEEDBACK_STATE_TTL env to override.
     enable_translation_pipeline: bool = _get_bool_env("ENABLE_TRANSLATION_PIPELINE", False)
+    session_owner_ttl_seconds: int = int(os.getenv("SESSION_OWNER_TTL_SECONDS", "120"))
+    session_owner_refresh_interval_seconds: int = int(os.getenv("SESSION_OWNER_REFRESH_INTERVAL_SECONDS", "15"))
 
     # Feedback parsing: small model to classify if user response is a 1-5 rating or a normal message
     feedback_parse_model: str = os.getenv("FEEDBACK_PARSE_MODEL", "gpt-5-nano-2025-08-07")

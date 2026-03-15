@@ -1,6 +1,8 @@
 import json
+import uuid
+from dataclasses import dataclass
 from typing import List
-from app.core.cache import cache  # Import cache instance from core
+from app.core.cache import cache, redis_client, build_cache_key  # Import cache instance from core
 from app.config import settings
 from helpers.utils import get_logger, count_tokens_for_part
 from copy import deepcopy
@@ -13,10 +15,80 @@ from pydantic_core import to_jsonable_python
 
 HISTORY_SUFFIX = "_SVA"
 FEEDBACK_STATE_SUFFIX = "_feedback_state"
+SESSION_OWNER_SUFFIX = "_active_request"
+SESSION_EPOCH_SUFFIX = "_request_epoch"
 
 DEFAULT_CACHE_TTL = 60*60*24 # 24 hours
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class SessionRequestOwner:
+    session_id: str
+    request_token: str
+    epoch: int
+
+
+def _session_owner_key(session_id: str) -> str:
+    return build_cache_key(f"{session_id}_{SESSION_OWNER_SUFFIX}")
+
+
+def _session_epoch_key(session_id: str) -> str:
+    return build_cache_key(f"{session_id}_{SESSION_EPOCH_SUFFIX}")
+
+
+async def claim_session_request_ownership(session_id: str) -> SessionRequestOwner:
+    epoch = await redis_client.incr(_session_epoch_key(session_id))
+    request_token = f"{epoch}:{uuid.uuid4()}"
+    await redis_client.set(
+        _session_owner_key(session_id),
+        request_token,
+        ex=settings.session_owner_ttl_seconds,
+    )
+    return SessionRequestOwner(session_id=session_id, request_token=request_token, epoch=int(epoch))
+
+
+async def is_session_request_owner(owner: SessionRequestOwner | None) -> bool:
+    if owner is None:
+        return False
+    current = await redis_client.get(_session_owner_key(owner.session_id))
+    return current == owner.request_token
+
+
+async def refresh_session_request_ownership(owner: SessionRequestOwner | None) -> bool:
+    if owner is None:
+        return False
+    refreshed = await redis_client.eval(
+        """
+        if redis.call('get', KEYS[1]) == ARGV[1] then
+            return redis.call('expire', KEYS[1], tonumber(ARGV[2]))
+        end
+        return 0
+        """,
+        1,
+        _session_owner_key(owner.session_id),
+        owner.request_token,
+        str(settings.session_owner_ttl_seconds),
+    )
+    return bool(refreshed)
+
+
+async def release_session_request_ownership(owner: SessionRequestOwner | None) -> bool:
+    if owner is None:
+        return False
+    deleted = await redis_client.eval(
+        """
+        if redis.call('get', KEYS[1]) == ARGV[1] then
+            return redis.call('del', KEYS[1])
+        end
+        return 0
+        """,
+        1,
+        _session_owner_key(owner.session_id),
+        owner.request_token,
+    )
+    return bool(deleted)
 
 # Cache utility functions
 async def get_cache(key: str):

@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 OPENAI_PRETRANSLATION_MODEL = os.getenv(
     "OPENAI_PRETRANSLATION_MODEL",
-    "gpt-5-mini",
+    "gpt-5-nano",
 )
 _openai_client: Optional[AsyncOpenAI] = None
 
@@ -345,6 +345,40 @@ def _get_openai_client() -> AsyncOpenAI:
     return _openai_client
 
 
+def _extract_openai_message_diagnostics(response) -> dict:
+    choice = response.choices[0] if getattr(response, "choices", None) else None
+    message = getattr(choice, "message", None) if choice is not None else None
+    usage = getattr(response, "usage", None)
+    diagnostics = {
+        "response_id": getattr(response, "id", None),
+        "model": getattr(response, "model", None),
+        "finish_reason": getattr(choice, "finish_reason", None) if choice is not None else None,
+        "content_present": bool(getattr(message, "content", None)) if message is not None else False,
+        "refusal": getattr(message, "refusal", None) if message is not None else None,
+        "tool_calls": len(getattr(message, "tool_calls", []) or []) if message is not None else 0,
+        "usage": usage.model_dump() if hasattr(usage, "model_dump") else str(usage),
+    }
+    return diagnostics
+
+
+def _raise_empty_pretranslation(
+    response,
+    *,
+    source_lang: str,
+    text: str,
+) -> None:
+    diagnostics = _extract_openai_message_diagnostics(response)
+    logger.error(
+        "OpenAI pretranslation returned empty output - source_lang=%s model=%s query_chars=%s query_preview=%r diagnostics=%s",
+        source_lang,
+        OPENAI_PRETRANSLATION_MODEL,
+        len(text or ""),
+        (text or "")[:160],
+        diagnostics,
+    )
+    raise ValueError("GPT pretranslation returned empty output")
+
+
 async def translate_to_english_with_gpt5_mini(
     text: str,
     source_lang: str,
@@ -389,7 +423,7 @@ async def translate_to_english_with_gpt5_mini(
         )
         translated_text = (response.choices[0].message.content or "").strip()
         if not translated_text:
-            raise ValueError("GPT-5-mini pretranslation returned empty output")
+            _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
         return translated_text
 
     with langfuse.start_as_current_observation(
@@ -430,7 +464,7 @@ async def translate_to_english_with_gpt5_mini(
         )
         translated_text = (response.choices[0].message.content or "").strip()
         if not translated_text:
-            raise ValueError("GPT-5-mini pretranslation returned empty output")
+            _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
         observation.update(output=translated_text)
         return translated_text
 
