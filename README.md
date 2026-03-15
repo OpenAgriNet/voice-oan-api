@@ -67,6 +67,59 @@ pip install -r requirements.txt
 
 Run the application locally using the setup instructions above.
 
+## API Contract
+
+Primary endpoint: `GET /api/voice`
+
+Query parameters currently expected by the backend:
+- `query`: latest user utterance text
+- `session_id`: stable conversation identifier; callers must reuse it across reconnects/retries for the same call
+- `source_lang`: current input language, currently `gu` or `en`
+- `target_lang`: response language
+- `user_id`: caller identifier; phone number is used to resolve farmer context
+- `provider`: optional provider marker, currently `RAYA`
+- `process_id`: provider-side request/call fragment identifier used for hold/nudge correlation
+
+Response contract:
+- `text/event-stream`
+- streamed assistant text chunks
+- if the agent signals conversation closing or frustration, a feedback question may be appended at the tail of the stream
+
+Authentication contract:
+- bearer JWT required outside development
+- JWT subject and claims are treated as caller identity context
+
+## FE / Telephony Contract
+
+This service is built for an interruptible phone flow where the frontend/provider may reconnect repeatedly during one logical call.
+
+Caller requirements:
+- reuse the same `session_id` for all retries/reconnects of the same call
+- send a fresh request when audio capture or network resumes
+- preserve `process_id` semantics expected by the provider integration
+
+Backend behavior:
+- Redis stores message history and feedback state per `session_id`
+- Redis also stores active request ownership per `session_id`
+- if a newer request for the same `session_id` arrives, older in-flight streams stop before writing stale history or sending extra nudges
+- client disconnects are treated as termination for the current in-flight request, not for the whole conversation
+
+## Translation Pipeline
+
+When `ENABLE_TRANSLATION_PIPELINE=true`:
+- Gujarati input is pretranslated to English before agent execution
+- agent reasoning runs in English
+- output is translated back to the requested target language in streamed batches
+- OpenAI pretranslation is attempted first
+- TranslateGemma is the fallback path if OpenAI returns empty output or times out
+
+Relevant tuning env vars:
+- `OPENAI_PRETRANSLATION_MODEL` default: `gpt-5-mini`
+- `OPENAI_PRETRANSLATION_TIMEOUT_SECONDS` default: `4.0`
+- `NUDGE_TIMEOUT_SECONDS` default: `2.0`
+- `SESSION_OWNER_TTL_SECONDS` default: `120`
+- `SESSION_OWNER_REFRESH_INTERVAL_SECONDS` default: `15`
+
 ## Maintenance
 
 ### Clean Up Docker Volumes
@@ -79,4 +132,3 @@ docker system prune -a --volumes
 docker compose down --remove-orphans
 docker compose up --build --force-recreate --detach
 ```
-
