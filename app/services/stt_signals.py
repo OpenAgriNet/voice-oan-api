@@ -23,17 +23,11 @@ logger = get_logger(__name__)
 _SIGNAL_NO_AUDIO = "No audio/User is speaking softly"
 _SIGNAL_UNCLEAR = "Unclear Speech"
 
-_SIGNALS = {
-    _normalize(s): s
-    for s in (_SIGNAL_NO_AUDIO, _SIGNAL_UNCLEAR)
-}
-
 
 def _normalize(text: str) -> str:
     return re.sub(r"[*]", "", text).strip().lower()
 
 
-# Re-build after _normalize is defined
 _SIGNALS = {
     _normalize(s): s
     for s in (_SIGNAL_NO_AUDIO, _SIGNAL_UNCLEAR)
