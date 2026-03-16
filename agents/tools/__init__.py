@@ -15,9 +15,15 @@ from agents.tools.maps import reverse_geocode, forward_geocode
 from agents.tools.mandi import get_mandi_prices
 from agents.tools.commodity import search_commodity
 from agents.tools.feedback import submit_feedback
+from agents.tools.language import set_language
 
 
 TOOLS = [
+    Tool(
+        set_language,
+        takes_ctx=True,
+        strict=False,
+    ),
     Tool(
         get_scheme_info,
         takes_ctx=False,

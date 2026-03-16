@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, Field
 from langcodes import Language
 
@@ -19,6 +20,7 @@ class FarmerContext(BaseModel):
     lang_code: str = Field(description="The language code of the user's question.", default='hi')
     session_id: str = Field(description="The session ID for the conversation.")
     user_id: str = Field(description="The user ID for the conversation.")
+    selected_language: Optional[str] = Field(default=None, description="Language chosen by the user via set_language tool call ('en' or 'hi').")
 
     def _language_string(self):
         """Get the language string for the agrinet agent."""
