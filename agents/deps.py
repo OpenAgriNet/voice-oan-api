@@ -24,7 +24,7 @@ class FarmerContext(BaseModel):
 
     def _language_string(self):
         """Get the language string for the agrinet agent."""
-        if self.lang_code:
+        if self.lang_code and self.lang_code in ("en", "hi"):
             return f"**Selected Language:** {Language.get(self.lang_code).display_name()}"
         else:
             return None
