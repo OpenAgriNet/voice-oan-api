@@ -1,6 +1,9 @@
 """
 Tools for the Sunbird VA API.
 """
+import functools
+import inspect
+
 from pydantic_ai import Tool
 from agents.tools.terms import search_terms
 from agents.tools.search import search_documents
@@ -8,36 +11,54 @@ from agents.tools.farmer import get_farmer_by_mobile
 from agents.tools.animal import get_animal_by_tag
 from agents.tools.cvcc import get_cvcc_health_details
 from agents.tools.feedback import signal_conversation_state
+from agents.tools.common import fire_tool_call_nudge
+
+
+def _with_nudge_signal(func):
+    """Wrap a tool function so it fires the nudge event on invocation."""
+    if inspect.iscoroutinefunction(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            fire_tool_call_nudge()
+            return await func(*args, **kwargs)
+        return wrapper
+    else:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            fire_tool_call_nudge()
+            return func(*args, **kwargs)
+        return wrapper
+
 
 TOOLS = [
     Tool(
-        search_terms,
+        _with_nudge_signal(search_terms),
         takes_ctx=False,
     ),
     Tool(
-        search_documents,
+        _with_nudge_signal(search_documents),
         takes_ctx=True,
     ),
     Tool(
-        get_farmer_by_mobile,
+        _with_nudge_signal(get_farmer_by_mobile),
         takes_ctx=False,
         docstring_format='auto',
         require_parameter_descriptions=True,
     ),
     Tool(
-        get_animal_by_tag,
+        _with_nudge_signal(get_animal_by_tag),
         takes_ctx=False,
         docstring_format='auto',
         require_parameter_descriptions=True,
     ),
     Tool(
-        get_cvcc_health_details,
+        _with_nudge_signal(get_cvcc_health_details),
         takes_ctx=False,
         docstring_format='auto',
         require_parameter_descriptions=True,
     ),
     Tool(
-        signal_conversation_state,
+        _with_nudge_signal(signal_conversation_state),
         takes_ctx=True,
         docstring_format='auto',
     ),

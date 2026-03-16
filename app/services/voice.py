@@ -12,7 +12,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, Te
 
 from agents.voice import voice_agent
 from agents.tools.farmer import normalize_phone_to_mobile, fetch_farmer_info_raw
-from agents.tools.common import get_random_nudge_message, send_nudge_message_raya
+from agents.tools.common import get_random_nudge_message, send_nudge_message_raya, set_tool_call_nudge_event
 from helpers.utils import get_logger, clean_output_by_language
 from app.config import settings
 from app.utils import (
@@ -36,6 +36,7 @@ from app.services.feedback import (
     parse_feedback_with_llm,
     send_feedback,
 )
+from app.services.stt_signals import detect_stt_signal, generate_stt_signal_response
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
@@ -245,6 +246,93 @@ async def stream_voice_message(
             requested_source_lang = (source_lang or "gu").strip().lower()
             requested_target_lang = (target_lang or "gu").strip().lower()
             needs_output_translation = use_translation_pipeline and requested_target_lang in INDIAN_LANGUAGES
+            nudge_lang = (requested_target_lang or "en").strip().lower()
+
+            # ── STT signal handling (no-audio / unclear speech) ─────────────
+            # These are not real user messages — skip translation & agent,
+            # generate a short contextual "please repeat" via GPT-5-mini.
+            stt_signal = detect_stt_signal(query)
+            if stt_signal is not None:
+                logger.info(
+                    "STT signal detected; session_id=%s process_id=%s signal=%s",
+                    session_id,
+                    process_id,
+                    stt_signal,
+                )
+                recent_text = "\n\n".join(format_message_pairs(history, 3))
+                if await _request_is_stale("before_stt_signal_response"):
+                    return
+                stt_response = await generate_stt_signal_response(
+                    signal=stt_signal,
+                    target_lang=requested_target_lang,
+                    recent_history_text=recent_text,
+                )
+                stt_req = ModelRequest(parts=[UserPromptPart(content=query)])
+                stt_resp = ModelResponse(parts=[TextPart(content=stt_response)])
+                await update_message_history(session_id, [*history, stt_req, stt_resp])
+                yield stt_response
+                return
+
+            # ── Nudge: arm BEFORE any pre-processing ────────────────────────
+            # Fires on whichever happens first:
+            #   (a) the 1.5 s (configurable) timer expires, OR
+            #   (b) the LLM invokes a tool (signalled via tool_call_event).
+            # Cancelled if first text/translated chunk reaches the client first.
+            tool_call_event = asyncio.Event()
+            set_tool_call_nudge_event(tool_call_event)
+
+            async def send_nudge_on_trigger() -> None:
+                try:
+                    elapsed = max(0.0, time.monotonic() - request_started_at)
+                    remaining = max(0.0, settings.nudge_timeout_seconds - elapsed)
+                    logger.info(
+                        "Nudge armed; session_id=%s process_id=%s elapsed=%.3fs remaining=%.3fs timeout=%.3fs",
+                        session_id,
+                        process_id,
+                        elapsed,
+                        remaining,
+                        settings.nudge_timeout_seconds,
+                    )
+
+                    # Wait for EITHER the timer OR a tool-call signal
+                    timer_task = asyncio.ensure_future(asyncio.sleep(remaining))
+                    event_task = asyncio.ensure_future(tool_call_event.wait())
+                    done, pending = await asyncio.wait(
+                        {timer_task, event_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for t in pending:
+                        t.cancel()
+
+                    trigger_reason = "tool_call" if event_task in done else "timeout"
+                    if await _request_is_stale("before_nudge_send"):
+                        return
+                    nudge_msg = get_random_nudge_message(nudge_lang)
+                    await send_nudge_message_raya(nudge_msg, session_id, process_id)
+                    logger.info(
+                        "Nudge sent (%s); session_id=%s process_id=%s total_elapsed=%.3fs",
+                        trigger_reason,
+                        session_id,
+                        process_id,
+                        time.monotonic() - request_started_at,
+                    )
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.warning(
+                        "Nudge task failed; session_id=%s process_id=%s error=%s",
+                        session_id,
+                        process_id,
+                        e,
+                    )
+
+            nudge_task = asyncio.create_task(send_nudge_on_trigger())
+            logger.info(
+                "Nudge initiated; session_id=%s process_id=%s",
+                session_id,
+                process_id,
+            )
+            # ── End nudge setup ─────────────────────────────────────────────
 
             processing_query = query
             processing_lang = requested_source_lang
@@ -337,48 +425,6 @@ async def stream_voice_message(
                 include_tool_calls=True,
             )
             logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
-
-            nudge_lang = (requested_target_lang or "en").strip().lower()
-
-            async def send_nudge_after_timeout() -> None:
-                try:
-                    elapsed = max(0.0, time.monotonic() - request_started_at)
-                    remaining = max(0.0, settings.nudge_timeout_seconds - elapsed)
-                    logger.info(
-                        "Nudge timer armed; session_id=%s process_id=%s elapsed=%.3fs remaining=%.3fs timeout=%.3fs",
-                        session_id,
-                        process_id,
-                        elapsed,
-                        remaining,
-                        settings.nudge_timeout_seconds,
-                    )
-                    await asyncio.sleep(remaining)
-                    if await _request_is_stale("before_nudge_send"):
-                        return
-                    nudge_msg = get_random_nudge_message(nudge_lang)
-                    await send_nudge_message_raya(nudge_msg, session_id, process_id)
-                    logger.info(
-                        "Nudge actually sent; session_id=%s process_id=%s total_elapsed=%.3fs",
-                        session_id,
-                        process_id,
-                        time.monotonic() - request_started_at,
-                    )
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    logger.warning(
-                        "Nudge-after-timeout failed; session_id=%s process_id=%s error=%s",
-                        session_id,
-                        process_id,
-                        e,
-                    )
-
-            nudge_task = asyncio.create_task(send_nudge_after_timeout())
-            logger.info(
-                "Nudge initiated; session_id=%s process_id=%s",
-                session_id,
-                process_id,
-            )
 
             async with voice_agent.run_stream(
                 user_prompt=user_message,

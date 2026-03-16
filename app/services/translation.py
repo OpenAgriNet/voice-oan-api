@@ -10,12 +10,14 @@ import json
 import re
 import random
 import aiohttp
+import asyncio
 from pathlib import Path
 from typing import Literal, Optional
 from openai import AsyncOpenAI
 from helpers.utils import get_logger
 from dotenv import load_dotenv
 from agents.tools.terms import get_mini_glossary_for_text
+from app.config import settings
 
 try:
     from langfuse import get_client as get_langfuse_client
@@ -29,7 +31,7 @@ logger = get_logger(__name__)
 
 OPENAI_PRETRANSLATION_MODEL = os.getenv(
     "OPENAI_PRETRANSLATION_MODEL",
-    "gpt-5-nano",
+    "gpt-5-mini",
 )
 _openai_client: Optional[AsyncOpenAI] = None
 
@@ -340,9 +342,48 @@ def _get_openai_client() -> AsyncOpenAI:
     if _openai_client is None:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY is required for GPT-5-mini pretranslation")
+            raise ValueError("OPENAI_API_KEY is required for OpenAI pretranslation")
         _openai_client = AsyncOpenAI(api_key=api_key)
     return _openai_client
+
+
+def _build_openai_pretranslation_messages(source_name: str, source_code: str, text: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a precise agricultural translation engine. "
+                "Translate the user's message into natural English only. "
+                "Preserve meaning, livestock terminology, and formatting. "
+                "Do not answer the question. Do not add commentary."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Translate this {source_name} ({source_code}) text to English.\n\n"
+                f"{text.strip()}"
+            ),
+        },
+    ]
+
+
+async def _create_openai_pretranslation_response(
+    client: AsyncOpenAI,
+    *,
+    source_name: str,
+    source_code: str,
+    text: str,
+    max_tokens: int,
+):
+    return await asyncio.wait_for(
+        client.chat.completions.create(
+            model=OPENAI_PRETRANSLATION_MODEL,
+            messages=_build_openai_pretranslation_messages(source_name, source_code, text),
+            max_completion_tokens=max_tokens,
+        ),
+        timeout=settings.openai_pretranslation_timeout_seconds,
+    )
 
 
 def _extract_openai_message_diagnostics(response) -> dict:
@@ -385,7 +426,7 @@ async def translate_to_english_with_gpt5_mini(
     *,
     max_tokens: int = 1024,
 ) -> str:
-    """Translate input text to English using GPT-5-mini for pipeline pre-translation."""
+    """Translate input text to English using OpenAI for pipeline pre-translation."""
     if not text or not text.strip():
         return text
 
@@ -398,75 +439,56 @@ async def translate_to_english_with_gpt5_mini(
 
     langfuse = _get_langfuse()
 
-    if not langfuse:
-        response = await client.chat.completions.create(
-            model=OPENAI_PRETRANSLATION_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a precise agricultural translation engine. "
-                        "Translate the user's message into natural English only. "
-                        "Preserve meaning, livestock terminology, and formatting. "
-                        "Do not answer the question. Do not add commentary."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Translate this {source_name} ({source_code}) text to English.\n\n"
-                        f"{text.strip()}"
-                    ),
-                },
-            ],
-            max_completion_tokens=max_tokens,
-        )
-        translated_text = (response.choices[0].message.content or "").strip()
-        if not translated_text:
-            _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
-        return translated_text
+    try:
+        if not langfuse:
+            response = await _create_openai_pretranslation_response(
+                client,
+                source_name=source_name,
+                source_code=source_code,
+                text=text,
+                max_tokens=max_tokens,
+            )
+            translated_text = (response.choices[0].message.content or "").strip()
+            if not translated_text:
+                _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
+            return translated_text
 
-    with langfuse.start_as_current_observation(
-        name="query_pretranslation",
-        as_type="generation",
-        input={
-            "source_lang": source_lang,
-            "target_lang": "english",
-            "text": text,
-        },
-        model=OPENAI_PRETRANSLATION_MODEL,
-        metadata={
-            "translation_provider": "openai",
-            "pipeline_stage": "query_pretranslation",
-        },
-    ) as observation:
-        response = await client.chat.completions.create(
+        with langfuse.start_as_current_observation(
+            name="query_pretranslation",
+            as_type="generation",
+            input={
+                "source_lang": source_lang,
+                "target_lang": "english",
+                "text": text,
+            },
             model=OPENAI_PRETRANSLATION_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a precise agricultural translation engine. "
-                        "Translate the user's message into natural English only. "
-                        "Preserve meaning, livestock terminology, and formatting. "
-                        "Do not answer the question. Do not add commentary."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Translate this {source_name} ({source_code}) text to English.\n\n"
-                        f"{text.strip()}"
-                    ),
-                },
-            ],
-            max_completion_tokens=max_tokens,
+            metadata={
+                "translation_provider": "openai",
+                "pipeline_stage": "query_pretranslation",
+            },
+        ) as observation:
+            response = await _create_openai_pretranslation_response(
+                client,
+                source_name=source_name,
+                source_code=source_code,
+                text=text,
+                max_tokens=max_tokens,
+            )
+            translated_text = (response.choices[0].message.content or "").strip()
+            if not translated_text:
+                _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
+            observation.update(output=translated_text)
+            return translated_text
+    except asyncio.TimeoutError as e:
+        logger.error(
+            "OpenAI pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
+            source_lang,
+            OPENAI_PRETRANSLATION_MODEL,
+            settings.openai_pretranslation_timeout_seconds,
+            len(text or ""),
+            (text or "")[:160],
         )
-        translated_text = (response.choices[0].message.content or "").strip()
-        if not translated_text:
-            _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
-        observation.update(output=translated_text)
-        return translated_text
+        raise TimeoutError("OpenAI pretranslation timed out") from e
 
 
 async def translate_text_stream_fast(
