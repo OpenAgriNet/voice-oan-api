@@ -42,6 +42,6 @@ def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
     target_lang = ctx.deps.lang_code if ctx.deps.lang_code else 'hi'
     if target_lang not in ['hi', 'en']:
         logger.warning(f"Invalid language code: {target_lang}. Defaulting to Hindi.")
-        target_lang = 'other'
+        target_lang = 'hi'
     prompt_file = f"voice_{target_lang}"
     return get_prompt(prompt_file, context={'today_date': get_today_date_str()})

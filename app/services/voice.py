@@ -63,12 +63,9 @@ async def stream_voice_message(
     # Load session language from cache; once set it takes priority over the request header
     cached_lang: str | None = await cache.get(f"{session_id}{LANGUAGE_CACHE_SUFFIX}")
     # effective_lang: cached value wins, fallback to request header for session-level operations
-    effective_lang = cached_lang if cached_lang in ("en", "hi") else target_lang
-    deps = FarmerContext(query=query, lang_code=effective_lang, session_id=session_id, user_id=user_id, selected_language=cached_lang)
-    # Include "Selected Language" in the user message as soon as the language cache is available
-    # (i.e., the set_language tool has been called). Until then, send only the user's words.
-    use_query_only = cached_lang not in ("en", "hi")
-    user_message = deps._query_string() if use_query_only else deps.get_user_message()
+    effective_lang = cached_lang if cached_lang in ("en", "hi") else "null"
+    deps = FarmerContext(query=query, lang_code=effective_lang, session_id=session_id, user_id=user_id)
+    user_message = deps.get_user_message()
     logger.info(f"Running agent with user message: {user_message} (effective_lang={effective_lang})")
 
     trimmed_history = trim_history(history, max_tokens=80_000)
