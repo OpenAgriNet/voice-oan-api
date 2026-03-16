@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # External Service URLs
     telemetry_api_url: str = "https://vistaar.kenpath.ai/observability-service/action/data/v3/telemetry"
     nudge_api_url: str = os.getenv("NUDGE_API_URL", "https://vistaar.getraya.app/api/nudge-user")
-    nudge_timeout_seconds: float = float(os.getenv("NUDGE_TIMEOUT_SECONDS", "2.0"))
+    nudge_timeout_seconds: float = float(os.getenv("NUDGE_TIMEOUT_SECONDS", "1.5"))
     openai_pretranslation_timeout_seconds: float = float(os.getenv("OPENAI_PRETRANSLATION_TIMEOUT_SECONDS", "4.0"))
     ollama_endpoint_url: Optional[str] = None
     marqo_endpoint_url: Optional[str] = None

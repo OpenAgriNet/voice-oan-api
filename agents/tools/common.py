@@ -1,3 +1,5 @@
+import asyncio
+import contextvars
 import json
 import random
 import httpx
@@ -7,6 +9,27 @@ from helpers.utils import get_logger
 from app.config import settings
 
 logger = get_logger(__name__)
+
+# ── Tool-call nudge signaling ───────────────────────────────────────────
+# A per-request asyncio.Event stored in a ContextVar.  Any tool wrapper
+# can call fire_tool_call_nudge() to tell the nudge task "a tool was
+# invoked – send the hold message now instead of waiting for the timer".
+_tool_call_nudge_event: contextvars.ContextVar[Optional[asyncio.Event]] = contextvars.ContextVar(
+    "_tool_call_nudge_event", default=None
+)
+
+
+def set_tool_call_nudge_event(event: asyncio.Event) -> contextvars.Token:
+    """Set the nudge event for the current async context (call once per request)."""
+    return _tool_call_nudge_event.set(event)
+
+
+def fire_tool_call_nudge() -> None:
+    """Signal that a tool call has started – the nudge task should fire immediately."""
+    event = _tool_call_nudge_event.get(None)
+    if event is not None and not event.is_set():
+        event.set()
+
 
 # Load nudge messages once at module load (no disk I/O at request time)
 _NUDGE_MESSAGES_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "nudge_messages.json"
