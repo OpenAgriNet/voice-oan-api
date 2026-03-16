@@ -36,6 +36,7 @@ from app.services.feedback import (
     parse_feedback_with_llm,
     send_feedback,
 )
+from app.services.stt_signals import detect_stt_signal, generate_stt_signal_response
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
@@ -246,6 +247,31 @@ async def stream_voice_message(
             requested_target_lang = (target_lang or "gu").strip().lower()
             needs_output_translation = use_translation_pipeline and requested_target_lang in INDIAN_LANGUAGES
             nudge_lang = (requested_target_lang or "en").strip().lower()
+
+            # ── STT signal handling (no-audio / unclear speech) ─────────────
+            # These are not real user messages — skip translation & agent,
+            # generate a short contextual "please repeat" via GPT-5-mini.
+            stt_signal = detect_stt_signal(query)
+            if stt_signal is not None:
+                logger.info(
+                    "STT signal detected; session_id=%s process_id=%s signal=%s",
+                    session_id,
+                    process_id,
+                    stt_signal,
+                )
+                recent_text = "\n\n".join(format_message_pairs(history, 3))
+                if await _request_is_stale("before_stt_signal_response"):
+                    return
+                stt_response = await generate_stt_signal_response(
+                    signal=stt_signal,
+                    target_lang=requested_target_lang,
+                    recent_history_text=recent_text,
+                )
+                stt_req = ModelRequest(parts=[UserPromptPart(content=query)])
+                stt_resp = ModelResponse(parts=[TextPart(content=stt_response)])
+                await update_message_history(session_id, [*history, stt_req, stt_resp])
+                yield stt_response
+                return
 
             # ── Nudge: arm BEFORE any pre-processing ────────────────────────
             # Fires on whichever happens first:
