@@ -506,8 +506,8 @@
   },
   {
     "en": "Bull",
-    "gu": "સાંઢ/આખલો",
-    "transliteration": "Sandh / Akhlo"
+    "gu": "સાંઢ",
+    "transliteration": "saandh"
   },
   {
     "en": "Bullock",
@@ -1726,8 +1726,8 @@
   },
   {
     "en": "herd",
-    "gu": "પશુઓ",
-    "transliteration": "Cattle herd"
+    "gu": "ધણ",
+    "transliteration": "dhan"
   },
   {
     "en": "Herd (of cattle)",
@@ -3858,5 +3858,40 @@
     "en": "Zoonotic Diseases",
     "gu": "ઝૂનોટિક રોગો",
     "transliteration": "Pratisancharit Rog"
+  },
+  {
+    "en": "fat",
+    "gu": "ફેટ",
+    "transliteration": "fet"
+  },
+  {
+    "en": "milk fat",
+    "gu": "ફેટ",
+    "transliteration": "fet"
+  },
+  {
+    "en": "SNF",
+    "gu": "એસ.એન.એફ.",
+    "transliteration": "es en ef"
+  },
+  {
+    "en": "solids not fat",
+    "gu": "એસ.એન.એફ.",
+    "transliteration": "es en ef"
+  },
+  {
+    "en": "bacteria",
+    "gu": "બેક્ટેરિયા",
+    "transliteration": "bacteria"
+  },
+  {
+    "en": "Haemorrhagic Septicaemia",
+    "gu": "ગળઘોંટુ",
+    "transliteration": "gal-ghontu"
+  },
+  {
+    "en": "Galiyo",
+    "gu": "ગળઘોંટુ",
+    "transliteration": "gal-ghontu"
   }
 ]
