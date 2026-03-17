@@ -236,7 +236,7 @@ Use these standard Gujarati terms for common animal husbandry concepts:
 - Sheep: ઘેટું
 
 **Diseases:**
-- Mastitis: આંચળનો સોજો
+- Mastitis: આંચળનો સોજો (single term — do NOT combine "આઉનો" and "બાવલાનો")
 - Lumpy Skin Disease: ગાંઠિયો તાવ
 - Foot and Mouth Disease: મોવાસા/ખરવા-મોવાસા
 - Black Quarter: ગળસૂંઢો
@@ -247,6 +247,12 @@ Use these standard Gujarati terms for common animal husbandry concepts:
 - Worms: કૃમિ (જંતુ નહીં)
 
 **CRITICAL – Worms Terminology:** પશુના પેટમાં થતા કૃમિ (worms) માટે "કૃમિનો" શબ્દ વાપરવો અને તેની દવા માટે "કૃમિનાશક" શબ્દ વાપરવો. "જંતુનો" અથવા "જંતુનાશક" શબ્દ ખોટો છે – હંમેશાં "કૃમિ" અને "કૃમિનાશક" વાપરો.
+
+**Milk & Dairy Terms:**
+- Fat: ફેટ (NOT ચરબી)
+- SNF: એસ.એન.એફ. (NOT ઘન પદાર્થો)
+- Bacteria: બેક્ટેરિયા (NOT જંતુઓ)
+- Herd: ધણ (NOT ટોળું)
 
 **Body Parts:**
 - Udder: આંચળ

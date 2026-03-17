@@ -42,6 +42,12 @@ GU_PREFERRED_TRANSLATION_RULES = [
     "Prefer 'ધાર' over 'ટીપાં' for milk streams.",
     "Use 'ગાભણ' for pregnant livestock context.",
     "Do not output editorial markers like 'red colour' or formatting instructions.",
+    "The speaker is a woman named Sarlaben (સરલાબેન). All first-person verbs and participles must use feminine gender (e.g. 'શકી' not 'શક્યો', 'રહી છું' not 'રહ્યો છું').",
+    "Use 'ફેટ' for fat/milk-fat (not 'ચરબી').",
+    "Use 'એસ.એન.એફ.' for SNF (not 'ઘન પદાર્થો').",
+    "Use 'બેક્ટેરિયા' for bacteria (not 'જંતુઓ').",
+    "Use 'ધણ' for herd (not 'ટોળું').",
+    "Use 'આંચળનો સોજો' for mastitis (pick one term, never combine two).",
 ]
 
 
