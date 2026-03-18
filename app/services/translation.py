@@ -16,7 +16,7 @@ from typing import Literal, Optional
 from openai import AsyncOpenAI
 from helpers.utils import get_logger
 from dotenv import load_dotenv
-from agents.tools.terms import get_mini_glossary_for_text
+from agents.tools.terms import get_mini_glossary_for_text, get_ambiguity_hints_for_query, TERM_PAIRS
 from app.config import settings
 
 try:
@@ -356,20 +356,78 @@ def _get_openai_client() -> AsyncOpenAI:
     return _openai_client
 
 
+def _get_glossary_hints_for_gu_query(text: str, max_results: int = 7) -> str:
+    """Fuzzy-match Gujarati input against glossary gu/transliteration fields.
+
+    Returns a compact hint string like:
+      આફરો = Bloat (rumen tympany)
+      આંચળ = Udder / Teat
+    """
+    from rapidfuzz import fuzz as _fuzz
+
+    if not text or not text.strip():
+        return ""
+
+    text_lower = text.lower().strip()
+    scored: list[tuple[str, str, float]] = []
+
+    for tp in TERM_PAIRS:
+        gu_lower = tp.gu.lower()
+        translit_lower = tp.transliteration.lower()
+
+        # Check substring containment first (fast path)
+        gu_score = 100.0 if gu_lower in text_lower else _fuzz.partial_ratio(gu_lower, text_lower)
+        tr_score = 100.0 if translit_lower in text_lower else _fuzz.partial_ratio(translit_lower, text_lower)
+        best = max(gu_score, tr_score)
+
+        if best >= 75:
+            scored.append((tp.gu, tp.en, best))
+
+    if not scored:
+        return ""
+
+    # Deduplicate by English term, keep highest score
+    seen_en: dict[str, tuple[str, str, float]] = {}
+    for gu, en, score in scored:
+        en_key = en.lower()
+        if en_key not in seen_en or score > seen_en[en_key][2]:
+            seen_en[en_key] = (gu, en, score)
+
+    top = sorted(seen_en.values(), key=lambda x: x[2], reverse=True)[:max_results]
+    return "\n".join(f"  {gu} = {en}" for gu, en, _ in top)
+
+
 def _build_openai_pretranslation_messages(source_name: str, source_code: str, text: str) -> list[dict[str, str]]:
+    # -- Domain context ------------------------------------------------
+    domain_preamble = (
+        "You are translating messages from Indian dairy farmers calling the Amul AI helpline (voiced as 'Sarlaben' / સરલાબેન). "
+        "The farmers speak Gujarati and ask about animal health, milk production, fodder, breeding, and dairy cooperative services.\n\n"
+        "IMPORTANT translation rules:\n"
+        "- Words that look like human names (e.g. સલાદ, સરલા, ગંગા) are almost always ANIMAL NAMES (cow/buffalo names). Transliterate them as-is, do NOT translate literally.\n"
+        "- 'ભાઈ' in this context usually refers to a male animal (bull/ox), not a human brother.\n"
+        "- Always prefer the veterinary/agricultural meaning of ambiguous words over the everyday meaning.\n"
+    )
+
+    # -- Ambiguity hints from ambiguity_terms.json ---------------------
+    ambiguity_hints = get_ambiguity_hints_for_query(text)
+    if ambiguity_hints:
+        domain_preamble += f"\nDomain-specific disambiguation rules for terms in this message:\n{ambiguity_hints}\n"
+
+    # -- Glossary hints (top matching gu→en terms) ---------------------
+    glossary_hints = _get_glossary_hints_for_gu_query(text, max_results=7)
+    if glossary_hints:
+        domain_preamble += f"\nGlossary (Gujarati → English) for terms likely in this message:\n{glossary_hints}\n"
+
+    system_content = (
+        f"{domain_preamble}\n"
+        "Translate the user's message to English. "
+        "Respond with JSON: {\"translation\": \"...\"}. "
+        "No commentary."
+    )
+
     return [
-        {
-            "role": "system",
-            "content": (
-                "Translate the user's message to English. "
-                "Respond with JSON: {\"translation\": \"...\"}. "
-                "No commentary."
-            ),
-        },
-        {
-            "role": "user",
-            "content": text.strip(),
-        },
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": text.strip()},
     ]
 
 
