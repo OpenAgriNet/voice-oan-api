@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 
 OPENAI_PRETRANSLATION_MODEL = os.getenv(
     "OPENAI_PRETRANSLATION_MODEL",
-    "gpt-5-mini",
+    "gpt-5.1",
 )
 _openai_client: Optional[AsyncOpenAI] = None
 
@@ -361,19 +361,14 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
         {
             "role": "system",
             "content": (
-                "You are a precise agricultural translation engine. "
-                "Translate the user's message into natural English only. "
-                "Auto-detect the source language. "
-                "Preserve meaning, livestock terminology, and formatting. "
-                "Do not answer the question. Do not add commentary."
+                "Translate the user's message to English. "
+                "Respond with JSON: {\"translation\": \"...\"}. "
+                "No commentary."
             ),
         },
         {
             "role": "user",
-            "content": (
-                f"Translate this text to English faithfully.\n\n"
-                f"{text.strip()}"
-            ),
+            "content": text.strip(),
         },
     ]
 
@@ -391,6 +386,7 @@ async def _create_openai_pretranslation_response(
             model=OPENAI_PRETRANSLATION_MODEL,
             messages=_build_openai_pretranslation_messages(source_name, source_code, text),
             max_completion_tokens=max_tokens,
+            response_format={"type": "json_object"},
         ),
         timeout=settings.openai_pretranslation_timeout_seconds,
     )
@@ -430,6 +426,19 @@ def _raise_empty_pretranslation(
     raise ValueError("GPT pretranslation returned empty output")
 
 
+def _extract_translation_from_response(response) -> str:
+    """Extract translation text from OpenAI JSON response."""
+    raw = (response.choices[0].message.content or "").strip()
+    if not raw:
+        return ""
+    try:
+        data = json.loads(raw)
+        return (data.get("translation") or "").strip()
+    except (json.JSONDecodeError, AttributeError):
+        # Fallback: use raw content if JSON parsing fails
+        return raw
+
+
 async def translate_to_english_with_gpt5_mini(
     text: str,
     source_lang: str,
@@ -458,7 +467,7 @@ async def translate_to_english_with_gpt5_mini(
                 text=text,
                 max_tokens=max_tokens,
             )
-            translated_text = (response.choices[0].message.content or "").strip()
+            translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
             return translated_text
@@ -484,7 +493,7 @@ async def translate_to_english_with_gpt5_mini(
                 text=text,
                 max_tokens=max_tokens,
             )
-            translated_text = (response.choices[0].message.content or "").strip()
+            translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
             observation.update(output=translated_text)
