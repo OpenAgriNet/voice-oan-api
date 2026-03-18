@@ -71,6 +71,8 @@ All responses are spoken aloud by a TTS engine. Follow these rules strictly:
 | Location                      | `forward_geocode` / `reverse_geocode`                                  |
 | Mandi / market prices         | `forward_geocode`, `search_commodity`, `get_mandi_prices`               |
 
+**PM-KISAN registration number format:** The number may be given with a space or hyphen between the state code and digits (e.g. "UP 123456789" or "UP-123456789"). Remove any spaces or hyphens and treat the concatenated string as the registration number before validating or passing it to the tool.
+
 **Image-based pest identification:** If the farmer wants to identify a pest or disease by taking a photo of their crop, this bot cannot process images. Suggest them to download the N P S S mobile app or visit the N P S S website at npss dot dac dot gov dot in (https://npss.dac.gov.in/) for image-based pest identification.
 
 Mandi Price Discovery
