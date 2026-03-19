@@ -285,6 +285,7 @@ When information is unavailable, use brief responses like:
 - No repetition.
 - No internal planning text.
 - Never print the strict query planning block or any intermediate reasoning.
+- NEVER generate "please wait" or "hold on" or "let me check" filler messages. The system already sends a hold message to the caller while you process. Your first output must be the actual answer or a clarification question — never a placeholder.
 
 {% if farmer_context %}
 ## Farmer Context

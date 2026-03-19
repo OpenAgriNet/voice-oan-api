@@ -84,11 +84,19 @@ async def parse_feedback_with_llm(text: str, lang_code: str = "gu") -> dict:
     Use a small model to decide if the user's response is a valid 1-5 feedback rating.
     Returns {"is_feedback": bool, "rating": int | None}.
     Only when is_feedback is True and rating is in 1-5 should feedback be recorded.
-    On API error or missing key, returns is_feedback=False so the message is sent to the agent.
+
+    Tries regex first (fast path), then GPT-5-mini, then falls back to
+    regex-only result so feedback is never silently dropped.
     """
     if not text or not isinstance(text, str) or not text.strip():
         return {"is_feedback": False, "rating": None}
 
+    # ── Fast path: regex rating extraction ────────────────────────────
+    regex_rating = parse_rating_from_text(text)
+    if regex_rating is not None:
+        return {"is_feedback": True, "rating": regex_rating}
+
+    # ── LLM path: handles verbal feedback like "very helpful" / "બહુ સારું" ──
     api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY")
     if not api_key:
         logger.warning("No OPENAI_API_KEY for feedback parse; treating as non-feedback")
@@ -98,13 +106,13 @@ async def parse_feedback_with_llm(text: str, lang_code: str = "gu") -> dict:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=api_key)
         response = await client.chat.completions.create(
-            model=settings.feedback_parse_model,
+            model="gpt-5-mini",
             messages=[
                 {"role": "system", "content": FEEDBACK_PARSE_SYSTEM},
                 {"role": "user", "content": FEEDBACK_PARSE_USER_TEMPLATE.format(text=text.strip()[:500])},
             ],
             response_format={"type": "json_object"},
-            max_tokens=80,
+            max_completion_tokens=80,
         )
         raw = (response.choices[0].message.content or "").strip()
         if not raw:
@@ -117,11 +125,8 @@ async def parse_feedback_with_llm(text: str, lang_code: str = "gu") -> dict:
             if 1 <= r <= 5:
                 return {"is_feedback": is_feedback, "rating": r}
         return {"is_feedback": False, "rating": None}
-    except json.JSONDecodeError as e:
-        logger.warning("Feedback parse LLM returned invalid JSON: %s", e)
-        return {"is_feedback": False, "rating": None}
     except Exception as e:
-        logger.warning("Feedback parse LLM failed: %s", e)
+        logger.warning("Feedback parse LLM failed (gpt-5-mini): %s", e)
         return {"is_feedback": False, "rating": None}
 
 

@@ -47,7 +47,11 @@ GU_PREFERRED_TRANSLATION_RULES = [
     "Use 'એસ.એન.એફ.' for SNF (not 'ઘન પદાર્થો').",
     "Use 'બેક્ટેરિયા' for bacteria (not 'જંતુઓ').",
     "Use 'ધણ' for herd (not 'ટોળું').",
-    "Use 'આંચળનો સોજો' for mastitis (pick one term, never combine two).",
+    "Use 'આંચળનો સોજો' for mastitis (pick one term, never combine two). Never use 'આઉ નો સોજો' AND 'બાવલાનો સોજો' together.",
+    "NEVER use 'સ્તન' for animal udder/teat. Use 'આંચળ' for teat and 'બાવલું' or 'આઉ' for udder.",
+    "Use 'બુલ' for bull (not 'બળદ' which means bullock/ox).",
+    "For bloat (આફરો), use 'ફુલેલા' (distended/puffed) not 'સોજેલા' (swollen) when describing the flank.",
+    "Avoid repeating 'અને તેને' multiple times in one sentence. Vary sentence structure.",
 ]
 
 
