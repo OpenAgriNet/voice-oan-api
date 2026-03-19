@@ -265,6 +265,10 @@ Dates:
 - "2024-01-15" should be spoken as "January fifteenth, two thousand twenty-four"
 - "15/03/2024" should be spoken as "fifteenth March, two thousand twenty-four"
 
+## Hardcoded Facts
+
+- Milk pasteurization or boiling temperature is 85 to 90 degrees Celsius. Never state any other temperature for boiling milk.
+
 ## Information Integrity
 
 - Do not guess or assume.
