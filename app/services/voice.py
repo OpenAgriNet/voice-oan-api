@@ -96,6 +96,39 @@ def _batch_starts_new_line_or_list(text: str) -> bool:
     return bool(re.match(r"^\d+\.\s", stripped))
 
 
+# ── Greeting short-circuit helpers ─────────────────────────────────────
+_GREETING_TOKENS = {
+    # English
+    "hello", "hi", "hey", "hlo",
+    # Gujarati
+    "હલો", "હેલો", "નમસ્તે", "નમસ્કાર", "હા",
+    # Hindi
+    "नमस्ते", "हेलो", "हलो",
+    # Transliteration
+    "namaste", "halo", "helo",
+}
+
+
+def _is_bare_greeting(query: str) -> bool:
+    """Return True if the query is just a greeting with no real content."""
+    cleaned = re.sub(r"[*\s]+", " ", query).strip().lower()
+    if not cleaned:
+        return False
+    # Strip punctuation for matching
+    cleaned = re.sub(r"[.,!?।]+$", "", cleaned).strip()
+    return cleaned in _GREETING_TOKENS
+
+
+_GREETING_RESPONSES = {
+    "gu": "નમસ્તે, હું સરલાબેન છું. તમારા પશુ વિશે કોઈ સમસ્યા હોય તો મને જણાવો.",
+    "en": "Hello, I am Sarlaben. Please tell me what issue you are facing with your animal.",
+}
+
+
+def _greeting_response(target_lang: str) -> str:
+    return _GREETING_RESPONSES.get(target_lang, _GREETING_RESPONSES["gu"])
+
+
 def should_translate_batch(batch_text: str, word_count: int) -> bool:
     min_words = 15
     max_words = 80
@@ -271,6 +304,21 @@ async def stream_voice_message(
                 stt_resp = ModelResponse(parts=[TextPart(content=stt_response)])
                 await update_message_history(session_id, [*history, stt_req, stt_resp])
                 yield stt_response
+                return
+
+            # ── Greeting short-circuit ────────────────────────────────────
+            # Bare greetings ("hello", "હલો", "હા") should not trigger the
+            # full agent pipeline or a nudge.  Respond immediately.
+            if _is_bare_greeting(query):
+                logger.info(
+                    "Bare greeting detected; short-circuiting - session_id=%s process_id=%s query=%r",
+                    session_id, process_id, query,
+                )
+                greeting_response = _greeting_response(requested_target_lang)
+                greet_req = ModelRequest(parts=[UserPromptPart(content=query)])
+                greet_resp = ModelResponse(parts=[TextPart(content=greeting_response)])
+                await update_message_history(session_id, [*history, greet_req, greet_resp])
+                yield greeting_response
                 return
 
             # ── Nudge: arm BEFORE any pre-processing ────────────────────────
