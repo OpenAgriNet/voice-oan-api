@@ -9,6 +9,7 @@ speak a bit louder?").
 """
 
 import os
+import random
 import re
 from typing import Optional
 
@@ -61,6 +62,40 @@ Rules:
 
 _openai_client: Optional[AsyncOpenAI] = None
 
+# ── Hardcoded fallback responses ──────────────────────────────────────
+# Rotated randomly so repeated failures don't sound robotic.
+_FALLBACK_NO_AUDIO: dict[str, list[str]] = {
+    "gu": [
+        "માફ કરશો, મને તમારો અવાજ સંભળાતો નથી. કૃપા કરીને ફોન નજીક રાખીને ફરીથી બોલો.",
+        "હું તમને સાંભળી શકતી નથી. થોડું મોટેથી બોલી શકશો?",
+        "તમારો અવાજ આવતો નથી. કૃપા કરીને ફરીથી બોલો.",
+    ],
+    "en": [
+        "Sorry, I can't hear you. Could you please speak a little louder?",
+        "I wasn't able to hear that. Could you move closer to the phone and try again?",
+        "I didn't catch any audio. Please try speaking again.",
+    ],
+}
+
+_FALLBACK_UNCLEAR: dict[str, list[str]] = {
+    "gu": [
+        "માફ કરશો, મને તમારી વાત બરાબર સમજાઈ નહીં. કૃપા કરીને ફરીથી બોલો.",
+        "તમે શું કહ્યું એ સ્પષ્ટ સંભળાયું નહીં. થોડું ધીમેથી ફરી કહેશો?",
+        "મને બરાબર સમજાયું નહીં. કૃપા કરીને ફરીથી કહો.",
+    ],
+    "en": [
+        "Sorry, I couldn't understand that clearly. Could you please repeat?",
+        "That wasn't clear to me. Could you say it again, a bit slowly?",
+        "I didn't quite catch what you said. Please try again.",
+    ],
+}
+
+
+def _pick_fallback(signal: str, target_lang: str) -> str:
+    pool = _FALLBACK_NO_AUDIO if signal == _SIGNAL_NO_AUDIO else _FALLBACK_UNCLEAR
+    responses = pool.get(target_lang, pool["en"])
+    return random.choice(responses)
+
 
 def _get_openai_client() -> AsyncOpenAI:
     global _openai_client
@@ -79,6 +114,8 @@ async def generate_stt_signal_response(
 ) -> str:
     """Ask GPT-5-mini for a short, contextual 'please repeat' message.
 
+    Falls back to hardcoded responses if the OpenAI call fails.
+
     Args:
         signal: canonical signal name (from detect_stt_signal).
         target_lang: language code for the response (e.g. "gu", "en").
@@ -96,20 +133,25 @@ async def generate_stt_signal_response(
     if recent_history_text:
         user_content += f"\nRecent conversation:\n{recent_history_text}\n"
 
-    client = _get_openai_client()
-    response = await client.chat.completions.create(
-        model=STT_RESPONSE_MODEL,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        max_tokens=150,
-        temperature=0.7,
-    )
-    text = (response.choices[0].message.content or "").strip()
-    if not text:
-        # Hardcoded fallback — should never happen
-        if target_lang == "gu":
-            return "માફ કરશો, હું તમને સાંભળી શકતી નથી. કૃપા કરીને ફરીથી બોલો."
-        return "Sorry, I couldn't hear you. Could you please repeat that?"
-    return text
+    try:
+        client = _get_openai_client()
+        response = await client.chat.completions.create(
+            model=STT_RESPONSE_MODEL,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            max_completion_tokens=150,
+            temperature=0.7,
+        )
+        text = (response.choices[0].message.content or "").strip()
+        if text:
+            return text
+    except Exception:
+        logger.warning(
+            "STT signal LLM call failed, using hardcoded fallback - signal=%s lang=%s model=%s",
+            signal, target_lang, STT_RESPONSE_MODEL,
+            exc_info=True,
+        )
+
+    return _pick_fallback(signal, target_lang)
