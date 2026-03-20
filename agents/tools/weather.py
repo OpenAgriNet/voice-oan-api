@@ -3,7 +3,7 @@ Weather tool for fetching weather forecast data using the IMD API.
 """
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from helpers.utils import get_logger, get_today_date_str
 import httpx
 from pydantic import BaseModel, AnyHttpUrl, Field
@@ -392,7 +392,7 @@ async def weather_forecast(latitude: float, longitude: float) -> str:
     except httpx.RequestError as e:
         logger.error(f"Weather API request failed: {e!r}", exc_info=True)
         return f"Weather request failed: {str(e)}"
-    except UnexpectedModelBehavior as e:
+    except UnexpectedModelBehavior:
         logger.warning("Weather request exceeded retry limit")
         return "Weather data is temporarily unavailable. Please try again later."
     except Exception as e:

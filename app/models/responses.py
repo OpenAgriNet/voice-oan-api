@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Any
+from typing import Optional, Any
 
 class BaseResponse(BaseModel):
     status: str = Field(..., description="Response status")

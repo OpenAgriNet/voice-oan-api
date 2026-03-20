@@ -398,7 +398,7 @@ async def get_mandi_prices(
     except httpx.RequestError as e:
         logger.error(f"Mandi API request failed: {e!r}", exc_info=True)
         return f"Mandi price request failed: {str(e)}"
-    except UnexpectedModelBehavior as e:
+    except UnexpectedModelBehavior:
         logger.warning("Mandi request exceeded retry limit")
         return "Mandi price data is temporarily unavailable. Please try again later."
     except Exception as e:

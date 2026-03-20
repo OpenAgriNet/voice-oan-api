@@ -1,5 +1,4 @@
 import jwt
-import os
 from dotenv import load_dotenv
 from cryptography.hazmat.primitives import serialization
 from fastapi import Depends, HTTPException, status, Request
