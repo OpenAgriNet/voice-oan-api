@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from app.models.openai_models import ChatCompletionRequest
 from app.services.openai_service import generate_openai_stream, generate_openai_response
+from app.auth.jwt_auth import get_current_user
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -15,6 +16,7 @@ async def chat_completions(
     x_user_id: str = Header(..., alias="X-User-ID"),
     x_session_id: str = Header(..., alias="X-Session-ID"),
     x_language: str = Header("none", alias="X-Language"),
+    current_user=Depends(get_current_user),
 ):
     """
     OpenAI-compatible chat completions endpoint with streaming support.
