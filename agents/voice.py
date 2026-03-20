@@ -1,4 +1,3 @@
-from typing import Optional
 from pydantic_ai import Agent, RunContext
 from helpers.utils import get_prompt, get_today_date_str
 from agents.models import LLM_AGRINET_MODEL

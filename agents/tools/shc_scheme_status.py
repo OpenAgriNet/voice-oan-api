@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from helpers.utils import get_logger
 import httpx
 from pydantic import BaseModel, AnyHttpUrl
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any
 from app.core.cache import cache
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from dotenv import load_dotenv
@@ -603,7 +603,7 @@ async def check_shc_status(
         logger.error(f"Soil health card status API request failed: {e!r}", exc_info=True)
         return f"Soil health card status request failed: {str(e)}"
 
-    except UnexpectedModelBehavior as e:
+    except UnexpectedModelBehavior:
         logger.warning("Soil health card status request exceeded retry limit")
         return "Soil health card status service is temporarily unavailable. Please try again later."
     except Exception as e:

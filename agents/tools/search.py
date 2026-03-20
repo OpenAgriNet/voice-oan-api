@@ -4,7 +4,7 @@ Marqo client implementation for vector search.
 import os
 import re
 import marqo
-from typing import Optional, Literal
+from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
 from helpers.utils import get_logger
@@ -66,8 +66,6 @@ async def search_documents(
         client = marqo.Client(url=endpoint_url)
         logger.info(f"Searching for '{query}' in index '{index_name}'")
         
-        filter_string = f"type:document"
-            
         # Perform search
         search_params = {
             "q": query,
@@ -93,7 +91,7 @@ async def search_documents(
             return "> Search Results for `" + query + "`\n\n" + document_string
     except Exception as e:
         logger.error(f"Error searching documents: {e} for query: {query}")
-        raise ModelRetry(f"Error searching documents, please try again")
+        raise ModelRetry("Error searching documents, please try again")
 
 
 async def search_videos(
@@ -142,7 +140,7 @@ async def search_videos(
         
     except Exception as e:
         logger.error(f"Error searching documents: {e} for query: {query}")
-        raise ModelRetry(f"Error searching documents, please try again")
+        raise ModelRetry("Error searching documents, please try again")
 
 
 async def search_pests_diseases(
@@ -197,4 +195,4 @@ async def search_pests_diseases(
             return "> Pests & Diseases Search Results for `" + query + "`\n\n" + document_string
     except Exception as e:
         logger.error(f"Error searching pests and diseases: {e} for query: {query}")
-        raise ModelRetry(f"Error searching pests and diseases, please try again")
+        raise ModelRetry("Error searching pests and diseases, please try again")

@@ -1,7 +1,7 @@
 """
 Feedback tool for collecting call feedback (like/dislike) and improvement suggestions before ending the interaction.
 """
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 from pydantic_ai.tools import RunContext

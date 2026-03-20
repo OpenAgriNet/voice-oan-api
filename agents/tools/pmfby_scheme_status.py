@@ -5,8 +5,8 @@ from helpers.utils import get_logger
 import httpx
 from app.config import get_default_httpx_timeout
 from pydantic import BaseModel, AnyHttpUrl
-from typing import List, Optional, Dict, Any, Literal, ClassVar
-from pydantic_ai import ModelRetry, UnexpectedModelBehavior
+from typing import List, Optional, Dict, Any, Literal
+from pydantic_ai import ModelRetry
 from pydantic_ai.tools import RunContext
 from agents.deps import FarmerContext
 import os

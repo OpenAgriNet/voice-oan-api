@@ -3,9 +3,8 @@ import json
 from datetime import datetime, timezone
 from helpers.utils import get_logger
 import httpx
-from app.config import get_default_httpx_timeout
-from pydantic import BaseModel, AnyHttpUrl, Field
-from typing import List, Optional, Dict, Any, Literal
+from pydantic import BaseModel, AnyHttpUrl
+from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from pydantic_ai.tools import RunContext
 from agents.deps import FarmerContext   
@@ -521,7 +520,7 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
             return str(scheme_response)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response from scheme init API: {e}. Response text: {response_text[:200]}")
-            return f"Invalid response from scheme init service. Please try again later."
+            return "Invalid response from scheme init service. Please try again later."
                 
     except httpx.TimeoutException as e:
         logger.error(f"Scheme init API request timed out: {str(e)}")
@@ -531,7 +530,7 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
         logger.error(f"Scheme init API request failed: {e}")
         return f"Scheme init request failed: {str(e)}"
     
-    except UnexpectedModelBehavior as e:
+    except UnexpectedModelBehavior:
         logger.warning("Scheme init request exceeded retry limit")
         return "Scheme init service is temporarily unavailable. Please try again later."
     except Exception as e:
@@ -612,7 +611,7 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
             return str(scheme_response)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response from scheme status API: {e}. Response text: {response_text[:200]}")
-            return f"Invalid response from scheme status service. Please try again later."
+            return "Invalid response from scheme status service. Please try again later."
                 
     except httpx.TimeoutException as e:
         logger.error(f"Scheme status API request timed out: {str(e)}")
@@ -622,7 +621,7 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
         logger.error(f"Scheme status API request failed: {e}")
         return f"Scheme status request failed: {str(e)}"
     
-    except UnexpectedModelBehavior as e:
+    except UnexpectedModelBehavior:
         logger.warning("Scheme status request exceeded retry limit")
         return "Scheme status service is temporarily unavailable. Please try again later."
     except Exception as e:

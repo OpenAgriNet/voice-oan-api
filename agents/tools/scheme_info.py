@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from helpers.utils import get_logger
 import httpx
-from pydantic import BaseModel, AnyHttpUrl, Field
+from pydantic import BaseModel, AnyHttpUrl
 from typing import List, Optional, Dict, Any, Literal
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 import os
@@ -284,7 +284,7 @@ def get_scheme_info(scheme_name: Optional[Literal["kcc", "pmkisan", "pmfby", "sh
         logger.error(f"Scheme API request failed: {e!r}", exc_info=True)
         return f"Scheme request failed: {str(e)}"
 
-    except UnexpectedModelBehavior as e:
+    except UnexpectedModelBehavior:
         logger.warning("Scheme request exceeded retry limit")
         return "Scheme data is temporarily unavailable. Please try again later."
     except Exception as e:
