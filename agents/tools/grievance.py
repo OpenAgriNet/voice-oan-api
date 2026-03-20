@@ -33,23 +33,10 @@ KEY_1_HEX = os.getenv("GRIEVANCE_KEY_1")
 KEY_2_HEX = os.getenv("GRIEVANCE_KEY_2")
 
 # Mapping file: human-friendly grievance labels -> backend codes
-_GRIEVANCE_JSON_PATH = os.getenv("GRIEVANCE_TYPES_PATH", "assets/grievance_types.json")
+_GRIEVANCE_JSON_PATH = "assets/grievance_types.json"
 
-
-def _load_grievance_mapping(path: str) -> Dict[str, str]:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if not isinstance(data, dict):
-                raise ValueError("grievance_types.json must be an object of {label: code}")
-            return {str(k): str(v) for k, v in data.items()}
-    except Exception as e:
-        logger.error(f"Failed to load grievance mapping at '{path}': {e}")
-        return {}
-
-
-GRIEVANCE_MAPPING: Dict[str, str] = _load_grievance_mapping(_GRIEVANCE_JSON_PATH)
-GRIEVANCE_TYPES: List[str] = list(GRIEVANCE_MAPPING.keys())
+GRIEVANCE_MAPPING = json.load(open(_GRIEVANCE_JSON_PATH, "r", encoding="utf-8"))
+GRIEVANCE_TYPES = Literal[tuple(GRIEVANCE_MAPPING.keys())]  # type: ignore
 
 
 # --------------------------------------------------------------------------------------
@@ -301,14 +288,14 @@ def _format_status(payload: Dict[str, Any]) -> str:
 # Exported Tools
 # --------------------------------------------------------------------------------------
 
-def submit_grievance(identity_no: str, grievance_description: str, grievance_type: str) -> str:
+def submit_pmkisan_grievance(identity_no: str, grievance_description: str, grievance_type: GRIEVANCE_TYPES) -> str:
     """
     Create and submit a grievance to the PM-KISAN portal.
 
     Args:
         identity_no: PM-KISAN Registration Number (11-character alphanumeric string) or 12-digit Aadhaar number registered with PM-KISAN.
         grievance_description: Description of the grievance (plain text).
-        grievance_type: Human-friendly grievance label. Must be one of the keys in GRIEVANCE_MAPPING.
+        grievance_type: Type of grievance to submit.
 
     Returns:
         A user-friendly message summarizing submission outcome.
