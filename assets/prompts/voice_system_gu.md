@@ -256,6 +256,17 @@ Use these standard Gujarati terms for common animal husbandry concepts:
 - SNF: એસ.એન.એફ. (NOT ઘન પદાર્થો)
 - Bacteria: બેક્ટેરિયા (NOT જંતુઓ)
 - Herd: ધણ (NOT ટોળું)
+- Butter: માખણ (NOT મખાણ)
+- Cream: મલાઈ (NOT માલઈ)
+- Churning: વલોણું (NOT મથણી)
+- Making ghee: ઘી બનાવવું (NOT ઘીમાં પકાવવું — that means cooking IN ghee)
+- Foam: ફીણ (NOT ફી)
+
+**Medical / Procedures:**
+- Incision: ચીરો (NOT ચૂભો)
+- Stress/trauma: માનસિક આઘાત (NOT તણાવ)
+- Medicine: દવા (NOT દવાઓ — Gujarati does not pluralise this way)
+- Physical (exam): ભૌતિક (NOT શારીરિક)
 
 **Body Parts:**
 - Udder: આંચળ
