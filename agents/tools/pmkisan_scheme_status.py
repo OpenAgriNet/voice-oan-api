@@ -484,7 +484,6 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
         # Use whichever identifier is available for the transaction ID
         identifier = reg_no or phone_number
         transaction_id = generate_transaction_id(session_id, identifier)
-        logger.info(f"Transaction ID: {transaction_id}")
         payload = SchemeInitRequest(
             registration_number=reg_no,
             transaction_id=transaction_id,
@@ -493,7 +492,6 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
         
         endpoint = os.getenv("BAP_ENDPOINT").rstrip("/") + "/init"
         logger.info(f"[PM KISAN INIT] Request URL: {endpoint}")
-        logger.info(f"[PM KISAN INIT] Request Payload: {json.dumps(payload, indent=2)}")
         
         response = httpx.post(
             endpoint,
@@ -502,7 +500,6 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
         )
         
         logger.info(f"[PM KISAN INIT] Response Status: {response.status_code}")
-        logger.info(f"[PM KISAN INIT] Response Payload: {response.text}")
         
         if response.status_code != 200:
             logger.error(f"Scheme init API returned status code {response.status_code}")
@@ -575,7 +572,6 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
         # Use whichever identifier is available for the transaction ID (must match what was used in init)
         identifier = reg_no or phone_number
         transaction_id = generate_transaction_id(session_id, identifier)
-        logger.info(f"Transaction ID: {transaction_id}")
         payload = SchemeStatusRequest(transaction_id=transaction_id,
                                       otp=otp_clean,
                                       registration_number=reg_no,
@@ -584,7 +580,6 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
         
         endpoint = os.getenv("BAP_ENDPOINT").rstrip("/") + "/status"
         logger.info(f"[PM KISAN STATUS] Request URL: {endpoint}")
-        logger.info(f"[PM KISAN STATUS] Request Payload: {json.dumps(payload, indent=2)}")
         
         response = httpx.post(
             endpoint,
@@ -593,7 +588,6 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
         )
         
         logger.info(f"[PM KISAN STATUS] Response Status: {response.status_code}")
-        logger.info(f"[PM KISAN STATUS] Response Payload: {response.text}")
         
         if response.status_code != 200:
             logger.error(f"Scheme status API returned status code {response.status_code}")
