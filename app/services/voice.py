@@ -66,7 +66,7 @@ async def stream_voice_message(
     effective_lang = cached_lang if cached_lang in ("en", "hi") else "null"
     deps = FarmerContext(query=query, lang_code=effective_lang, session_id=session_id, user_id=user_id)
     user_message = deps.get_user_message()
-    logger.info(f"Running agent with user message: {user_message} (effective_lang={effective_lang})")
+    logger.info(f"Running agent (effective_lang={effective_lang})")
 
     trimmed_history = trim_history(history, max_tokens=80_000)
     logger.info(f"Trimmed history: {len(trimmed_history)} messages")

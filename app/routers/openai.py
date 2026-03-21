@@ -42,8 +42,8 @@ async def chat_completions(
     target_lang = x_language
     
     logger.info(
-        f"Voice API chat completions request - user_id: {user_id}, tenant_id: {tenant_id}, "
-        f"session_id: {session_id}, language: {target_lang}, stream: {request.stream}, model: {request.model}"
+        f"Voice API chat completions request - session_id: {session_id}, "
+        f"language: {target_lang}, stream: {request.stream}, model: {request.model}"
     )
 
     valid_languages = ["en", "hi", "none"]
