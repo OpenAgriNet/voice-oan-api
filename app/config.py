@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     environment: str = os.getenv("ENVIRONMENT", "production")
     debug: bool = False
     base_dir: Path = Path(__file__).resolve().parent.parent
-    secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
     timezone: str = "Asia/Kolkata"
 
     # Server Configuration
