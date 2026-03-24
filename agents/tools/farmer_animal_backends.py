@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from agents.models.farmer import FarmerRecord, AnimalRecord
+
 BASE_AMULPASHUDHAN = "https://api.amulpashudhan.com/configman/v1/PashuGPT"
 BASE_HERDMAN = "https://herdman.live/apis/api"
 

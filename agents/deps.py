@@ -1,6 +1,8 @@
-from typing import Optional, Literal, Dict, Any
+from typing import Optional, Literal, Dict, Any, TYPE_CHECKING
 from pydantic import BaseModel, Field, field_validator
 from langcodes import Language
+
+from agents.models.farmer import FarmerDataEnvelope
 
 
 class FarmerContext(BaseModel):
@@ -31,7 +33,7 @@ class FarmerContext(BaseModel):
     )
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
-    farmer_info: Optional[Dict[str, Any]] = Field(default=None, description="Farmer's personal details and animals from JWT token.")
+    farmer_info: Optional[FarmerDataEnvelope] = Field(default=None, description="Farmer's personal details and animals from JWT token.")
 
     def _language_string(self):
         """Get the language string for the agrinet agent."""
@@ -50,7 +52,10 @@ class FarmerContext(BaseModel):
         """Format farmer context information from JWT token for the system prompt."""
         if not self.farmer_info:
             return None
-        
+
+        # Convert FarmerDataEnvelope (or any Pydantic model) to dict for formatting
+        data = self.farmer_info.model_dump() if hasattr(self.farmer_info, 'model_dump') else self.farmer_info
+
         def format_value(value: Any, indent: int = 0) -> str:
             """Recursively format values for display."""
             indent_str = "  " * indent
@@ -80,7 +85,7 @@ class FarmerContext(BaseModel):
                 return str(value)
         
         # Format the entire farmer_info dict
-        formatted_context = format_value(self.farmer_info, indent=0)
+        formatted_context = format_value(data, indent=0)
         return formatted_context
 
     def get_user_message(self):
