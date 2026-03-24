@@ -7,6 +7,7 @@ import logging
 import boto3
 from dotenv import load_dotenv
 import base64
+import binascii
 import tiktoken
 import unicodedata as ud
 from datetime import datetime
@@ -15,6 +16,8 @@ from jinja2 import Environment, FileSystemLoader
 import pytz
 
 load_dotenv()
+
+MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024  # 10MB hard cap
 
 
 def get_s3_client():
@@ -237,13 +240,33 @@ def upload_audio_to_s3(audio_base64: str, session_id: str, bucket_name: str = No
             
         if not bucket_name:
             raise ValueError("S3 bucket name not provided")
-            
-        # Decode base64 content
-        audio_content = base64.b64decode(audio_base64)
-        
+
+        if not audio_base64:
+            raise ValueError("Audio payload is empty")
+
+        # Strict base64 decode (reject malformed content)
+        try:
+            audio_content = base64.b64decode(audio_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Invalid base64 audio payload") from exc
+
+        if len(audio_content) == 0:
+            raise ValueError("Decoded audio payload is empty")
+        if len(audio_content) > MAX_AUDIO_SIZE_BYTES:
+            raise ValueError("Audio payload exceeds maximum allowed size")
+
+        # Accept only WAV/RIFF payloads
+        if not (audio_content.startswith(b"RIFF") and audio_content[8:12] == b"WAVE"):
+            raise ValueError("Unsupported audio format; expected WAV")
+
+        # Restrict path segment to safe characters
+        safe_session_id = re.sub(r"[^a-zA-Z0-9_-]", "_", str(session_id)).strip("_")
+        if not safe_session_id:
+            raise ValueError("Invalid session id")
+
         # Generate unique filename with timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"audio/{session_id}/{timestamp}.wav"
+        filename = f"audio/{safe_session_id}/{timestamp}.wav"
         
         # Get S3 client and upload
         s3_client = get_s3_client()
