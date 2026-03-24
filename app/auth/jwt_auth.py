@@ -19,7 +19,7 @@ class OptionalOAuth2PasswordBearer(OAuth2PasswordBearer):
             # In development, don't require the token
             authorization = request.headers.get("Authorization")
             if not authorization:
-                return None
+                raise HTTPException(status_code=401, detail="Unauthorized")
             scheme, param = get_authorization_scheme_param(authorization)
             if scheme.lower() != "bearer":
                 return None
