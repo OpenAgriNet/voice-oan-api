@@ -15,6 +15,7 @@ async def voice_bhili_endpoint(
 #    background_tasks: BackgroundTasks,
     query: str = Query(..., description="The user's chat query"),
     session_id: Optional[str] = Query(None, description="Session ID for maintaining conversation context"),
+    user_info: dict = Depends(get_current_user)  # Authentication required
 ):
     """
     Chat endpoint with Bhashini translation support that returns complete response.
