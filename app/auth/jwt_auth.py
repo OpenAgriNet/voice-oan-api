@@ -16,7 +16,6 @@ class OptionalOAuth2PasswordBearer(OAuth2PasswordBearer):
     """OAuth2 scheme that's optional in development"""
     async def __call__(self, request: Request) -> str | None:
         if settings.environment == "development":
-            # In development, don't require the token
             authorization = request.headers.get("Authorization")
             if not authorization:
                 raise HTTPException(status_code=401, detail="Unauthorized")
@@ -37,16 +36,20 @@ with open(public_key_path, 'rb') as key_file:
     public_key = serialization.load_pem_public_key(key_file.read())
 logger.info(f"Successfully loaded JWT Public Key from: {public_key_path}")
 
+
+def _jwt_issuer_values() -> list[str]:
+    raw = (settings.jwt_issuer or "").strip()
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
 async def get_current_user(token: str | None = Depends(oauth2_scheme)):
     """
     FastAPI dependency to get current authenticated user from JWT token.
     This replaces the Django middleware approach.
-    Bypasses authentication in development environment.
     """
-    # # Skip authentication in development environment
-    # if settings.environment == "development":
-    #     logger.info("Development environment detected - bypassing authentication")
-    #     return "development_user"
+  
     
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -59,15 +62,26 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)):
         raise credentials_exception
         
     try:
+        issuers = _jwt_issuer_values()
+        verify_aud = bool((settings.jwt_audience or "").strip())
+        verify_iss = bool(issuers)
+
+        optional: dict = {}
+        if verify_aud:
+            optional["audience"] = settings.jwt_audience.strip()
+        if verify_iss:
+            optional["issuer"] = issuers[0] if len(issuers) == 1 else issuers
+
         decoded_token = jwt.decode(
             token,
             public_key,
             algorithms=[settings.jwt_algorithm],
             options={
                 "verify_signature": True,
-                "verify_aud": False,
-                "verify_iss": False
-            }
+                "verify_aud": verify_aud,
+                "verify_iss": verify_iss,
+            },
+            **optional,
         )
         
         logger.info(f"Decoded token: {decoded_token}")
