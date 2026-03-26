@@ -2,37 +2,15 @@ from typing import AsyncGenerator, Dict, Any
 import json
 import time
 import uuid
-from helpers.utils import get_logger
 from app.models.openai_models import ChatCompletionRequest
 from app.services.voice import stream_voice_message
 from app.utils import _get_message_history
+from app.observability.voice import safe_update_observation, voice_output_summary
 from app.observability.langfuse_client import (
     safe_flush,
     safe_propagate_attributes,
     safe_start_observation,
 )
-
-logger = get_logger(__name__)
-
-
-def _voice_output_summary(last_chunk: str) -> Dict[str, Any]:
-    """Return only the fields needed in Langfuse output."""
-    summary: Dict[str, Any] = {
-        "audio": "",
-        "end_interaction": False,
-    }
-    if not last_chunk:
-        return summary
-    try:
-        parsed = json.loads(last_chunk)
-        if isinstance(parsed, dict):
-            summary["audio"] = parsed.get("audio") or ""
-            summary["end_interaction"] = bool(parsed.get("end_interaction", False))
-    except Exception:
-        # Keep summary best-effort; do not break API responses on parse issues.
-        pass
-    return summary
-
 
 async def generate_openai_stream(
     request: ChatCompletionRequest,
@@ -54,7 +32,6 @@ async def generate_openai_stream(
     last_chunk = ""
     langfuse_tags = ["voice", "openai_compat", "stream"]
 
-    # Root observation for the whole voice interaction (one HTTP request).
     with safe_start_observation(
         as_type="span",
         name="voice.chat_completions.stream",
@@ -67,7 +44,6 @@ async def generate_openai_stream(
             tags=langfuse_tags,
         ):
             try:
-                # One curated generation observation per user turn.
                 with safe_start_observation(
                     as_type="generation",
                     name="voice.response.generation",
@@ -96,26 +72,13 @@ async def generate_openai_stream(
                                 }]
                             }
                             yield f"data: {json.dumps(chunk_data)}\n\n"
-                    if generation_obs is not None:
-                        try:
-                            generation_obs.update(output=_voice_output_summary(last_chunk))
-                        except Exception:
-                            pass
-            except Exception as e:
-                if root_obs is not None:
-                    try:
-                        root_obs.update(output={"audio": "", "end_interaction": False})
-                    except Exception:
-                        pass
+                    safe_update_observation(generation_obs, voice_output_summary(last_chunk))
+            except Exception:
+                safe_update_observation(root_obs, {"audio": "", "end_interaction": False})
                 raise
             finally:
-                # Update root observation output with a small summary.
-                if root_obs is not None:
-                    try:
-                        root_obs.update(output=_voice_output_summary(last_chunk))
-                    except Exception:
-                        pass
-                # Best-effort flush for streaming requests (helps when workers restart).
+                safe_update_observation(root_obs, voice_output_summary(last_chunk))
+                # Flush at end of stream to avoid dropping buffered spans.
                 safe_flush()
 
     finish_chunk = {
@@ -149,7 +112,6 @@ async def generate_openai_response(
 
     existing_history = await _get_message_history(session_id, target_lang=target_lang)
 
-    # Only keep the last chunk (each chunk is a complete JSON object, not a delta)
     last_chunk = ""
     langfuse_tags = ["voice", "openai_compat", "non_stream"]
     if tenant_id:
@@ -182,16 +144,8 @@ async def generate_openai_response(
                 ):
                     if chunk:
                         last_chunk = chunk
-                if generation_obs is not None:
-                    try:
-                        generation_obs.update(output=_voice_output_summary(last_chunk))
-                    except Exception:
-                        pass
-        if root_obs is not None:
-            try:
-                root_obs.update(output=_voice_output_summary(last_chunk))
-            except Exception:
-                pass
+                safe_update_observation(generation_obs, voice_output_summary(last_chunk))
+        safe_update_observation(root_obs, voice_output_summary(last_chunk))
         safe_flush()
 
     return {

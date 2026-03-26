@@ -7,7 +7,6 @@ from agents.deps import FarmerContext
 from pydantic import BaseModel, Field
 from pydantic_ai import NativeOutput
 import logging
-from app.observability.langfuse_client import langfuse_enabled
 logger = logging.getLogger(__name__)
 
 class VoiceOutput(BaseModel):
@@ -20,7 +19,7 @@ voice_agent = Agent(
     model=LLM_AGRINET_MODEL,
     name="Voice Agent",
     output_type=NativeOutput(VoiceOutput, strict=False),
-    instrument=langfuse_enabled(),
+    instrument=True,
     deps_type=FarmerContext,
     retries=3,
     output_retries=3,
