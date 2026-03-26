@@ -59,7 +59,6 @@ async def generate_openai_stream(
         as_type="span",
         name="voice.chat_completions.stream",
         input={"query": query, "target_lang": target_lang, "model": request.model},
-        metadata={"completion_id": completion_id, "stream": True},
         tags=langfuse_tags,
     ) as root_obs:
         with safe_propagate_attributes(
@@ -105,9 +104,7 @@ async def generate_openai_stream(
             except Exception as e:
                 if root_obs is not None:
                     try:
-                        root_obs.update(
-                            metadata={"error": repr(e), "completion_id": completion_id}
-                        )
+                        root_obs.update(output={"audio": "", "end_interaction": False})
                     except Exception:
                         pass
                 raise
@@ -162,14 +159,12 @@ async def generate_openai_response(
         as_type="span",
         name="voice.chat_completions",
         input={"query": query, "target_lang": target_lang, "model": request.model},
-        metadata={"stream": False},
         tags=langfuse_tags,
     ) as root_obs:
         with safe_propagate_attributes(
             user_id=user_id,
             session_id=session_id,
             tags=langfuse_tags,
-            metadata={"tenant_id": tenant_id} if tenant_id else None,
         ):
             with safe_start_observation(
                 as_type="generation",
