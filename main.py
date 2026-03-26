@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
 from app.config import settings
 from contextlib import asynccontextmanager
 
@@ -25,13 +26,21 @@ async def lifespan(app: FastAPI):
         get_langfuse()
     except Exception:
         pass
-    try:
-        from pydantic_ai.agent import Agent  # type: ignore
+    # Optional: PydanticAI auto-instrumentation can create additional low-level
+    # model/chat spans (including terminal empty assistant chunks in streaming).
+    # Keep it opt-in to avoid noisy traces unless explicitly requested.
+    should_instrument_pydantic = (
+        os.getenv("LANGFUSE_PYDANTIC_INSTRUMENTATION", "false").lower()
+        in ("1", "true", "yes")
+    )
+    if should_instrument_pydantic:
+        try:
+            from pydantic_ai.agent import Agent  # type: ignore
 
-        Agent.instrument_all()
-    except Exception:
-        # Never block startup due to observability.
-        pass
+            Agent.instrument_all()
+        except Exception:
+            # Never block startup due to observability.
+            pass
     yield
     # Shutdown
     print(f"🛑 {settings.app_name} shutting down...")
