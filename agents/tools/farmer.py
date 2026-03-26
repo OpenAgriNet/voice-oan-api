@@ -8,7 +8,7 @@ import re
 import uuid
 from typing import Optional, Dict, Any, List
 
-from helpers.utils import get_logger
+from helpers.utils import get_logger, is_from_society
 
 from agents.tools.farmer_animal_backends import (
     fetch_farmer_amulpashudhan,
@@ -65,7 +65,7 @@ async def _fetch_farmer_records_dual_backend(mobile: str) -> List[Dict[str, Any]
         except Exception as e:
             logger.warning(f"amulpashudhan farmer API error for {mobile}: {e}")
 
-    if token3:
+    if token3 and is_from_society(records, "Mehsana"):
         try:
             data = await fetch_farmer_herdman(mobile, token3)
             if data:

@@ -3,7 +3,7 @@
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import logging
 import boto3
 from dotenv import load_dotenv
@@ -315,3 +315,7 @@ def upload_audio_to_s3(audio_base64: str, session_id: str, bucket_name: str = No
         logger = get_logger(__name__)
         logger.error(f"Error uploading audio to S3: {str(e)}")
         raise
+
+
+def is_from_society(records: list[dict[str, Any]], societyName: str) -> bool:
+    return any([record.get("societyName") == societyName for record in records])
