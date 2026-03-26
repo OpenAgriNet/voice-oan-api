@@ -17,6 +17,7 @@ openai
 pydantic
 tiktoken
 tenacity
+langfuse
 
 # Logfire
 logfire

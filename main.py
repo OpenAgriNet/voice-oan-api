@@ -8,6 +8,7 @@ load_dotenv()
 
 # Import all routers
 from app.routers import health, openai
+from app.observability.langfuse_client import get_langfuse, safe_flush
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -18,9 +19,23 @@ async def lifespan(app: FastAPI):
     print(f"🔐 Auth enabled: {settings.auth_enabled}")
     print(f"🔧 Debug mode: {settings.debug}")
     print(f"🌐 CORS origins: {settings.allowed_origins}")
+
+    # Best-effort: initialize Langfuse + enable PydanticAI OpenTelemetry instrumentation.
+    try:
+        get_langfuse()
+    except Exception:
+        pass
+    try:
+        from pydantic_ai.agent import Agent  # type: ignore
+
+        Agent.instrument_all()
+    except Exception:
+        # Never block startup due to observability.
+        pass
     yield
     # Shutdown
     print(f"🛑 {settings.app_name} shutting down...")
+    safe_flush()
 
 # Create FastAPI app with settings
 app = FastAPI(
