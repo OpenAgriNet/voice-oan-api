@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, List
 
 from helpers.utils import get_logger
 
+from agents.models.farmer import FarmerRecord
 from agents.tools.farmer_animal_backends import (
     fetch_farmer_amulpashudhan,
     fetch_farmer_herdman,
@@ -77,7 +78,7 @@ async def _fetch_farmer_records_dual_backend(mobile: str) -> List[Dict[str, Any]
     return records
 
 
-async def fetch_farmer_info_raw(mobile_number: str) -> Optional[List[Dict[str, Any]]]:
+async def fetch_farmer_info_raw(mobile_number: str) -> Optional[List[FarmerRecord]]:
     """
     Fetch farmer details by mobile number and return raw data for programmatic use.
     Tries both backends (amulpashudhan + herdman), merges and deduplicates.
@@ -111,7 +112,7 @@ async def fetch_farmer_info_raw(mobile_number: str) -> Optional[List[Dict[str, A
         return bool(rec.get("farmerName") or rec.get("societyName"))
 
     filtered = [r for r in records if has_content(r)]
-    return filtered if filtered else records
+    return [FarmerRecord.model_validate(r) for r in (filtered if filtered else records)]
 
 
 async def get_farmer_by_mobile(mobile_number: str) -> str:

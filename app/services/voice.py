@@ -11,7 +11,8 @@ import regex
 from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart
 
 from agents.voice import voice_agent
-from agents.tools.farmer import normalize_phone_to_mobile, fetch_farmer_info_raw
+from agents.tools.farmer import normalize_phone_to_mobile
+from agents.services.farmer_context import get_farmer_full_context_string
 from agents.tools.common import get_random_nudge_message, send_nudge_message_raya, set_tool_call_nudge_event
 from helpers.utils import get_logger, clean_output_by_language
 from app.config import settings
@@ -428,19 +429,13 @@ async def stream_voice_message(
                 processing_lang = "en"
 
             mobile = normalize_phone_to_mobile(user_id)
-            farmer_info = None
+            farmer_info = ""
             if mobile:
-                records = await fetch_farmer_info_raw(mobile)
-                if records:
-                    farmer_info = {"farmers": records}
-                    logger.info(f"Proactively loaded farmer info for mobile {mobile}")
-                else:
-                    msg = (
-                        "Could not fetch farmer data, continuing to call"
-                        if (target_lang or "gu") != "gu"
-                        else "કૃષિકાર ડેટા મેળવી શકાયું નથી, કૉલ ચાલુ રાખી રહ્યાં છીએ"
-                    )
-                    farmer_info = {"message": msg}
+                try:
+                    farmer_info = await get_farmer_full_context_string(mobile)
+                    logger.info(f"Farmer context loaded for mobile {mobile}, length={len(farmer_info)}")
+                except Exception as e:
+                    logger.warning(f"Failed to load farmer context for mobile {mobile}: {e}")
 
             logger.info(f"User info: {user_info}")
             deps = FarmerContext(

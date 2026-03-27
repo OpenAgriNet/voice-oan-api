@@ -52,6 +52,16 @@ GU_PREFERRED_TRANSLATION_RULES = [
     "Use 'બુલ' for bull (not 'બળદ' which means bullock/ox).",
     "For bloat (આફરો), use 'ફુલેલા' (distended/puffed) not 'સોજેલા' (swollen) when describing the flank.",
     "Avoid repeating 'અને તેને' multiple times in one sentence. Vary sentence structure.",
+    "Use 'માખણ' for butter (not 'મખાણ').",
+    "Use 'મલાઈ' for cream (not 'માલઈ').",
+    "Use 'વલોણું/વલોણાથી' for churning (not 'મથણી/મથણીથી').",
+    "Use 'ઘી બનાવવું' for making ghee (not 'ઘીમાં પકાવવું' which means cooking in ghee).",
+    "Use 'ચીરો' for incision/cut (not 'ચૂભો' which is not a real word).",
+    "Use 'માનસિક આઘાત' for mental trauma/stress in animals (not 'તણાવ').",
+    "Use 'ફીણ' for foam (not 'ફી').",
+    "Use 'દવા' for medicine (Gujarati does not pluralise as 'દવાઓ').",
+    "Use 'તેને' (not archaic 'તેણીને') for 'to her/it'.",
+    "Use 'ભૌતિક' for physical (examination/condition), not 'શારીરિક'.",
 ]
 
 

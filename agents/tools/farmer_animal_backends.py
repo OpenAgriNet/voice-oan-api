@@ -11,6 +11,12 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from agents.models.farmer import FarmerRecord, AnimalRecord
+from agents.models.ai_call import AICallRequestModel, AICallResponseModel
+from helpers.utils import get_logger
+
+_logger = get_logger(__name__)
+
 BASE_AMULPASHUDHAN = "https://api.amulpashudhan.com/configman/v1/PashuGPT"
 BASE_HERDMAN = "https://herdman.live/apis/api"
 
@@ -180,3 +186,31 @@ def merge_animal_data(primary: Optional[Dict], fallback: Optional[Dict]) -> Dict
     if fallback:
         return fallback
     return {}
+
+
+async def create_ai_call_api(
+    request: AICallRequestModel, token: str
+) -> AICallResponseModel | None:
+    """Creates an artificial insemination call and returns the assigned technician."""
+    api_url = f"{BASE_AMULPASHUDHAN}/CreateAICall"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                api_url,
+                params=request.to_query_params(),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            response.raise_for_status()
+            _logger.info(
+                "[CreateAICall(%s,%s,%s,%s)] :: Response received.",
+                request.union_code, request.society_code, request.farmer_code, request.species.value,
+            )
+        response_json = response.json()
+        if not isinstance(response_json, dict):
+            raise Exception("Not a valid dict in response.")
+        return AICallResponseModel.model_validate(response_json)
+    except httpx.HTTPStatusError as e:
+        _logger.error("[CreateAICall] :: HTTP %s: %s", e.response.status_code, e.response.text)
+    except Exception as e:
+        _logger.error("[CreateAICall] :: Error: %s", e)
+    return None
