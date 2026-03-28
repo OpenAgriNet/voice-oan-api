@@ -7,7 +7,6 @@ from agents.deps import FarmerContext
 from pydantic import BaseModel, Field
 from pydantic_ai import NativeOutput
 import logging
-
 logger = logging.getLogger(__name__)
 
 class VoiceOutput(BaseModel):
