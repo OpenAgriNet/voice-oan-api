@@ -13,6 +13,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, Te
 from agents.voice import voice_agent
 from agents.tools.farmer import normalize_phone_to_mobile
 from agents.services.farmer_context import get_farmer_full_context_string
+from helpers.gujarati_numbers import normalize_numbers_for_tts
 from agents.tools.common import get_random_nudge_message, send_nudge_message_raya, set_tool_call_nudge_event
 from helpers.utils import get_logger, clean_output_by_language
 from app.config import settings
@@ -496,6 +497,8 @@ async def stream_voice_message(
                                 if isinstance(translated_chunk, str) and translated_chunk
                                 else translated_chunk
                             )
+                            if isinstance(cleaned_chunk, str) and cleaned_chunk and requested_target_lang == "gu":
+                                cleaned_chunk = normalize_numbers_for_tts(cleaned_chunk)
                             yield cleaned_chunk
                     except Exception as e:
                         logger.error(
@@ -535,6 +538,8 @@ async def stream_voice_message(
                                 if isinstance(chunk, str) and chunk
                                 else chunk
                             )
+                            if isinstance(cleaned_chunk, str) and cleaned_chunk and requested_target_lang == "gu":
+                                cleaned_chunk = normalize_numbers_for_tts(cleaned_chunk)
                             if await _request_is_stale("before_direct_yield"):
                                 break
                             yield cleaned_chunk
