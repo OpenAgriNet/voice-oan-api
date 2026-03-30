@@ -22,10 +22,9 @@ class Settings(BaseSettings):
     rate_limit_requests_per_minute: int = 1000
 
     # Security Settings
-    allowed_origins: List[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+    #allowed_origins: List[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
     allowed_credentials: bool = True
     allowed_methods: List[str] = ["*"]
-    allowed_headers: List[str] = ["*"]
 
     # JWT Configuration
     jwt_algorithm: str = "RS256"

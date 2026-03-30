@@ -16,7 +16,6 @@ async def lifespan(app: FastAPI):
     print(f"🚀 {settings.app_name} starting up...")
     print(f"📍 Environment: {settings.environment}")
     print(f"🔧 Debug mode: {settings.debug}")
-    print(f"🌐 CORS origins: {settings.allowed_origins}")
     yield
     # Shutdown
     print(f"🛑 {settings.app_name} shutting down...")
@@ -32,10 +31,8 @@ app = FastAPI(
 # Add CORS middleware with enhanced settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
     allow_credentials=settings.allowed_credentials,
     allow_methods=settings.allowed_methods,
-    allow_headers=settings.allowed_headers,
 )
 
 
