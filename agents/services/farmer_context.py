@@ -16,6 +16,7 @@ from agents.tools.farmer_animal_backends import (
     merge_animal_data,
     normalize_phone,
 )
+from helpers.gujarati_numbers import number_to_gujarati, tag_to_gujarati
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +45,9 @@ def _add_field(lines: list, label: str, value: Any) -> None:
     if value is None or value == "" or value == 0:
         return
     if isinstance(value, float):
-        lines.append(f"- **{label}:** {value:g}")
+        lines.append(f"- **{label}:** {number_to_gujarati(value)} ({value:g})")
+    elif isinstance(value, int):
+        lines.append(f"- **{label}:** {number_to_gujarati(value)} ({value})")
     else:
         lines.append(f"- **{label}:** {value}")
 
@@ -183,7 +186,8 @@ async def get_farmer_full_context_string(mobile_number: str) -> str:
             lines.append("- No animal tags found for this farmer.")
             continue
 
-        lines.append(f"- **Animal tags:** {', '.join(tags)}")
+        tag_entries = [f"{t} ({tag_to_gujarati(t)})" for t in tags]
+        lines.append(f"- **Animal tags:** {', '.join(tag_entries)}")
 
         # Fetch animal details in parallel
         animal_tasks = [_fetch_animal_details(tag, token1 or "", token3) for tag in tags]
