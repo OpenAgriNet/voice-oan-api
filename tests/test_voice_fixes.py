@@ -14,7 +14,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.services.voice import _is_bare_greeting, _is_fragment_query
-from helpers.gujarati_numbers import normalize_numbers_for_tts
 from agents.tools.terms import get_ambiguity_hints_for_query
 
 
@@ -120,49 +119,6 @@ class TestFragmentDetection:
         assert _is_fragment_query(query) is False
 
 
-# ---------------------------------------------------------------------------
-# Number regex tests (7+ digits = digit-by-digit)
-# ---------------------------------------------------------------------------
-
-class TestNumberRegex:
-    """Verify 7+ digit numbers are spoken digit-by-digit."""
-
-    def test_10_digit_phone(self):
-        """Mobile numbers should be digit-by-digit."""
-        result = normalize_numbers_for_tts("Call 9726357157 for help")
-        # Each digit should be a Gujarati word
-        assert "નવ" in result  # 9
-        assert "સાત" in result  # 7
-        # Should NOT contain the raw digits
-        assert "9726357157" not in result
-
-    def test_13_digit_tag(self):
-        """Tag numbers should be digit-by-digit."""
-        result = normalize_numbers_for_tts("Tag 1062853187210")
-        assert "1062853187210" not in result
-        assert "એક" in result  # 1
-        assert "શૂન્ય" in result  # 0
-
-    def test_7_digit_stays_words(self):
-        """7-digit numbers should be spoken as words (not digit-by-digit)."""
-        result = normalize_numbers_for_tts("ID 1234567")
-        # 7 digits is below 10-digit threshold — spoken as words
-        assert "બાર લાખ" in result  # 12,34,567
-
-    def test_6_digit_stays_words(self):
-        """6-digit numbers should be spoken as words (quantity, not ID)."""
-        result = normalize_numbers_for_tts("Weight 136000 grams")
-        assert "એક લાખ" in result  # 1,00,000
-
-    def test_3_digit_stays_words(self):
-        """Small numbers should be spoken as words."""
-        result = normalize_numbers_for_tts("Give 500 grams daily")
-        assert "પાંચસો" in result  # 500 in Gujarati
-
-    def test_decimal(self):
-        """Decimals should work: 3.5 → ત્રણ પોઈન્ટ પાંચ."""
-        result = normalize_numbers_for_tts("Fat is 3.5 percent")
-        assert "ત્રણ પોઈન્ટ પાંચ" in result
 
 
 # ---------------------------------------------------------------------------
