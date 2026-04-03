@@ -552,7 +552,11 @@ async def translate_to_english_with_gpt5_mini(
             )
             translated_text, confidence = _extract_translation_from_response(response)
             if not translated_text:
-                _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
+                logger.warning(
+                    "OpenAI pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    source_lang, (text or "")[:100],
+                )
+                return text, "low"
             return translated_text, confidence
 
         with langfuse.start_as_current_observation(
@@ -578,7 +582,12 @@ async def translate_to_english_with_gpt5_mini(
             )
             translated_text, confidence = _extract_translation_from_response(response)
             if not translated_text:
-                _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
+                logger.warning(
+                    "OpenAI pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    source_lang, (text or "")[:100],
+                )
+                observation.update(output="__EMPTY__", metadata={"confidence": "low"})
+                return text, "low"
             observation.update(output=translated_text)
             return translated_text, confidence
     except asyncio.TimeoutError as e:
