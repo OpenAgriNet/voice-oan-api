@@ -13,7 +13,6 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, Te
 from agents.voice import voice_agent
 from agents.tools.farmer import normalize_phone_to_mobile
 from agents.services.farmer_context import get_farmer_full_context_string
-from helpers.gujarati_numbers import normalize_numbers_for_tts
 from agents.tools.common import get_random_nudge_message, send_nudge_message_raya, set_tool_call_nudge_event
 from helpers.utils import get_logger, clean_output_by_language
 from app.config import settings
@@ -108,6 +107,9 @@ _GREETING_TOKENS = {
     "नमस्ते", "हेलो", "हलो",
     # Transliteration
     "namaste", "halo", "helo",
+    # Multi-word greeting combos
+    "ha hello", "હા હલો", "ji", "જી", "bolo", "બોલો",
+    "ha bolo", "હા બોલો", "ji bolo", "જી બોલો",
 }
 
 
@@ -118,13 +120,38 @@ def _is_bare_greeting(query: str) -> bool:
         return False
     # Strip punctuation for matching
     cleaned = re.sub(r"[.,!?।]+$", "", cleaned).strip()
-    return cleaned in _GREETING_TOKENS
+    if cleaned in _GREETING_TOKENS:
+        return True
+    # Collapse repeated words: "hello hello" → "hello"
+    words = cleaned.split()
+    if len(words) <= 4:
+        deduped = " ".join(dict.fromkeys(words))
+        if deduped in _GREETING_TOKENS:
+            return True
+    return False
 
 
 _GREETING_RESPONSES = {
     "gu": "નમસ્તે, હું સરલાબેન છું. તમારા પશુ વિશે કોઈ સમસ્યા હોય તો મને જણાવો.",
     "en": "Hello, I am Sarlaben. Please tell me what issue you are facing with your animal.",
 }
+
+# ── Fragment detection (garbled / too-short input) ────────────────────────
+_FRAGMENT_RESPONSES = {
+    "gu": "મને તમારો પ્રશ્ન સમજાયો નથી. કૃપા કરીને તમારો પ્રશ્ન ફરીથી પૂછો.",
+    "en": "I could not understand your question. Please ask your question again.",
+}
+
+
+def _is_fragment_query(query: str) -> bool:
+    """Return True if query is too short/garbled to be a real question."""
+    cleaned = re.sub(r"[*\s.,!?।]+", " ", query).strip()
+    if not cleaned:
+        return True
+    # Single character or very short (≤3 chars) — likely noise
+    if len(cleaned) <= 3:
+        return True
+    return False
 
 
 def _greeting_response(target_lang: str) -> str:
@@ -323,11 +350,31 @@ async def stream_voice_message(
                 yield greeting_response
                 return
 
+            # ── Fragment short-circuit ────────────────────────────────────
+            # Very short / garbled input (≤3 chars) that isn't a greeting or
+            # STT signal — ask the farmer to repeat instead of routing to agent.
+            if _is_fragment_query(query):
+                logger.info(
+                    "Fragment query detected; short-circuiting - session_id=%s process_id=%s query=%r",
+                    session_id, process_id, query,
+                )
+                frag_response = _FRAGMENT_RESPONSES.get(requested_target_lang, _FRAGMENT_RESPONSES["gu"])
+                frag_req = ModelRequest(parts=[UserPromptPart(content=query)])
+                frag_resp = ModelResponse(parts=[TextPart(content=frag_response)])
+                await update_message_history(session_id, [*history, frag_req, frag_resp])
+                yield frag_response
+                return
+
             # ── Nudge: arm BEFORE any pre-processing ────────────────────────
             # Fires on whichever happens first:
-            #   (a) the 1.5 s (configurable) timer expires, OR
+            #   (a) the configured timer expires, OR
             #   (b) the LLM invokes a tool (signalled via tool_call_event).
             # Cancelled if first text/translated chunk reaches the client first.
+            #
+            # Skip nudge if we just cleared a feedback state — the user's
+            # message was likely a rating attempt that failed parsing, and
+            # playing a hold message over their response is confusing.
+            _skip_nudge = feedback_state.get("initiated", False) if feedback_state else False
             tool_call_event = asyncio.Event()
             set_tool_call_nudge_event(tool_call_event)
 
@@ -376,16 +423,25 @@ async def stream_voice_message(
                         e,
                     )
 
-            nudge_task = asyncio.create_task(send_nudge_on_trigger())
-            logger.info(
-                "Nudge initiated; session_id=%s process_id=%s",
-                session_id,
-                process_id,
-            )
+            if _skip_nudge:
+                nudge_task = None
+                logger.info(
+                    "Nudge skipped (post-feedback); session_id=%s process_id=%s",
+                    session_id,
+                    process_id,
+                )
+            else:
+                nudge_task = asyncio.create_task(send_nudge_on_trigger())
+                logger.info(
+                    "Nudge initiated; session_id=%s process_id=%s",
+                    session_id,
+                    process_id,
+                )
             # ── End nudge setup ─────────────────────────────────────────────
 
             processing_query = query
             processing_lang = requested_source_lang
+            pretranslation_confidence = "unknown"
 
             if use_translation_pipeline and requested_source_lang in {"gu", "gujarati"}:
                 logger.info(
@@ -396,7 +452,7 @@ async def stream_voice_message(
                 if await _request_is_stale("before_query_pretranslation"):
                     return
                 try:
-                    processing_query = await translate_to_english_with_gpt5_mini(
+                    processing_query, pretranslation_confidence = await translate_to_english_with_gpt5_mini(
                         text=query,
                         source_lang=requested_source_lang,
                     )
@@ -425,6 +481,26 @@ async def stream_voice_message(
                         )
                         processing_query = query
                         processing_lang = requested_source_lang
+
+            # ── Low-confidence pretranslation filter ─────────────────────
+            # When the pretranslation model reports low confidence, the
+            # input was likely garbled noise. Ask the farmer to repeat
+            # instead of routing a hallucinated translation to the agent.
+            if (
+                use_translation_pipeline
+                and requested_source_lang in {"gu", "gujarati"}
+                and pretranslation_confidence == "low"
+            ):
+                logger.info(
+                    "Pretranslation confidence=low; asking to repeat - session_id=%s process_id=%s query=%r translated=%r",
+                    session_id, process_id, query, processing_query,
+                )
+                low_conf_resp = _FRAGMENT_RESPONSES.get(requested_target_lang, _FRAGMENT_RESPONSES["gu"])
+                low_conf_req = ModelRequest(parts=[UserPromptPart(content=query)])
+                low_conf_rsp = ModelResponse(parts=[TextPart(content=low_conf_resp)])
+                await update_message_history(session_id, [*history, low_conf_req, low_conf_rsp])
+                yield low_conf_resp
+                return
 
             if use_translation_pipeline and needs_output_translation:
                 processing_lang = "en"
@@ -497,8 +573,6 @@ async def stream_voice_message(
                                 if isinstance(translated_chunk, str) and translated_chunk
                                 else translated_chunk
                             )
-                            if isinstance(cleaned_chunk, str) and cleaned_chunk and requested_target_lang == "gu":
-                                cleaned_chunk = normalize_numbers_for_tts(cleaned_chunk)
                             yield cleaned_chunk
                     except Exception as e:
                         logger.error(
@@ -521,7 +595,7 @@ async def stream_voice_message(
                                 and chunk.strip()
                             ):
                                 first_text_chunk_received = True
-                                nudge_task.cancel()
+                                if nudge_task: nudge_task.cancel()
                                 logger.info(
                                     "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
                                     session_id,
@@ -538,8 +612,6 @@ async def stream_voice_message(
                                 if isinstance(chunk, str) and chunk
                                 else chunk
                             )
-                            if isinstance(cleaned_chunk, str) and cleaned_chunk and requested_target_lang == "gu":
-                                cleaned_chunk = normalize_numbers_for_tts(cleaned_chunk)
                             if await _request_is_stale("before_direct_yield"):
                                 break
                             yield cleaned_chunk
@@ -562,7 +634,7 @@ async def stream_voice_message(
                                         and translated_chunk.strip()
                                     ):
                                         first_text_chunk_received = True
-                                        nudge_task.cancel()
+                                        if nudge_task: nudge_task.cancel()
                                         logger.info(
                                             "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
                                             session_id,
@@ -591,7 +663,7 @@ async def stream_voice_message(
                                     and translated_chunk.strip()
                                 ):
                                     first_text_chunk_received = True
-                                    nudge_task.cancel()
+                                    if nudge_task: nudge_task.cancel()
                                     logger.info(
                                         "Nudge canceled (final translated batch); session_id=%s process_id=%s",
                                         session_id,
@@ -614,7 +686,7 @@ async def stream_voice_message(
                                     and translated_chunk.strip()
                                 ):
                                     first_text_chunk_received = True
-                                    nudge_task.cancel()
+                                    if nudge_task: nudge_task.cancel()
                                     logger.info(
                                         "Nudge canceled (tail translated fragment); session_id=%s process_id=%s",
                                         session_id,
@@ -640,8 +712,8 @@ async def stream_voice_message(
                     else:
                         raise
                 finally:
-                    if not nudge_task.done():
-                        nudge_task.cancel()
+                    if nudge_task and not nudge_task.done():
+                        if nudge_task: nudge_task.cancel()
                         logger.info(
                             "Nudge canceled (stream ended); session_id=%s process_id=%s",
                             session_id,
