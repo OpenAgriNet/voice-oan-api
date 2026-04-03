@@ -441,6 +441,7 @@ async def stream_voice_message(
 
             processing_query = query
             processing_lang = requested_source_lang
+            pretranslation_confidence = "unknown"
 
             if use_translation_pipeline and requested_source_lang in {"gu", "gujarati"}:
                 logger.info(
@@ -451,7 +452,7 @@ async def stream_voice_message(
                 if await _request_is_stale("before_query_pretranslation"):
                     return
                 try:
-                    processing_query = await translate_to_english_with_gpt5_mini(
+                    processing_query, pretranslation_confidence = await translate_to_english_with_gpt5_mini(
                         text=query,
                         source_lang=requested_source_lang,
                     )
@@ -480,6 +481,26 @@ async def stream_voice_message(
                         )
                         processing_query = query
                         processing_lang = requested_source_lang
+
+            # ── Low-confidence pretranslation filter ─────────────────────
+            # When the pretranslation model reports low confidence, the
+            # input was likely garbled noise. Ask the farmer to repeat
+            # instead of routing a hallucinated translation to the agent.
+            if (
+                use_translation_pipeline
+                and requested_source_lang in {"gu", "gujarati"}
+                and pretranslation_confidence == "low"
+            ):
+                logger.info(
+                    "Pretranslation confidence=low; asking to repeat - session_id=%s process_id=%s query=%r translated=%r",
+                    session_id, process_id, query, processing_query,
+                )
+                low_conf_resp = _FRAGMENT_RESPONSES.get(requested_target_lang, _FRAGMENT_RESPONSES["gu"])
+                low_conf_req = ModelRequest(parts=[UserPromptPart(content=query)])
+                low_conf_rsp = ModelResponse(parts=[TextPart(content=low_conf_resp)])
+                await update_message_history(session_id, [*history, low_conf_req, low_conf_rsp])
+                yield low_conf_resp
+                return
 
             if use_translation_pipeline and needs_output_translation:
                 processing_lang = "en"
