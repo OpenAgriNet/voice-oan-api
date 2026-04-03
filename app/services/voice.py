@@ -154,6 +154,40 @@ def _is_fragment_query(query: str) -> bool:
     return False
 
 
+# ── Hold message detection ─────────────────────────────────────────────
+# Carrier IVR "your call is on hold" messages get picked up by STT and
+# sent as user input, creating runaway loops. Detect them and respond
+# with "goodbye" so the STT provider cuts the call.
+_HOLD_MSG_PATTERNS_GU = [
+    "હોલ્ડ પર",            # "on hold" in Gujarati
+    "લાઇન પર રહો",        # "stay on the line"
+    "લાઈન પર રહો",        # variant spelling
+]
+_HOLD_MSG_PATTERNS_EN = [
+    "put your call on hold",
+    "call has been put on hold",
+    "call on hold",
+    "please stay on the line",
+    "please remain on the line",
+]
+_HOLD_GOODBYE = {
+    "gu": "Goodbye.",
+    "en": "Goodbye.",
+}
+
+
+def _is_hold_message(query: str) -> bool:
+    """Return True if the query looks like a carrier hold/IVR message."""
+    lower = query.lower()
+    for pat in _HOLD_MSG_PATTERNS_GU:
+        if pat in lower:
+            return True
+    for pat in _HOLD_MSG_PATTERNS_EN:
+        if pat in lower:
+            return True
+    return False
+
+
 def _greeting_response(target_lang: str) -> str:
     return _GREETING_RESPONSES.get(target_lang, _GREETING_RESPONSES["gu"])
 
@@ -333,6 +367,22 @@ async def stream_voice_message(
                 stt_resp = ModelResponse(parts=[TextPart(content=stt_response)])
                 await update_message_history(session_id, [*history, stt_req, stt_resp])
                 yield stt_response
+                return
+
+            # ── Hold message short-circuit ────────────────────────────────
+            # Carrier IVR "your call is on hold" messages get transcribed by
+            # STT and sent as user input, creating runaway loops of 20+ traces.
+            # Respond with "goodbye" so the STT provider disconnects the call.
+            if _is_hold_message(query):
+                logger.info(
+                    "Hold message detected; responding with goodbye to cut call - session_id=%s process_id=%s query=%r",
+                    session_id, process_id, query[:100],
+                )
+                goodbye = _HOLD_GOODBYE.get(requested_target_lang, _HOLD_GOODBYE["en"])
+                hold_req = ModelRequest(parts=[UserPromptPart(content=query)])
+                hold_resp = ModelResponse(parts=[TextPart(content=goodbye)])
+                await update_message_history(session_id, [*history, hold_req, hold_resp])
+                yield goodbye
                 return
 
             # ── Greeting short-circuit ────────────────────────────────────
@@ -702,9 +752,12 @@ async def stream_voice_message(
                 except StopAsyncIteration:
                     pass
                 except RuntimeError as e:
-                    if "StopAsyncIteration" in str(e):
-                        logger.warning(
-                            "Suppressed stream runtime error during response teardown - session_id=%s process_id=%s error=%s",
+                    if "StopAsyncIteration" in str(e) or "anext()" in str(e):
+                        # anext() errors occur on superseded processes during
+                        # teardown — the final process_id has its own generator
+                        # and is unaffected, so this is just cleanup noise.
+                        logger.debug(
+                            "Suppressed stream runtime error (superseded process teardown) - session_id=%s process_id=%s error=%s",
                             session_id,
                             process_id,
                             e,

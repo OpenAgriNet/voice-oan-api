@@ -13,7 +13,7 @@ import os
 # Add project root to path so imports work
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.services.voice import _is_bare_greeting, _is_fragment_query
+from app.services.voice import _is_bare_greeting, _is_fragment_query, _is_hold_message
 from agents.tools.terms import get_ambiguity_hints_for_query
 
 
@@ -154,6 +154,46 @@ class TestAmbiguityTerms:
         result = get_ambiguity_hints_for_query("વાડો કેવી રીતે બનાવવો")
         assert "shed" in result.lower() or "enclosure" in result.lower()
         assert "પાડો" not in result or "NOT પાડો" in result
+
+# ---------------------------------------------------------------------------
+# Hold message detection tests
+# ---------------------------------------------------------------------------
+
+class TestHoldMessageDetection:
+    """Verify _is_hold_message catches carrier IVR hold messages."""
+
+    @pytest.mark.parametrize("query", [
+        # Raw Gujarati STT output (as seen in production traces)
+        "તેને તમારો કોલ હોલ્ડ પર રાખ્યા છે કૃપા કરી લાઇન પર રહો",
+        "તમારો કોલ હોલ્ડ પર રાખ્યા છે કૃપા કરી લાઈન પર રહો",
+        # English translations (post-pretranslation)
+        "Your call has been put on hold, please stay on the line.",
+        "The person you are speaking with has put your call on hold. Please stay on the line.",
+        "The person you called has put your call on hold. Please remain on the line.",
+        "They have put your call on hold.",
+        # Mixed Gujarati/English fragments from STT
+        "હોલ્ડ પર રાખ્યા છે",
+        "કોલ હોલ્ડ પર",
+        "put your call on hold please stay on the line",
+        # Hindi transliteration in Gujarati script
+        "આપ કે કોલ કો હોલ્ડ પર રખા હૈ કૃપયા લાઇન પર બને રહી",
+    ])
+    def test_hold_messages_detected(self, query):
+        assert _is_hold_message(query), f"Should detect hold message: {query!r}"
+
+    @pytest.mark.parametrize("query", [
+        # Normal farmer queries that should NOT be detected as hold messages
+        "મારી ગાયને તાવ આવે છે",
+        "My cow is not eating properly",
+        "hello",
+        "દૂધમાં ફેટ ઓછી છે",
+        "I want to book AI for my cow",
+        # "hold" in a different context
+        "How long can I hold the calf's milk?",
+    ])
+    def test_normal_queries_not_detected(self, query):
+        assert not _is_hold_message(query), f"Should NOT detect as hold: {query!r}"
+
 
     def test_existing_uthla_still_works(self):
         """Existing entry: ઉથલા should still trigger repeat breeder."""
