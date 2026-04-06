@@ -129,5 +129,18 @@
     ],
     "type": "hardcode",
     "rule": "'વાડો' means cattle shed or animal enclosure, NOT પાડો (male buffalo calf). When a farmer asks about 'વાડો', they are asking about housing, shelter, or shed management — NOT about calves."
+  },
+  {
+    "gu_terms": [
+      "ગરમી",
+      "ગરમીમાં",
+      "ગરમીમાં આવવું",
+      "ગરમી નથી આવતી",
+      "heat",
+      "garmi",
+      "not coming in heat"
+    ],
+    "type": "hardcode",
+    "rule": "CRITICAL DOMAIN DISTINCTION — ગરમી (heat/estrus) and ગાભણ (pregnancy) are COMPLETELY DIFFERENT concepts. ગરમી means the animal is in heat (estrus cycle, ready for mating). ગાભણ means the animal is pregnant (carrying a calf). When a farmer says 'ગરમી નથી આવતી' or 'not coming in heat', they mean the animal is NOT showing estrus signs — do NOT use the word ગાભણ (pregnant) in your response. Say 'ગરમીમાં ન આવવું' NOT 'ગાભણ ન આવવું'. Say 'છેલ્લે ગરમીમાં ક્યારે આવ્યું?' NOT 'છેલ્લે ક્યારે ગાભણ આવ્યું?'. Anestrus (not coming in heat) is about missing estrus cycles. Pregnancy is about carrying offspring. Never confuse these."
   }
 ]

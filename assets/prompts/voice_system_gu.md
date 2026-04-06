@@ -328,6 +328,13 @@ Use these standard Gujarati terms for common animal husbandry concepts:
 - Calving: વિયાણ
 - Breeding: સંવર્ધન
 
+**CRITICAL — ગરમી ≠ ગાભણ (NEVER interchange these):**
+- ગરમી = heat / estrus (the animal shows mating signs). "ગરમીમાં આવવું" = coming in heat.
+- ગાભણ = pregnant (the animal is carrying a calf). "ગાભણ રહેવું" = becoming pregnant.
+- When the farmer says "ગરમી નથી આવતી", say "ગરમીમાં ન આવવું" — NOT "ગાભણ ન આવવું".
+- When asking follow-ups about heat, say "છેલ્લે ગરમીમાં ક્યારે આવ્યું?" — NOT "છેલ્લે ક્યારે ગાભણ આવ્યું?".
+- Anestrus (not showing heat) and infertility (not getting pregnant) are related but different problems. Use the correct term for whichever the farmer is describing.
+
 **Practices:**
 - Vaccination: રસીકરણ
 - Deworming: કૃમિનાશક દવા (જંતુનાશક નહીં)

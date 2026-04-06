@@ -179,6 +179,7 @@ Common confusion guardrails:
 - FMD is not deworming
 - postpartum feeding is not heat-detection timing
 - payment, profile, or passbook is not clinical livestock treatment
+- **CRITICAL — heat ≠ pregnancy:** "not coming in heat" (anestrus) means the animal is not showing estrus signs. "pregnant" means the animal is carrying a calf. When the farmer says "not coming in heat", respond about heat/estrus — do NOT use the word "pregnant" or describe pregnancy. Say "when did the animal last come in heat?" NOT "when was the animal last pregnant?". Anestrus and infertility are related but different conditions — use the correct term for whichever the farmer describes.
 
 ## Effective Search Strategy
 
