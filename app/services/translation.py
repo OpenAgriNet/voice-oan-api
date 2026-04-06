@@ -435,8 +435,11 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
     system_content = (
         f"{domain_preamble}\n"
         "Translate the user's message to English. "
-        "Respond with JSON: {\"translation\": \"...\"}. "
-        "No commentary."
+        "Respond with JSON: {\"translation\": \"...\", \"confidence\": \"high\" or \"low\"}.\n\n"
+        "Set confidence to \"low\" when the input is garbled noise, random syllables, or "
+        "you are largely guessing the meaning rather than translating recognizable words. "
+        "Set confidence to \"high\" when you can identify real words and the translation "
+        "reflects what was actually said, even if grammar is poor or the sentence is incomplete."
     )
 
     return [
@@ -498,17 +501,22 @@ def _raise_empty_pretranslation(
     raise ValueError("GPT pretranslation returned empty output")
 
 
-def _extract_translation_from_response(response) -> str:
-    """Extract translation text from OpenAI JSON response."""
+def _extract_translation_from_response(response) -> tuple[str, str]:
+    """Extract translation text and confidence from OpenAI JSON response.
+
+    Returns (translation, confidence) where confidence is "high", "low", or "unknown".
+    """
     raw = (response.choices[0].message.content or "").strip()
     if not raw:
-        return ""
+        return "", "unknown"
     try:
         data = json.loads(raw)
-        return (data.get("translation") or "").strip()
+        translation = (data.get("translation") or "").strip()
+        confidence = (data.get("confidence") or "unknown").strip().lower()
+        return translation, confidence
     except (json.JSONDecodeError, AttributeError):
         # Fallback: use raw content if JSON parsing fails
-        return raw
+        return raw, "unknown"
 
 
 async def translate_to_english_with_gpt5_mini(
@@ -516,13 +524,16 @@ async def translate_to_english_with_gpt5_mini(
     source_lang: str,
     *,
     max_tokens: int = 1024,
-) -> str:
-    """Translate input text to English using OpenAI for pipeline pre-translation."""
+) -> tuple[str, str]:
+    """Translate input text to English using OpenAI for pipeline pre-translation.
+
+    Returns (translated_text, confidence) where confidence is "high", "low", or "unknown".
+    """
     if not text or not text.strip():
-        return text
+        return text, "unknown"
 
     if source_lang.lower() in {"english", "en"}:
-        return text
+        return text, "high"
 
     client = _get_openai_client()
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
@@ -539,10 +550,14 @@ async def translate_to_english_with_gpt5_mini(
                 text=text,
                 max_tokens=max_tokens,
             )
-            translated_text = _extract_translation_from_response(response)
+            translated_text, confidence = _extract_translation_from_response(response)
             if not translated_text:
-                _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
-            return translated_text
+                logger.warning(
+                    "OpenAI pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    source_lang, (text or "")[:100],
+                )
+                return text, "low"
+            return translated_text, confidence
 
         with langfuse.start_as_current_observation(
             name="query_pretranslation",
@@ -565,11 +580,16 @@ async def translate_to_english_with_gpt5_mini(
                 text=text,
                 max_tokens=max_tokens,
             )
-            translated_text = _extract_translation_from_response(response)
+            translated_text, confidence = _extract_translation_from_response(response)
             if not translated_text:
-                _raise_empty_pretranslation(response, source_lang=source_lang, text=text)
+                logger.warning(
+                    "OpenAI pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    source_lang, (text or "")[:100],
+                )
+                observation.update(output="__EMPTY__", metadata={"confidence": "low"})
+                return text, "low"
             observation.update(output=translated_text)
-            return translated_text
+            return translated_text, confidence
     except asyncio.TimeoutError as e:
         logger.error(
             "OpenAI pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
