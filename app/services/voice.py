@@ -1,9 +1,17 @@
 from typing import AsyncGenerator
+import asyncio
 import json
+import os
 import re
 from agents.voice import voice_agent
 from agents.deps import FarmerContext
 from agents.tools.language import LANGUAGE_CACHE_SUFFIX
+from helpers.telemetry import (
+    TelemetryRequest,
+    create_voice_response_event,
+    generate_voice_question_id,
+    post_telemetry_payload,
+)
 from helpers.utils import get_logger
 from app.utils import update_message_history, trim_history
 from app.core.cache import cache
@@ -66,7 +74,8 @@ async def stream_voice_message(
     effective_lang = cached_lang if cached_lang in ("en", "hi") else "null"
     deps = FarmerContext(query=query, lang_code=effective_lang, session_id=session_id, user_id=user_id)
     user_message = deps.get_user_message()
-    logger.info(f"Running agent (effective_lang={effective_lang})")
+    voice_qid = generate_voice_question_id()
+    logger.info(f"Running agent (effective_lang={effective_lang}, voice_qid={voice_qid})")
 
     trimmed_history = trim_history(history, max_tokens=80_000)
     logger.info(f"Trimmed history: {len(trimmed_history)} messages")
@@ -106,6 +115,59 @@ async def stream_voice_message(
             agent_result = event.result
             final_output = agent_result.output
             new_messages = agent_result.new_messages()
+
+    agent_response_text: str | None = None
+    if final_output is not None:
+        if isinstance(final_output, dict):
+            agent_response_text = final_output.get("audio") or ""
+        else:
+            agent_response_text = final_output.audio or ""
+
+    async def _send_voice_turn_telemetry(agent_response: str | None) -> None:
+        try:
+            if not os.getenv("TELEMETRY_API_URL"):
+                logger.warning(
+                    "Voice telemetry not sent: TELEMETRY_API_URL is unset (set in .env for Docker), qid=%s",
+                    voice_qid,
+                )
+                return
+            event = create_voice_response_event(
+                uid=user_id or "guest",
+                question_text=query,
+                session_id=session_id,
+                qid=voice_qid,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                response_text=agent_response,
+            )
+            payload = TelemetryRequest(events=[event]).model_dump(mode="json")
+            logger.info(
+                "Voice telemetry POST body (OE_VOICE_RESPONSE) qid=%s session_id=%s: %s",
+                voice_qid,
+                session_id,
+                json.dumps(payload, ensure_ascii=False),
+            )
+            # Shield so a client disconnect / stream teardown is less likely to cancel the HTTP POST.
+            resp = await asyncio.shield(
+                asyncio.to_thread(post_telemetry_payload, payload)
+            )
+            if resp is not None and resp.status_code == 200:
+                logger.info("Voice telemetry sent (OE_VOICE_RESPONSE), qid=%s", voice_qid)
+            elif resp is None:
+                logger.warning(
+                    "Voice telemetry POST failed or gave up after retries, qid=%s",
+                    voice_qid,
+                )
+            else:
+                logger.warning(
+                    "Voice telemetry returned HTTP %s, qid=%s",
+                    resp.status_code,
+                    voice_qid,
+                )
+        except Exception:
+            logger.exception("Voice turn telemetry failed, qid=%s", voice_qid)
+
+    asyncio.create_task(_send_voice_turn_telemetry(agent_response_text))
 
     # Yield the final complete output; language comes from set_language tool call (deps.selected_language)
     # or falls back to the session's target_lang header value

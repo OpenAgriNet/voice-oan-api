@@ -1,4 +1,5 @@
 from typing import List, Dict
+import asyncio
 import json
 import os
 from app.core.cache import cache  # Import cache instance from core
@@ -13,6 +14,12 @@ from pydantic_ai.messages import (
     ModelResponse,
 )
 from pydantic_core import to_jsonable_python
+from helpers.telemetry import (
+    TelemetryRequest,
+    create_voice_response_event,
+    generate_voice_question_id,
+    post_telemetry_payload,
+)
 
 HISTORY_SUFFIX = "_SVA"
 
@@ -73,7 +80,11 @@ def _create_welcome_messages(user_message: str, assistant_message: str, language
     return messages
 
 
-async def _get_message_history(session_id: str, target_lang: str = "hi") -> List[ModelMessage]:
+async def _get_message_history(
+    session_id: str,
+    target_lang: str = "hi",
+    user_id: str | None = None,
+) -> List[ModelMessage]:
     """Get or initialize message history with welcome messages for new sessions."""
     message_history = await get_cache(f"{session_id}_{HISTORY_SUFFIX}")
     if message_history:
@@ -89,6 +100,44 @@ async def _get_message_history(session_id: str, target_lang: str = "hi") -> List
     )
 
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(welcome_msg_pair), ttl=DEFAULT_CACHE_TTL)
+
+    async def _send_welcome_voice_telemetry() -> None:
+        try:
+            if not os.getenv("TELEMETRY_API_URL"):
+                return
+            # Reuse voice telemetry: scripted user line as questionText, assistant welcome as responseText.
+            welcome_qid = generate_voice_question_id()
+            event = create_voice_response_event(
+                uid=(user_id or "guest"),
+                question_text=welcome["user"],
+                session_id=session_id,
+                qid=welcome_qid,
+                source_lang=target_lang,
+                target_lang=target_lang,
+                response_text=welcome["assistant"],
+            )
+            payload = TelemetryRequest(events=[event]).model_dump(mode="json")
+            logger.info(
+                "Welcome voice telemetry POST body (OE_VOICE_RESPONSE) qid=%s session_id=%s: %s",
+                welcome_qid,
+                session_id,
+                json.dumps(payload, ensure_ascii=False),
+            )
+            resp = await asyncio.to_thread(post_telemetry_payload, payload)
+            if resp is not None and resp.status_code == 200:
+                logger.info("Welcome voice telemetry sent OK, qid=%s", welcome_qid)
+            elif resp is None:
+                logger.warning("Welcome voice telemetry POST failed or skipped, qid=%s", welcome_qid)
+            else:
+                logger.warning(
+                    "Welcome voice telemetry HTTP %s, qid=%s",
+                    resp.status_code,
+                    welcome_qid,
+                )
+        except Exception:
+            logger.exception("Welcome voice telemetry failed (OE_VOICE_RESPONSE)")
+
+    asyncio.create_task(_send_welcome_voice_telemetry())
     return welcome_msg_pair
 
 async def update_message_history(session_id: str, all_messages: List[ModelMessage]):

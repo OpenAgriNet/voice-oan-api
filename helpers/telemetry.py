@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
 from enum import Enum
 import os
+import uuid
 from pydantic import BaseModel, Field, field_validator
 import hashlib
 import time
@@ -30,6 +31,7 @@ class EventType(str, Enum):
     OE_MEDIA = "OE_MEDIA"
     OE_TRANSLATION = "OE_TRANSLATION"
     OE_MODERATION = "OE_MODERATION"
+    OE_VOICE_RESPONSE = "OE_VOICE_RESPONSE"
 
 
 class PData(BaseModel):
@@ -117,6 +119,13 @@ class ModerationEventEks(BaseEventData):
     # flagged: bool
     # action_taken: Optional[str] = None
     # reason: Optional[str] = None
+
+
+class VoiceResponseEventEks(BaseEventData):
+    """Extended data for OE_VOICE_RESPONSE (per voice user turn / question)."""
+
+    target: Target
+    qid: str
 
 
 class EData(BaseModel):
@@ -323,6 +332,67 @@ def create_item_response_event(
         gdata_id=gdata_id,
         gdata_ver=gdata_ver,
         timestamp=timestamp
+    )
+
+
+def generate_voice_question_id() -> str:
+    """Return a new UUID string for voice question / turn correlation (qid)."""
+    return str(uuid.uuid4())
+
+
+def create_voice_response_event(
+    uid: str,
+    question_text: str,
+    session_id: str,
+    qid: Optional[str] = None,
+    source_lang: str = "",
+    target_lang: str = "",
+    response_text: Optional[str] = None,
+    channel: Optional[str] = None,
+    did: str = "default-email",
+    pdata_id: str = "BharatVistaar-voice",
+    pdata_ver: str = "v0.1",
+    gdata_id: str = "content_id",
+    gdata_ver: str = "content_ver",
+    timestamp: Optional[int] = None,
+) -> TelemetryEvent:
+    """
+    OE_VOICE_RESPONSE: one event per voice turn (user question + optional agent response).
+    qid is generated when omitted. Session id is on the event sid; questionText and optional
+    responseText live under target.questionsDetails.
+    """
+    if qid is None:
+        qid = generate_voice_question_id()
+    if channel is None:
+        channel = os.getenv("TELEMETRY_CHANNEL") or "Bharat Vistaar Voice AI"
+
+    details: Dict[str, Any] = {"questionText": question_text}
+    if response_text is not None:
+        details["responseText"] = response_text
+    if source_lang:
+        details["sourceLang"] = source_lang
+    if target_lang:
+        details["targetLang"] = target_lang
+
+    target = Target(
+        id="default",
+        ver="v0.1",
+        type="VoiceQuestion",
+        parent={"id": "p1", "type": "default"},
+        questionsDetails=details,
+    )
+    return create_event(
+        event_type=EventType.OE_VOICE_RESPONSE,
+        event_data=VoiceResponseEventEks(target=target, qid=qid),
+        uid=uid,
+        sid=session_id,
+        channel=channel,
+        did=did,
+        pdata_id=pdata_id,
+        pdata_ver=pdata_ver,
+        gdata_id=gdata_id,
+        gdata_ver=gdata_ver,
+        timestamp=timestamp,
     )
 
 
