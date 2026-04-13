@@ -105,11 +105,10 @@ async def _get_message_history(
         try:
             if not os.getenv("TELEMETRY_API_URL"):
                 return
-            # Reuse voice telemetry: scripted user line as questionText, assistant welcome as responseText.
+            # Welcome turn: same OE_VOICE_RESPONSE shape but omit questionText (scripted user line only).
             welcome_qid = generate_voice_question_id()
             event = create_voice_response_event(
                 uid=(user_id or "guest"),
-                question_text=welcome["user"],
                 session_id=session_id,
                 qid=welcome_qid,
                 source_lang=target_lang,

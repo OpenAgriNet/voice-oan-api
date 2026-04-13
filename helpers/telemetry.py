@@ -342,8 +342,8 @@ def generate_voice_question_id() -> str:
 
 def create_voice_response_event(
     uid: str,
-    question_text: str,
     session_id: str,
+    question_text: Optional[str] = None,
     qid: Optional[str] = None,
     source_lang: str = "",
     target_lang: str = "",
@@ -358,15 +358,17 @@ def create_voice_response_event(
 ) -> TelemetryEvent:
     """
     OE_VOICE_RESPONSE: one event per voice turn (user question + optional agent response).
-    qid is generated when omitted. Session id is on the event sid; questionText and optional
-    responseText live under target.questionsDetails.
+    qid is generated when omitted. Session id is on the event sid; optional questionText and
+    responseText live under target.questionsDetails (questionText omitted when question_text is None).
     """
     if qid is None:
         qid = generate_voice_question_id()
     if channel is None:
         channel = os.getenv("TELEMETRY_CHANNEL") or "Bharat Vistaar Voice AI"
 
-    details: Dict[str, Any] = {"questionText": question_text}
+    details: Dict[str, Any] = {}
+    if question_text is not None:
+        details["questionText"] = question_text
     if response_text is not None:
         details["responseText"] = response_text
     if source_lang:
