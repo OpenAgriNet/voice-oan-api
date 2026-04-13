@@ -28,7 +28,7 @@ async def generate_openai_stream(
     created_timestamp = int(time.time())
     query = [msg.content for msg in request.messages if msg.role == "user"][-1]
 
-    existing_history = await _get_message_history(session_id, target_lang=target_lang)
+    existing_history = await _get_message_history(session_id, target_lang=target_lang, user_id=user_id)
     last_chunk = ""
     langfuse_tags = ["voice", "openai_compat", "stream"]
 
@@ -110,7 +110,7 @@ async def generate_openai_response(
     created_timestamp = int(time.time())
     query = [msg.content for msg in request.messages if msg.role == "user"][-1]
 
-    existing_history = await _get_message_history(session_id, target_lang=target_lang)
+    existing_history = await _get_message_history(session_id, target_lang=target_lang, user_id=user_id)
 
     last_chunk = ""
     langfuse_tags = ["voice", "openai_compat", "non_stream"]
