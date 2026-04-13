@@ -114,6 +114,7 @@ async def get_voice_message_with_translation(
     deps = FarmerContext(
         query=translated_query,
         lang_code='en',
+        target_lang='en',
         provider=provider,
         session_id=session_id,
         process_id=process_id
