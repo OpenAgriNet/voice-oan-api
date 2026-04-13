@@ -107,10 +107,13 @@ async def get_voice_message_with_translation(
     )
     logger.info(f"Translated query: {translated_query}")
     
-    # Use English as the source_lang for the agent since we translated the query
+    # Use English for the agent since we translated the query.
+    # Also force the English system prompt so the agent responds in English,
+    # making the post-translation step (en -> bhb) consistent.
     deps = FarmerContext(
         query=translated_query,
         lang_code='en',
+        target_lang='en',
         provider=provider,
         session_id=session_id,
         process_id=process_id
@@ -146,7 +149,7 @@ async def get_voice_message_with_translation(
     if response.output:
         # Always translate back to source_lang, even if source_lang is 'mr'
         # (translation service will handle no-op case)
-        logger.info(f"Translating response from `en` (English) to `bhb` (Bhashini)")
+        logger.info("Translating response from `en` (English) to `bhb` (Bhashini)")
         translated_response = await translation_service.translate_text(
             text=text_response,
             source_lang='en',
