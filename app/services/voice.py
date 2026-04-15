@@ -10,44 +10,46 @@ import regex
 # from fastapi import BackgroundTasks
 from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart
 
-from agents.voice import voice_agent
+from pydantic_ai.usage import UsageLimits
+
+from agents.voice import voice_agent, voice_agent_signed_in
 from agents.tools.farmer import normalize_phone_to_mobile
-from agents.services.farmer_context import get_farmer_full_context_string
-from agents.tools.common import get_random_nudge_message, send_nudge_message_raya, set_tool_call_nudge_event
-from helpers.utils import get_logger, clean_output_by_language
+from agents.services.farmer_cache import get_or_fetch_farmer_data
+from agents.tools.common import (
+    get_timeout_nudge_message,
+    get_tool_nudge_message,
+    send_nudge_message_raya,
+    set_tool_call_nudge_event,
+)
+from helpers.utils import get_logger, clean_output_by_language, get_today_date_str
 from app.config import settings
 from app.utils import (
     update_message_history,
     trim_history,
     format_message_pairs,
     clean_message_history_for_openai,
-    get_feedback_state,
-    set_feedback_initiated,
-    set_feedback_rating_received,
-    clear_feedback_initiated,
-    extract_conversation_events_from_messages,
     SessionRequestOwner,
     is_session_request_owner,
     refresh_session_request_ownership,
     release_session_request_ownership,
 )
-from app.services.feedback import (
-    get_feedback_ack,
-    get_feedback_question,
-    parse_feedback_with_llm,
-    send_feedback,
+from app.services.stt_signals import (
+    detect_stt_signal,
+    generate_stt_signal_response,
+    count_consecutive_stt_signals,
 )
-from app.services.stt_signals import detect_stt_signal, generate_stt_signal_response
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
     translate_text,
     translate_text_stream_fast,
     translate_to_english_with_gpt5_mini,
+    translate_to_english_with_structured_fallback,
 )
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerContext
+from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 
 logger = get_logger(__name__)
 
@@ -102,7 +104,7 @@ _GREETING_TOKENS = {
     # English
     "hello", "hi", "hey", "hlo",
     # Gujarati
-    "હલો", "હેલો", "નમસ્તે", "નમસ્કાર", "હા",
+    "હલો", "હેલો", "નમસ્તે", "નમસ્કાર",
     # Hindi
     "नमस्ते", "हेलो", "हलो",
     # Transliteration
@@ -142,6 +144,15 @@ _FRAGMENT_RESPONSES = {
     "en": "I could not understand your question. Please ask your question again.",
 }
 
+_HISTORY_MARKERS = {
+    "greeting": "hello",
+    "fragment": "[fragment]",
+    "low_confidence": "[unclear-user-input]",
+    "pretranslation_failed": "[pretranslation-failed]",
+    "stt_no_audio": "[stt:no-audio]",
+    "stt_unclear": "[stt:unclear-speech]",
+}
+
 
 def _is_fragment_query(query: str) -> bool:
     """Return True if query is too short/garbled to be a real question."""
@@ -170,10 +181,26 @@ _HOLD_MSG_PATTERNS_EN = [
     "please stay on the line",
     "please remain on the line",
 ]
-_HOLD_GOODBYE = {
+TELEPHONY_TERMINATE_CALL_TOKEN = {
     "gu": "Goodbye.",
     "en": "Goodbye.",
 }
+
+
+def _has_meaningful_history(history: list) -> bool:
+    """Return True when the session already contains non-trivial conversation."""
+    for msg in reversed(history or []):
+        for part in getattr(msg, "parts", []) or []:
+            content = getattr(part, "content", None)
+            if not isinstance(content, str):
+                continue
+            text = content.strip()
+            if not text:
+                continue
+            if detect_stt_signal(text) is not None:
+                continue
+            return True
+    return False
 
 
 def _is_hold_message(query: str) -> bool:
@@ -190,6 +217,113 @@ def _is_hold_message(query: str) -> bool:
 
 def _greeting_response(target_lang: str) -> str:
     return _GREETING_RESPONSES.get(target_lang, _GREETING_RESPONSES["gu"])
+
+
+def _prepare_voice_output(text: str, lang_code: str) -> str:
+    """Normalize model output for voice delivery."""
+    return clean_output_by_language(text, lang_code)
+
+
+def _canonical_history_user_text(kind: str, fallback: str = "") -> str:
+    return _HISTORY_MARKERS.get(kind, fallback or kind)
+
+
+async def _render_text_for_caller(text_en: str, target_lang: str) -> str:
+    """Render English loop text for the caller's language outside the agent loop."""
+    normalized_target = (target_lang or "en").strip().lower()
+    if normalized_target in {"en", "english"}:
+        return _prepare_voice_output(text_en, "en")
+
+    try:
+        translated = await translate_text(
+            text=text_en,
+            source_lang="english",
+            target_lang=normalized_target,
+        )
+        return _prepare_voice_output(translated, normalized_target)
+    except Exception as e:
+        logger.error(
+            "Caller render translation failed; target_lang=%s text=%r error=%s",
+            normalized_target,
+            text_en[:120],
+            e,
+        )
+        return _prepare_voice_output(text_en, "en")
+
+
+def _history_pair(user_text: str, assistant_text: str) -> tuple[ModelRequest, ModelResponse]:
+    return (
+        ModelRequest(parts=[UserPromptPart(content=user_text)]),
+        ModelResponse(parts=[TextPart(content=assistant_text)]),
+    )
+
+
+def _is_signed_in_session(user_info: Optional[dict], user_id: str) -> bool:
+    if user_id and user_id != "anonymous":
+        return True
+    return bool(user_info)
+
+
+def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
+    tool_groups = ["retrieval", "booking"]
+    if deps.signed_in and deps.mobile:
+        tool_groups.append("signed-in-farmer-data")
+    runtime_context = deps.get_runtime_context_message()
+    context_lines = [
+        "Runtime context for this turn:",
+        f"- Today date: {get_today_date_str()}",
+        runtime_context.replace("Runtime context for this turn:\n", "", 1),
+        f"- Tool groups in this run: {', '.join(tool_groups)}",
+    ]
+    return ModelRequest(parts=[UserPromptPart(content="\n".join(context_lines))])
+
+
+def _extract_farmer_tags(records: list[FarmerRecord]) -> list[str]:
+    tags: list[str] = []
+    for record in records:
+        raw = record.tagNumbers or record.tagNo or ""
+        if not raw:
+            continue
+        for tag in str(raw).split(","):
+            cleaned = tag.strip()
+            if cleaned and cleaned not in tags:
+                tags.append(cleaned)
+    return tags
+
+
+def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
+    if envelope is None or not envelope.farmers:
+        return ""
+
+    first = envelope.farmers[0]
+    tags = _extract_farmer_tags(envelope.farmers)
+    societies = sorted({r.societyName for r in envelope.farmers if r.societyName})
+
+    lines = [
+        f"- Farmer records matched: {len(envelope.farmers)}",
+        f"- Farmer data source: {envelope.source or 'unknown'}",
+    ]
+    if first.farmerName:
+        lines.append(f"- Farmer name: {first.farmerName}")
+    if societies:
+        lines.append(f"- Societies: {', '.join(societies[:3])}")
+    if first.farmerCode:
+        lines.append(f"- Farmer code available: yes")
+    union_code = first.model_dump().get("unionCode") or first.model_dump().get("union_code")
+    society_code = first.model_dump().get("societyCode") or first.model_dump().get("society_code")
+    if union_code:
+        lines.append(f"- Union code: {union_code}")
+    if society_code:
+        lines.append(f"- Society code: {society_code}")
+    if first.farmerCode:
+        lines.append(f"- Farmer code: {first.farmerCode}")
+    if first.totalAnimals is not None:
+        lines.append(f"- Total animals: {first.totalAnimals}")
+    if tags:
+        preview = ", ".join(tags[:8])
+        extra = f" (+{len(tags) - 8} more)" if len(tags) > 8 else ""
+        lines.append(f"- Known animal tags: {preview}{extra}")
+    return "\n".join(lines)
 
 
 def should_translate_batch(batch_text: str, word_count: int) -> bool:
@@ -242,7 +376,6 @@ async def stream_voice_message(
     provider: Optional[Literal['RAYA']] = None,
     process_id: Optional[str] = None,
     user_info: dict = None,
-    use_translation_pipeline: bool = False,
     owner: Optional[SessionRequestOwner] = None,
     http_request: Optional[Request] = None,
 #    background_tasks: BackgroundTasks,
@@ -294,55 +427,11 @@ async def stream_voice_message(
 
     try:
         with _langfuse_session_context(session_id, user_id, process_id):
-            if await _request_is_stale("before_feedback_check"):
-                return
-
-            feedback_state = await get_feedback_state(session_id)
-            if feedback_state.get("initiated") and not feedback_state.get("rating_received"):
-                target_lang = (target_lang or "gu").strip().lower()
-                trigger = feedback_state.get("trigger") or "conversation_closing"
-                parsed = await parse_feedback_with_llm(query, target_lang)
-                is_feedback = parsed.get("is_feedback") is True
-                rating = parsed.get("rating") if isinstance(parsed.get("rating"), int) else None
-                valid_rating = rating is not None and 1 <= rating <= 5
-
-                if is_feedback and valid_rating:
-                    if await _request_is_stale("before_feedback_ack"):
-                        return
-                    ack = get_feedback_ack(rating, target_lang)
-                    await send_feedback(
-                        session_id=session_id,
-                        user_id=user_id,
-                        process_id=process_id,
-                        rating=rating,
-                        trigger=trigger,
-                        source_lang=source_lang or "gu",
-                        target_lang=target_lang,
-                        message_history_summary={"turn_count": len(history)},
-                        farmer_info=None,
-                        raw_input=None,
-                    )
-                    await set_feedback_rating_received(session_id)
-
-                    feedback_question = get_feedback_question(target_lang)
-                    feedback_q_resp = ModelResponse(parts=[TextPart(content=feedback_question)])
-                    rating_req = ModelRequest(parts=[UserPromptPart(content=query)])
-                    ack_resp = ModelResponse(parts=[TextPart(content=ack)])
-                    await update_message_history(session_id, [*history, feedback_q_resp, rating_req, ack_resp])
-
-                    yield ack
-                    return
-
-                await clear_feedback_initiated(session_id)
-                logger.info(
-                    "Feedback not accepted (is_feedback=%s, rating=%s); routing query to agent",
-                    is_feedback, rating,
-                )
-
             requested_source_lang = (source_lang or "gu").strip().lower()
             requested_target_lang = (target_lang or "gu").strip().lower()
-            needs_output_translation = use_translation_pipeline and requested_target_lang in INDIAN_LANGUAGES
+            needs_output_translation = requested_target_lang in INDIAN_LANGUAGES and requested_target_lang not in {"en", "english"}
             nudge_lang = (requested_target_lang or "en").strip().lower()
+            has_meaningful_history = _has_meaningful_history(history)
 
             # ── STT signal handling (no-audio / unclear speech) ─────────────
             # These are not real user messages — skip translation & agent,
@@ -358,15 +447,23 @@ async def stream_voice_message(
                 recent_text = "\n\n".join(format_message_pairs(history, 3))
                 if await _request_is_stale("before_stt_signal_response"):
                     return
+                prior_stt_failures = count_consecutive_stt_signals(history)
+                final_attempt = (prior_stt_failures + 1) >= max(1, settings.stt_signal_retry_ceiling)
                 stt_response = await generate_stt_signal_response(
                     signal=stt_signal,
                     target_lang=requested_target_lang,
                     recent_history_text=recent_text,
+                    final_attempt=final_attempt,
                 )
-                stt_req = ModelRequest(parts=[UserPromptPart(content=query)])
-                stt_resp = ModelResponse(parts=[TextPart(content=stt_response)])
+                history_signal = (
+                    _canonical_history_user_text("stt_no_audio")
+                    if stt_signal == "No audio/User is speaking softly"
+                    else _canonical_history_user_text("stt_unclear")
+                )
+                history_response = _FRAGMENT_RESPONSES["en"] if not final_attempt else "Sorry, I still could not hear you clearly. Please try again later."
+                stt_req, stt_resp = _history_pair(history_signal, history_response)
                 await update_message_history(session_id, [*history, stt_req, stt_resp])
-                yield stt_response
+                yield _prepare_voice_output(stt_response, requested_target_lang)
                 return
 
             # ── Hold message short-circuit ────────────────────────────────
@@ -378,41 +475,43 @@ async def stream_voice_message(
                     "Hold message detected; responding with goodbye to cut call - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query[:100],
                 )
-                goodbye = _HOLD_GOODBYE.get(requested_target_lang, _HOLD_GOODBYE["en"])
-                hold_req = ModelRequest(parts=[UserPromptPart(content=query)])
-                hold_resp = ModelResponse(parts=[TextPart(content=goodbye)])
-                await update_message_history(session_id, [*history, hold_req, hold_resp])
-                yield goodbye
+                goodbye = TELEPHONY_TERMINATE_CALL_TOKEN.get(
+                    requested_target_lang,
+                    TELEPHONY_TERMINATE_CALL_TOKEN["en"],
+                )
+                yield _prepare_voice_output(goodbye, requested_target_lang)
                 return
 
             # ── Greeting short-circuit ────────────────────────────────────
             # Bare greetings ("hello", "હલો", "હા") should not trigger the
             # full agent pipeline or a nudge.  Respond immediately.
-            if _is_bare_greeting(query):
+            # When translation pipeline is active, let greetings flow through
+            # the normal agent pipeline so history stays in English.
+            if _is_bare_greeting(query) and not has_meaningful_history:
                 logger.info(
                     "Bare greeting detected; short-circuiting - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
                 )
-                greeting_response = _greeting_response(requested_target_lang)
-                greet_req = ModelRequest(parts=[UserPromptPart(content=query)])
-                greet_resp = ModelResponse(parts=[TextPart(content=greeting_response)])
+                greeting_history = _GREETING_RESPONSES["en"]
+                greeting_response = await _render_text_for_caller(greeting_history, requested_target_lang)
+                greet_req, greet_resp = _history_pair(_canonical_history_user_text("greeting"), greeting_history)
                 await update_message_history(session_id, [*history, greet_req, greet_resp])
-                yield greeting_response
+                yield _prepare_voice_output(greeting_response, requested_target_lang)
                 return
 
             # ── Fragment short-circuit ────────────────────────────────────
             # Very short / garbled input (≤3 chars) that isn't a greeting or
             # STT signal — ask the farmer to repeat instead of routing to agent.
-            if _is_fragment_query(query):
+            if _is_fragment_query(query) and not has_meaningful_history:
                 logger.info(
                     "Fragment query detected; short-circuiting - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
                 )
-                frag_response = _FRAGMENT_RESPONSES.get(requested_target_lang, _FRAGMENT_RESPONSES["gu"])
-                frag_req = ModelRequest(parts=[UserPromptPart(content=query)])
-                frag_resp = ModelResponse(parts=[TextPart(content=frag_response)])
+                frag_response_for_history = _FRAGMENT_RESPONSES["en"]
+                frag_response_for_caller = await _render_text_for_caller(frag_response_for_history, requested_target_lang)
+                frag_req, frag_resp = _history_pair(_canonical_history_user_text("fragment"), frag_response_for_history)
                 await update_message_history(session_id, [*history, frag_req, frag_resp])
-                yield frag_response
+                yield _prepare_voice_output(frag_response_for_caller, requested_target_lang)
                 return
 
             # ── Nudge: arm BEFORE any pre-processing ────────────────────────
@@ -420,18 +519,15 @@ async def stream_voice_message(
             #   (a) the configured timer expires, OR
             #   (b) the LLM invokes a tool (signalled via tool_call_event).
             # Cancelled if first text/translated chunk reaches the client first.
-            #
-            # Skip nudge if we just cleared a feedback state — the user's
-            # message was likely a rating attempt that failed parsing, and
-            # playing a hold message over their response is confusing.
-            _skip_nudge = feedback_state.get("initiated", False) if feedback_state else False
+            nudge_sent = False
             tool_call_event = asyncio.Event()
             set_tool_call_nudge_event(tool_call_event)
 
             async def send_nudge_on_trigger() -> None:
+                nonlocal nudge_sent
                 try:
                     elapsed = max(0.0, time.monotonic() - request_started_at)
-                    remaining = max(0.0, settings.nudge_timeout_seconds - elapsed)
+                    remaining = max(0.0, float(settings.nudge_timeout_seconds) - elapsed)
                     logger.info(
                         "Nudge armed; session_id=%s process_id=%s elapsed=%.3fs remaining=%.3fs timeout=%.3fs",
                         session_id,
@@ -442,8 +538,8 @@ async def stream_voice_message(
                     )
 
                     # Wait for EITHER the timer OR a tool-call signal
-                    timer_task = asyncio.ensure_future(asyncio.sleep(remaining))
-                    event_task = asyncio.ensure_future(tool_call_event.wait())
+                    timer_task = asyncio.create_task(asyncio.sleep(remaining))
+                    event_task = asyncio.create_task(tool_call_event.wait())
                     done, pending = await asyncio.wait(
                         {timer_task, event_task},
                         return_when=asyncio.FIRST_COMPLETED,
@@ -454,14 +550,22 @@ async def stream_voice_message(
                     trigger_reason = "tool_call" if event_task in done else "timeout"
                     if await _request_is_stale("before_nudge_send"):
                         return
-                    nudge_msg = get_random_nudge_message(nudge_lang)
+                    if nudge_sent:
+                        return
+                    nudge_sent = True
+                    nudge_msg = (
+                        get_tool_nudge_message(nudge_lang)
+                        if trigger_reason == "tool_call"
+                        else get_timeout_nudge_message(nudge_lang)
+                    )
                     await send_nudge_message_raya(nudge_msg, session_id, process_id)
+                    elapsed = max(0.0, time.monotonic() - request_started_at)
                     logger.info(
                         "Nudge sent (%s); session_id=%s process_id=%s total_elapsed=%.3fs",
                         trigger_reason,
                         session_id,
                         process_id,
-                        time.monotonic() - request_started_at,
+                        elapsed,
                     )
                 except asyncio.CancelledError:
                     pass
@@ -473,27 +577,20 @@ async def stream_voice_message(
                         e,
                     )
 
-            if _skip_nudge:
-                nudge_task = None
-                logger.info(
-                    "Nudge skipped (post-feedback); session_id=%s process_id=%s",
-                    session_id,
-                    process_id,
-                )
-            else:
-                nudge_task = asyncio.create_task(send_nudge_on_trigger())
-                logger.info(
-                    "Nudge initiated; session_id=%s process_id=%s",
-                    session_id,
-                    process_id,
-                )
+            nudge_task = asyncio.create_task(send_nudge_on_trigger())
+            logger.info(
+                "Nudge initiated; session_id=%s process_id=%s",
+                session_id,
+                process_id,
+            )
             # ── End nudge setup ─────────────────────────────────────────────
 
             processing_query = query
-            processing_lang = requested_source_lang
+            processing_lang = "en"
             pretranslation_confidence = "unknown"
+            history_user_text = query
 
-            if use_translation_pipeline and requested_source_lang in {"gu", "gujarati"}:
+            if requested_source_lang not in {"en", "english"}:
                 logger.info(
                     "Translation pipeline enabled; pretranslating %s -> en with %s",
                     requested_source_lang,
@@ -506,7 +603,7 @@ async def stream_voice_message(
                         text=query,
                         source_lang=requested_source_lang,
                     )
-                    processing_lang = "en"
+                    history_user_text = processing_query or _canonical_history_user_text("low_confidence")
                 except Exception as e:
                     logger.error(
                         "OpenAI pretranslation failed for session_id=%s source_lang=%s model=%s error=%s",
@@ -517,52 +614,61 @@ async def stream_voice_message(
                     )
                     try:
                         logger.info("Falling back to TranslateGemma pretranslation for session_id=%s", session_id)
-                        processing_query = await translate_text(
+                        processing_query, pretranslation_confidence = await translate_to_english_with_structured_fallback(
                             text=query,
                             source_lang=requested_source_lang,
-                            target_lang="english",
                         )
-                        processing_lang = "en"
+                        history_user_text = processing_query or _canonical_history_user_text("low_confidence")
                     except Exception as fallback_error:
                         logger.error(
                             "TranslateGemma pretranslation fallback failed for session_id=%s error=%s",
                             session_id,
                             fallback_error,
                         )
-                        processing_query = query
-                        processing_lang = requested_source_lang
+                        processing_query = ""
+                        pretranslation_confidence = "low"
+                        history_user_text = _canonical_history_user_text("pretranslation_failed")
+
+            else:
+                history_user_text = query
 
             # ── Low-confidence pretranslation filter ─────────────────────
             # When the pretranslation model reports low confidence, the
             # input was likely garbled noise. Ask the farmer to repeat
             # instead of routing a hallucinated translation to the agent.
             if (
-                use_translation_pipeline
-                and requested_source_lang in {"gu", "gujarati"}
+                requested_source_lang not in {"en", "english"}
                 and pretranslation_confidence == "low"
             ):
                 logger.info(
                     "Pretranslation confidence=low; asking to repeat - session_id=%s process_id=%s query=%r translated=%r",
                     session_id, process_id, query, processing_query,
                 )
-                low_conf_resp = _FRAGMENT_RESPONSES.get(requested_target_lang, _FRAGMENT_RESPONSES["gu"])
-                low_conf_req = ModelRequest(parts=[UserPromptPart(content=query)])
-                low_conf_rsp = ModelResponse(parts=[TextPart(content=low_conf_resp)])
+                low_conf_resp_for_history = _FRAGMENT_RESPONSES["en"]
+                low_conf_resp_for_caller = await _render_text_for_caller(low_conf_resp_for_history, requested_target_lang)
+                low_conf_req, low_conf_rsp = _history_pair(
+                    history_user_text or _canonical_history_user_text("low_confidence"),
+                    low_conf_resp_for_history,
+                )
                 await update_message_history(session_id, [*history, low_conf_req, low_conf_rsp])
-                yield low_conf_resp
+                yield _prepare_voice_output(low_conf_resp_for_caller, requested_target_lang)
                 return
 
-            if use_translation_pipeline and needs_output_translation:
-                processing_lang = "en"
-
             mobile = normalize_phone_to_mobile(user_id)
+            signed_in = _is_signed_in_session(user_info, user_id)
             farmer_info = ""
             if mobile:
                 try:
-                    farmer_info = await get_farmer_full_context_string(mobile)
-                    logger.info(f"Farmer context loaded for mobile {mobile}, length={len(farmer_info)}")
+                    envelope = await get_or_fetch_farmer_data(mobile)
+                    farmer_info = _build_compact_farmer_summary(envelope)
+                    logger.info(
+                        "Farmer summary loaded for mobile %s source=%s summary_chars=%s",
+                        mobile,
+                        getattr(envelope, "source", None),
+                        len(farmer_info),
+                    )
                 except Exception as e:
-                    logger.warning(f"Failed to load farmer context for mobile {mobile}: {e}")
+                    logger.warning(f"Failed to load farmer summary for mobile {mobile}: {e}")
 
             logger.info(f"User info: {user_info}")
             deps = FarmerContext(
@@ -573,12 +679,14 @@ async def stream_voice_message(
                 session_id=session_id,
                 process_id=process_id,
                 farmer_info=farmer_info,
-                use_translation_pipeline=use_translation_pipeline,
+                signed_in=signed_in,
+                mobile=mobile,
             )
 
             message_pairs = "\n\n".join(format_message_pairs(history, 3))
             logger.info(f"Message pairs: {message_pairs}")
             user_message = deps.get_user_message()
+            runtime_context_request = _build_runtime_context_request(deps)
             logger.info(f"Running agent with user message: {user_message}")
 
             cleaned_history = clean_message_history_for_openai(history)
@@ -595,11 +703,15 @@ async def stream_voice_message(
                 include_tool_calls=True,
             )
             logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
+            model_input_history = [runtime_context_request, *trimmed_history]
+            active_agent = voice_agent_signed_in if (signed_in and mobile) else voice_agent
+            usage_limits = UsageLimits(request_limit=6 if (signed_in and mobile) else 4)
 
-            async with voice_agent.run_stream(
+            async with active_agent.run_stream(
                 user_prompt=user_message,
-                message_history=trimmed_history,
+                message_history=model_input_history,
                 deps=deps,
+                usage_limits=usage_limits,
             ) as response_stream:
                 stream_iter = response_stream.stream_text(delta=True)
                 first_text_chunk_received = False
@@ -619,7 +731,7 @@ async def stream_voice_message(
                             if await _request_is_stale("during_output_translation"):
                                 return
                             cleaned_chunk = (
-                                clean_output_by_language(translated_chunk, requested_target_lang)
+                                _prepare_voice_output(translated_chunk, requested_target_lang)
                                 if isinstance(translated_chunk, str) and translated_chunk
                                 else translated_chunk
                             )
@@ -630,14 +742,14 @@ async def stream_voice_message(
                             session_id,
                             e,
                         )
-                        yield clean_output_by_language(text_to_translate, "en")
+                        yield _prepare_voice_output(text_to_translate, "en")
 
                 try:
                     async for chunk in stream_iter:
                         if await _request_is_stale("during_agent_stream"):
                             break
 
-                        if not use_translation_pipeline or not needs_output_translation:
+                        if not needs_output_translation:
                             if (
                                 not first_text_chunk_received
                                 and isinstance(chunk, str)
@@ -658,7 +770,7 @@ async def stream_voice_message(
                                     pass
 
                             cleaned_chunk = (
-                                clean_output_by_language(chunk, requested_target_lang)
+                                _prepare_voice_output(chunk, requested_target_lang)
                                 if isinstance(chunk, str) and chunk
                                 else chunk
                             )
@@ -702,7 +814,7 @@ async def stream_voice_message(
 
                             sentence_buffer = remaining
 
-                    if use_translation_pipeline and needs_output_translation and not await _request_is_stale("before_translation_flush"):
+                    if needs_output_translation and not await _request_is_stale("before_translation_flush"):
                         if translation_batch:
                             batch_text = "".join(translation_batch)
                             async for translated_chunk in _yield_translated_text(batch_text):
@@ -720,7 +832,8 @@ async def stream_voice_message(
                                         process_id,
                                     )
                                     try:
-                                        await nudge_task
+                                        if nudge_task:
+                                            await nudge_task
                                     except asyncio.CancelledError:
                                         pass
                                 if await _request_is_stale("before_final_translated_yield"):
@@ -743,7 +856,8 @@ async def stream_voice_message(
                                         process_id,
                                     )
                                     try:
-                                        await nudge_task
+                                        if nudge_task:
+                                            await nudge_task
                                     except asyncio.CancelledError:
                                         pass
                                 if await _request_is_stale("before_tail_translated_yield"):
@@ -786,21 +900,6 @@ async def stream_voice_message(
             messages = [*history, *new_messages]
             logger.info(f"Updating message history for session {session_id} with {len(messages)} messages")
             await update_message_history(session_id, messages)
-
-            feedback_state = await get_feedback_state(session_id)
-            if not feedback_state.get("initiated"):
-                events = extract_conversation_events_from_messages(new_messages)
-                trigger = None
-                for event in events:
-                    if event in ("conversation_closing", "user_frustration"):
-                        trigger = event
-                        break
-                if trigger and not await _request_is_stale("before_feedback_prompt"):
-                    await set_feedback_initiated(session_id, trigger)
-                    feedback_lang = (requested_target_lang or "gu").strip().lower()
-                    feedback_question = get_feedback_question(feedback_lang)
-                    yield clean_output_by_language(" " + feedback_question, feedback_lang)
-                    logger.info(f"Feedback question yielded via stream (trigger={trigger})")
     finally:
         released = await release_session_request_ownership(owner)
         if owner is not None:

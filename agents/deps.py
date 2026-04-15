@@ -1,6 +1,5 @@
 from typing import Optional, Literal
 from pydantic import BaseModel, Field
-from langcodes import Language
 
 
 class FarmerContext(BaseModel):
@@ -12,7 +11,6 @@ class FarmerContext(BaseModel):
         target_lang: The target language for the response.
         farmer_info: Pre-built markdown string with farmer profile, animals, vet visits.
         provider: The provider for the voice service.
-        use_translation_pipeline: When True, run the agent in English and translate externally.
         session_id: The session ID for the user.
         process_id: The process ID for tracking and hold messages.
     """
@@ -20,21 +18,11 @@ class FarmerContext(BaseModel):
     lang_code: str = Field(description="The language code of the user's question.", default='gu')
     target_lang: str = Field(description="The target language for the response (gu=Gujarati, en=English).", default='gu')
     provider: Optional[Literal['RAYA']] = Field(default=None, description="The provider for the voice service - can be RAYA or None.")
-    use_translation_pipeline: bool = Field(
-        default=False,
-        description="When True, run the agent in English and translate externally.",
-    )
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
     farmer_info: str = Field(default="", description="Pre-built markdown farmer context string.")
-
-    def _language_string(self):
-        """Get the language string for the agrinet agent."""
-        lang = self.target_lang or self.lang_code
-        if lang:
-            return f"**Selected Language:** {Language.get(lang).display_name()}"
-        else:
-            return None
+    signed_in: bool = Field(default=False, description="Whether the session is signed in/authenticated for farmer-specific tools.")
+    mobile: Optional[str] = Field(default=None, description="Normalized mobile number when available.")
 
     def _query_string(self):
         """Get the query string for the agrinet agent."""
@@ -44,7 +32,25 @@ class FarmerContext(BaseModel):
         """Return the pre-built farmer context markdown string."""
         return self.farmer_info if self.farmer_info else None
 
+    def get_runtime_context_message(self) -> str:
+        """Compact runtime context that stays outside the static system prompt."""
+        lines = [
+            "Runtime context for this turn:",
+            f"- Signed-in session: {'yes' if self.signed_in else 'no'}",
+            f"- Normalized mobile available: {'yes' if self.mobile else 'no'}",
+        ]
+        if self.mobile:
+            lines.append(f"- Normalized mobile: {self.mobile}")
+        lines.append("- Core loop language: English")
+        if self.signed_in:
+            lines.append("- Farmer-data tools may be available for this turn.")
+        else:
+            lines.append("- Farmer-data tools should not be assumed available for this turn.")
+        if self.farmer_info:
+            lines.append("- Farmer context summary:")
+            lines.append(self.farmer_info)
+        return "\n".join(lines)
+
     def get_user_message(self):
         """Get the user message for the agrinet agent."""
-        strings = [self._query_string(), self._language_string()]
-        return "\n".join([x for x in strings if x])
+        return self._query_string()
