@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.services.voice import _is_bare_greeting, _is_fragment_query, _is_hold_message
 from app.services.stt_signals import detect_stt_signal
+from app.services.translation import _post_normalize_gu_translation
 from agents.tools.terms import get_ambiguity_hints_for_query
 from helpers.utils import clean_output_by_language
 
@@ -156,6 +157,12 @@ class TestAmbiguityTerms:
         assert "shed" in result.lower() or "enclosure" in result.lower()
         assert "પાડો" not in result or "NOT પાડો" in result
 
+    def test_samudri_feed_avoids_marine_assumption(self):
+        """Feed-context સમુદ્રી should avoid marine advice, but not assume a brand name."""
+        result = get_ambiguity_hints_for_query("ગાભણ ભેંસને સમુદ્રી દાણ આપવું?")
+        assert "repeat" in result.lower() or "clarify" in result.lower() or "સ્પષ્ટ" in result
+        assert "seaweed" in result.lower() or "marine feed" in result.lower()
+
 # ---------------------------------------------------------------------------
 # Hold message detection tests
 # ---------------------------------------------------------------------------
@@ -223,6 +230,21 @@ class TestVoiceOutputNormalization:
         assert "ત્રણ" in result
         assert "ચાર" in result
         assert "કિલોગ્રામ" in result
+
+    def test_placeholder_dashes_before_units_are_removed(self):
+        result = clean_output_by_language("લીલો ચારો: -- કિ.ગ્રા.", "gu")
+        assert "--" not in result
+        assert "કિ.ગ્રા." not in result
+        assert "લીલો ચારો:" in result
+
+    def test_streaming_gu_chunk_preserves_leading_space(self):
+        result = _post_normalize_gu_translation(" તમારી", "gu", strip_outer=False)
+        assert result.startswith(" ")
+        assert result == " તમારી"
+
+    def test_non_streaming_gu_chunk_can_strip_outer_space(self):
+        result = _post_normalize_gu_translation(" તમારી", "gu", strip_outer=True)
+        assert result == "તમારી"
 
 
 # ---------------------------------------------------------------------------

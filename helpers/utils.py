@@ -225,6 +225,23 @@ def _replace_voice_abbreviations(text: str, lang_code: str) -> str:
         out = re.sub(pattern, repl, out)
     return out
 
+
+def _remove_quantity_placeholders(text: str) -> str:
+    """Remove placeholder dashes used as fake quantities before units."""
+    out = text
+    unit_words = (
+        r"કિલોગ્રામ|ગ્રામ|મિલીલીટર|લિટર|"
+        r"kilograms?|grams?|milliliters?|liters?"
+    )
+    out = re.sub(
+        rf"([:：]\s*)(?:[-–—]{{1,3}})(?=\s*(?:{unit_words})\b)",
+        r"\1",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(r"\s(?:--|––|——)\s", " ", out)
+    return out
+
 def normalize_voice_output(
     text: str,
     lang_code: str | None,
@@ -244,9 +261,12 @@ def normalize_voice_output(
     # Strip markdown and structural noise that should never be spoken.
     out = out.replace("**", "").replace("__", "").replace("`", "").replace("~", "")
     out = re.sub(r"(?m)^\s*#+\s*", "", out)
-    out = re.sub(r"(?m)^\s*(?:[-*•]+|\d+[.)])\s*", "", out)
+    # Extended list-scrub: Latin bullets/dashes, em/en-dashes, Gujarati-style
+    # bullets (•·), and Gujarati-numeral list markers (e.g. "૧. ", "૧) ").
+    out = re.sub(r"(?m)^\s*(?:[-–—*•·]+|\d+[.)]|[૦-૯]+[.)]\s)\s*", "", out)
 
     out = _replace_voice_abbreviations(out, lang)
+    out = _remove_quantity_placeholders(out)
 
     # Normalize common punctuation clutter.
     out = re.sub(r"\.{3,}", ".", out)
@@ -272,7 +292,7 @@ def normalize_voice_output(
     # Flatten line breaks into spoken text.
     out = re.sub(r"\s*\n+\s*", " ", out)
     out = re.sub(r"[ \t]{2,}", " ", out)
-    return out.strip()
+    return out
 
 def post_process_translation(translation: str) -> str:
     """Post process translation.
