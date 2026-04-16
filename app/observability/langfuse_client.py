@@ -98,3 +98,51 @@ def safe_flush() -> None:
         client.flush()
     except Exception:
         pass
+
+
+def configure_pydantic_ai_langfuse_tracing() -> None:
+    """Use the process OpenTelemetry provider (Langfuse augments it at startup) for PydanticAI runs.
+
+    Enables GenAI semconv v3 so tool spans carry ``gen_ai.tool.call.arguments`` / ``result`` and nest under
+    agent runs. Call after :func:`get_langfuse` in application lifespan.
+    """
+    try:
+        from opentelemetry import trace as otel_trace
+        from pydantic_ai.agent import Agent
+        from pydantic_ai.models.instrumented import InstrumentationSettings
+
+        provider = otel_trace.get_tracer_provider()
+        if provider is None:
+            return
+        Agent._instrument_default = InstrumentationSettings(
+            tracer_provider=provider,
+            include_content=True,
+            version=3,
+        )
+    except Exception:
+        logger.exception("Failed to configure PydanticAI instrumentation for Langfuse")
+
+
+def safe_start_agent_observation(
+    *,
+    name: str,
+    input: Any = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    tags: Optional[list[str]] = None,
+):
+    """Langfuse ``agent`` observation; children include PydanticAI OTEL spans (invoke_agent, execute_tool, …)."""
+    client = get_langfuse()
+    if client is None:
+        return nullcontext(None)
+    try:
+        return client.start_as_current_observation(
+            **_compact_kwargs(
+                as_type="agent",
+                name=name,
+                input=input,
+                metadata=metadata,
+                tags=tags,
+            )
+        )
+    except Exception:
+        return nullcontext(None)

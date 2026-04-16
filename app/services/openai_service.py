@@ -30,7 +30,7 @@ async def generate_openai_stream(
 
     existing_history = await _get_message_history(session_id, target_lang=target_lang, user_id=user_id)
     last_chunk = ""
-    langfuse_tags = ["voice", "openai_compat", "stream"]
+    langfuse_tags = ["bh-voice", "streaming"]
 
     with safe_start_observation(
         as_type="span",
@@ -46,7 +46,7 @@ async def generate_openai_stream(
             try:
                 with safe_start_observation(
                     as_type="generation",
-                    name="voice.response.generation",
+                    name="voice",
                     model=request.model,
                     input=query
                 ) as generation_obs:
@@ -113,7 +113,7 @@ async def generate_openai_response(
     existing_history = await _get_message_history(session_id, target_lang=target_lang, user_id=user_id)
 
     last_chunk = ""
-    langfuse_tags = ["voice", "openai_compat", "non_stream"]
+    langfuse_tags = ["bh-voice", "non-streaming"]
     if tenant_id:
         langfuse_tags.append(f"tenant:{tenant_id}")
 
@@ -130,7 +130,7 @@ async def generate_openai_response(
         ):
             with safe_start_observation(
                 as_type="generation",
-                name="voice.response.generation",
+                name="voice",
                 model=request.model,
                 input=query,
             ) as generation_obs:

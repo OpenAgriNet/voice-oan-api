@@ -15,6 +15,8 @@ from helpers.telemetry import (
 from helpers.utils import get_logger
 from app.utils import update_message_history, trim_history
 from app.core.cache import cache
+from app.observability.langfuse_client import safe_start_agent_observation
+from app.observability.voice import safe_update_observation
 
 logger = get_logger(__name__)
 
@@ -89,32 +91,66 @@ async def stream_voice_message(
     text_buffer = ""
     prev_audio = ""
 
-    async for event in voice_agent.run_stream_events(
-        user_prompt=user_message,
-        message_history=trimmed_history,
-        deps=deps
-    ):
-        kind = getattr(event, 'event_kind', '')
+    agent_slug = (voice_agent.name or "voice").replace(" ", "_").lower()
+    with safe_start_agent_observation(
+        name=f"agent.{agent_slug}",
+        input={
+            "query": query,
+            "effective_lang": effective_lang,
+            "session_id": session_id,
+            "target_lang": target_lang,
+        },
+        metadata={
+            "agent_name": voice_agent.name,
+            "voice_qid": voice_qid,
+            "user_id": user_id,
+        },
+        tags=["voice", "pydantic_ai", f"agent:{agent_slug}"],
+    ) as agent_obs:
+        async for event in voice_agent.run_stream_events(
+            user_prompt=user_message,
+            message_history=trimmed_history,
+            deps=deps
+        ):
+            kind = getattr(event, 'event_kind', '')
 
-        if kind == 'part_delta':
-            delta = event.delta
-            if getattr(delta, 'part_delta_kind', '') == 'text':
-                text_buffer += delta.content_delta
-                audio = _extract_audio_from_partial_json(text_buffer)
-                if audio and audio != prev_audio:
-                    prev_audio = audio
-                    output_dict = _voice_output_dict(recording_prefix + audio, False, target_lang)
-                    yield json.dumps(output_dict, ensure_ascii=False)
+            if kind == 'part_delta':
+                delta = event.delta
+                if getattr(delta, 'part_delta_kind', '') == 'text':
+                    text_buffer += delta.content_delta
+                    audio = _extract_audio_from_partial_json(text_buffer)
+                    if audio and audio != prev_audio:
+                        prev_audio = audio
+                        output_dict = _voice_output_dict(recording_prefix + audio, False, target_lang)
+                        yield json.dumps(output_dict, ensure_ascii=False)
 
-        elif kind == 'function_tool_result':
-            # Reset text buffer for next model turn
-            text_buffer = ""
-            prev_audio = ""
+            elif kind == 'function_tool_result':
+                # Reset text buffer for next model turn
+                text_buffer = ""
+                prev_audio = ""
 
-        elif kind == 'agent_run_result':
-            agent_result = event.result
-            final_output = agent_result.output
-            new_messages = agent_result.new_messages()
+            elif kind == 'agent_run_result':
+                agent_result = event.result
+                final_output = agent_result.output
+                new_messages = agent_result.new_messages()
+
+        if final_output is not None:
+            if isinstance(final_output, dict):
+                safe_update_observation(
+                    agent_obs,
+                    {
+                        "audio": (final_output.get("audio") or "")[:2000],
+                        "end_interaction": bool(final_output.get("end_interaction", False)),
+                    },
+                )
+            else:
+                safe_update_observation(
+                    agent_obs,
+                    {
+                        "audio": (getattr(final_output, "audio", None) or "")[:2000],
+                        "end_interaction": bool(getattr(final_output, "end_interaction", False)),
+                    },
+                )
 
     agent_response_text: str | None = None
     if final_output is not None:
