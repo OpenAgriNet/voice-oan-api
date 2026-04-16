@@ -143,6 +143,17 @@ async def get_voice_message_with_translation(
         message_history=trimmed_history,
         deps=deps,
     )
+     # `pydantic_ai` run results include the messages generated for this run.
+    new_messages = response.new_messages() if hasattr(response, "new_messages") else []
+    if new_messages:
+        messages = [
+            *history,
+            *new_messages,
+        ]
+        logger.info(
+            f"Updating message history for session {session_id} with {len(messages)} messages"
+        )
+        await update_message_history(session_id, messages)
     text_response = response.output
     logger.info(f"Text response: {text_response}")
 
