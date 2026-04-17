@@ -19,7 +19,7 @@ voice_agent = Agent(
     model=LLM_AGRINET_MODEL,
     name="Voice Agent",
     output_type=NativeOutput(VoiceOutput, strict=False),
-    instrument=True,
+    instrument=None,
     deps_type=FarmerContext,
     retries=3,
     output_retries=3,

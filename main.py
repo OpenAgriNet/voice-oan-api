@@ -1,14 +1,17 @@
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
 from app.config import settings
 from contextlib import asynccontextmanager, suppress
 
 load_dotenv()
 
 from app.routers import health, openai
-from app.observability.langfuse_client import get_langfuse, safe_flush
+from app.observability.langfuse_client import (
+    configure_pydantic_ai_langfuse_tracing,
+    get_langfuse,
+    safe_flush,
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,14 +22,10 @@ async def lifespan(app: FastAPI):
     print(f"🔧 Debug mode: {settings.debug}")
     print(f"🌐 CORS origins: {settings.allowed_origins}")
 
-    # Initialize Langfuse early so tracing is ready.
+    # Initialize Langfuse early so tracing is ready; align PydanticAI OTEL with the same provider.
     get_langfuse()
-    if os.getenv("LANGFUSE_PYDANTIC_INSTRUMENTATION", "").lower() == "true":
-        # Optional and non-blocking instrumentation.
-        with suppress(Exception):
-            from pydantic_ai.agent import Agent  # type: ignore
-
-            Agent.instrument_all()
+    with suppress(Exception):
+        configure_pydantic_ai_langfuse_tracing()
     yield
     print(f"🛑 {settings.app_name} shutting down...")
     safe_flush()
