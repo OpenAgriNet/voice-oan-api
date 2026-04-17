@@ -14,7 +14,11 @@ from pydantic_ai.usage import UsageLimits
 
 from agents.voice import voice_agent, voice_agent_signed_in
 from agents.tools.farmer import normalize_phone_to_mobile
-from agents.services.farmer_cache import get_or_fetch_farmer_data
+from agents.services.farmer_cache import (
+    get_farmer_data_cached_only,
+    refresh_farmer_data,
+    should_refresh_farmer_data,
+)
 from agents.tools.common import (
     get_timeout_nudge_message,
     get_tool_nudge_message,
@@ -57,7 +61,7 @@ logger = get_logger(__name__)
 
 class SentenceSegmenter:
     sep = 'ŽžŽžSentenceSeparatorŽžŽž'
-    latin_terminals = '!?.'
+    latin_terminals = '!?.:;'
     jap_zh_terminals = '。！？'
     terminals = latin_terminals + jap_zh_terminals
 
@@ -76,15 +80,82 @@ class SentenceSegmenter:
 
 
 sentence_segmenter = SentenceSegmenter()
+VOICE_TRANSLATION_BATCH_CHAR_LIMIT = 600
+VOICE_TRANSLATION_SOFT_SPLIT_MIN_CHARS = 180
 
 
 def extract_complete_sentences(text: str):
     if not text:
         return [], ""
+    inline_structural_match = re.search(r"(?=\s#{1,6}\s)|(?=\n#{1,6}\s)|(?=\n\d+\.\s)|(?=\n[-*•]\s)", text)
+    if inline_structural_match and inline_structural_match.start() > 0:
+        split_at = inline_structural_match.start()
+        head = text[:split_at].rstrip()
+        tail = text[split_at:].lstrip()
+        if head:
+            return [head], tail
+    structural_match = re.search(r"\n(?=(?:#{1,6}\s|[-*•]\s|\d+\.\s))", text)
+    if structural_match:
+        split_at = structural_match.start()
+        head = text[:split_at].rstrip()
+        tail = text[split_at:].lstrip()
+        if head:
+            return [head], tail
     sentences = sentence_segmenter(text)
     if len(sentences) <= 1:
         return [], text
     return sentences[:-1], sentences[-1]
+
+
+def _split_voice_batch_text(text: str, max_chars: int = VOICE_TRANSLATION_BATCH_CHAR_LIMIT) -> tuple[str, str]:
+    if len(text) <= max_chars:
+        return text, ""
+
+    window = text[:max_chars]
+    split_at = -1
+    for pattern in ("\n\n", "\n", ". ", "? ", "! ", ": ", "; ", "। ", "。 ", "### ", "## ", "# "):
+        idx = window.rfind(pattern)
+        if idx >= VOICE_TRANSLATION_SOFT_SPLIT_MIN_CHARS:
+            split_at = idx + len(pattern.rstrip())
+            break
+
+    if split_at < 0:
+        structural_markers = (
+            r"\n(?=#{1,6}\s)",
+            r"\n(?=\d+\.\s)",
+            r"\n(?=[-*•]\s)",
+            r"(?<=:)\s+",
+            r"(?<=;)\s+",
+        )
+        for pattern in structural_markers:
+            matches = list(re.finditer(pattern, window))
+            if matches:
+                idx = matches[-1].start()
+                if idx >= VOICE_TRANSLATION_SOFT_SPLIT_MIN_CHARS:
+                    split_at = idx
+                    break
+
+    if split_at < 0:
+        return text, ""
+
+    return text[:split_at].rstrip(), text[split_at:].lstrip()
+
+
+def extract_translation_units(text: str):
+    if not text:
+        return [], ""
+
+    ready_sentences, remaining = extract_complete_sentences(text)
+    ready_units = [unit for unit in ready_sentences if unit and unit.strip()]
+
+    while remaining and len(remaining) >= VOICE_TRANSLATION_BATCH_CHAR_LIMIT:
+        head, tail = _split_voice_batch_text(remaining)
+        if not head or head == remaining:
+            break
+        ready_units.append(head)
+        remaining = tail
+
+    return ready_units, remaining
 
 
 def _batch_starts_new_line_or_list(text: str) -> bool:
@@ -374,6 +445,14 @@ def _is_signed_in_session(user_info: Optional[dict], user_id: str) -> bool:
     return bool(user_info)
 
 
+async def get_or_fetch_farmer_data(mobile: str):
+    """
+    Backward-compatible alias for tests and callers that still patch the old symbol.
+    Voice request flow now uses Redis-only reads from this alias.
+    """
+    return await get_farmer_data_cached_only(mobile)
+
+
 def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
     tool_groups = ["retrieval", "booking"]
     if deps.signed_in and deps.mobile:
@@ -432,7 +511,10 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
     lines = [
         f"- Farmer records matched: {len(envelope.farmers)}",
         f"- Farmer data source: {envelope.source or 'unknown'}",
+        f"- Farmer cache state: {'stale' if envelope.stale else 'fresh'}",
     ]
+    if envelope.refreshAfter:
+        lines.append(f"- Farmer refresh after: {envelope.refreshAfter}")
     if first.farmerName:
         lines.append(f"- Farmer name: {first.farmerName}")
     if societies:
@@ -470,6 +552,8 @@ def should_translate_batch(
         return ends_sentence and word_count >= 3
 
     # Phase 2: subsequent batches — balance quality vs latency.
+    if len(batch_text) >= VOICE_TRANSLATION_BATCH_CHAR_LIMIT:
+        return True
     if word_count >= 40:
         return True  # force flush, don't hoard
 
@@ -747,6 +831,14 @@ async def stream_voice_message(
             processing_lang = "en"
             pretranslation_confidence = "unknown"
             history_user_text = query
+            mobile = normalize_phone_to_mobile(user_id)
+            signed_in = _is_signed_in_session(user_info, user_id)
+            farmer_info = ""
+            farmer_cache_task = (
+                asyncio.create_task(get_or_fetch_farmer_data(mobile))
+                if mobile
+                else None
+            )
 
             if requested_source_lang not in {"en", "english"}:
                 logger.info(
@@ -812,19 +904,25 @@ async def stream_voice_message(
                 yield _prepare_voice_output(low_conf_resp_for_caller, requested_target_lang)
                 return
 
-            mobile = normalize_phone_to_mobile(user_id)
-            signed_in = _is_signed_in_session(user_info, user_id)
-            farmer_info = ""
-            if mobile:
+            if farmer_cache_task is not None:
                 try:
-                    envelope = await get_or_fetch_farmer_data(mobile)
+                    envelope = await farmer_cache_task
                     farmer_info = _build_compact_farmer_summary(envelope)
                     logger.info(
-                        "Farmer summary loaded for mobile %s source=%s summary_chars=%s",
+                        "Farmer summary loaded from cache for mobile %s source=%s stale=%s summary_chars=%s",
                         mobile,
-                        getattr(envelope, "source", None),
+                        getattr(envelope, "source", None) if envelope else None,
+                        getattr(envelope, "stale", None) if envelope else None,
                         len(farmer_info),
                     )
+                    if mobile and should_refresh_farmer_data(envelope):
+                        asyncio.create_task(refresh_farmer_data(mobile))
+                        logger.info(
+                            "Farmer cache refresh scheduled in background for mobile %s stale=%s status=%s",
+                            mobile,
+                            getattr(envelope, "stale", None) if envelope else None,
+                            getattr(envelope, "lookupStatus", None) if envelope else None,
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to load farmer summary for mobile {mobile}: {e}")
 
@@ -948,37 +1046,50 @@ async def stream_voice_message(
                             continue
 
                         sentence_buffer += chunk
-                        complete_sentences, remaining = extract_complete_sentences(sentence_buffer)
-                        if complete_sentences:
-                            for sentence in complete_sentences:
-                                translation_batch.append(sentence)
-                                batch_word_count += len(sentence.split())
+                        ready_units, remaining = extract_translation_units(sentence_buffer)
+                        if ready_units:
+                            for unit in ready_units:
+                                candidate_units = [unit]
+                                if len(unit) >= VOICE_TRANSLATION_BATCH_CHAR_LIMIT:
+                                    candidate_units = []
+                                    remaining_unit = unit
+                                    while remaining_unit:
+                                        head, tail = _split_voice_batch_text(remaining_unit)
+                                        if not tail or head == remaining_unit:
+                                            candidate_units.append(remaining_unit)
+                                            break
+                                        candidate_units.append(head)
+                                        remaining_unit = tail
 
-                            batch_text = "".join(translation_batch)
-                            if should_translate_batch(batch_text, batch_word_count, is_first_batch=not first_text_chunk_received):
-                                async for translated_chunk in _yield_translated_text(batch_text):
-                                    if (
-                                        not first_text_chunk_received
-                                        and isinstance(translated_chunk, str)
-                                        and translated_chunk
-                                        and translated_chunk.strip()
-                                    ):
-                                        first_text_chunk_received = True
-                                        if nudge_task: nudge_task.cancel()
-                                        logger.info(
-                                            "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
-                                            session_id,
-                                            process_id,
-                                        )
-                                        try:
-                                            await nudge_task
-                                        except asyncio.CancelledError:
-                                            pass
-                                    if await _request_is_stale("before_translated_yield"):
-                                        break
-                                    yield translated_chunk
-                                translation_batch = []
-                                batch_word_count = 0
+                                for candidate in candidate_units:
+                                    translation_batch.append(candidate)
+                                    batch_word_count += len(candidate.split())
+                                    batch_text = "".join(translation_batch)
+
+                                    if should_translate_batch(batch_text, batch_word_count, is_first_batch=not first_text_chunk_received):
+                                        async for translated_chunk in _yield_translated_text(batch_text):
+                                            if (
+                                                not first_text_chunk_received
+                                                and isinstance(translated_chunk, str)
+                                                and translated_chunk
+                                                and translated_chunk.strip()
+                                            ):
+                                                first_text_chunk_received = True
+                                                if nudge_task: nudge_task.cancel()
+                                                logger.info(
+                                                    "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
+                                                    session_id,
+                                                    process_id,
+                                                )
+                                                try:
+                                                    await nudge_task
+                                                except asyncio.CancelledError:
+                                                    pass
+                                            if await _request_is_stale("before_translated_yield"):
+                                                break
+                                            yield translated_chunk
+                                        translation_batch = []
+                                        batch_word_count = 0
 
                             sentence_buffer = remaining
 
