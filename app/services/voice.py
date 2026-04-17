@@ -240,6 +240,41 @@ _WAIT_MESSAGES = {
     "en": "Please wait a moment while I find the answer for you.",
 }
 
+_COMPARISON_PATTERNS = (
+    r"\bdifference between\b",
+    r"\bwhat is the difference\b",
+    r"\bcompare\b",
+    r"\bcomparison\b",
+    r"\bversus\b",
+    r"\bvs\b",
+    r"\bvs\.\b",
+    r"\bdifference\b",
+)
+
+_EXPLAINER_PATTERNS = (
+    r"\bwhat is\b",
+    r"\bwhat are\b",
+    r"\btell me about\b",
+    r"\bexplain\b",
+    r"\bmeaning of\b",
+)
+
+_SYMPTOM_PATTERNS = (
+    r"\bfever\b",
+    r"\bnot eating\b",
+    r"\bnot come in heat\b",
+    r"\bnot coming in heat\b",
+    r"\bbleeding\b",
+    r"\bdiarrhea\b",
+    r"\bloose motion\b",
+    r"\bcough\b",
+    r"\bbloat\b",
+    r"\bmastitis\b",
+    r"\bpregnant\b",
+    r"\bcalving\b",
+    r"\bsick\b",
+)
+
 _IDENTITY_DRIFT_PATTERN = re.compile(
     r"\b(?:OpenAI|ChatGPT|GPT|Claude|Anthropic|large language model|"
     r"I am an AI assistant made by|I am an AI made by|created by OpenAI|"
@@ -279,6 +314,19 @@ def _guard_identity_drift(text: str) -> str:
         else:
             fixed.append(s)
     return " ".join(fixed).strip()
+
+
+def _voice_answer_mode_for_query(text: str) -> Optional[str]:
+    cleaned = re.sub(r"\s+", " ", (text or "")).strip().lower()
+    if not cleaned:
+        return None
+    if any(re.search(pattern, cleaned) for pattern in _COMPARISON_PATTERNS):
+        return "compact_comparison"
+    if any(re.search(pattern, cleaned) for pattern in _EXPLAINER_PATTERNS):
+        return "compact_explainer"
+    if any(re.search(pattern, cleaned) for pattern in _SYMPTOM_PATTERNS):
+        return "action_first_symptom"
+    return None
 
 
 def _prepare_voice_output(text: str, lang_code: str) -> str:
@@ -344,6 +392,19 @@ def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
     )
     if ambiguity_hints:
         context_lines.append(f"- Disambiguation rules for terms in this query:\n{ambiguity_hints}")
+    answer_mode = _voice_answer_mode_for_query(deps.query or "")
+    if answer_mode == "compact_comparison":
+        context_lines.append(
+            "- Voice answer mode: compact comparison. Give one short contrast sentence, then at most one short practical takeaway. Do not enumerate. Do not use labels, colons, or list structure. Do not append an extra follow-up question unless required."
+        )
+    elif answer_mode == "compact_explainer":
+        context_lines.append(
+            "- Voice answer mode: compact explainer. Give one short plain-language definition or explanation, then at most one short practical takeaway. Do not teach the full topic. Do not enumerate. Do not use labels, colons, or list structure. Do not append an extra follow-up question unless required."
+        )
+    elif answer_mode == "action_first_symptom":
+        context_lines.append(
+            "- Voice answer mode: action-first symptom response. Start with the most useful immediate action in one short sentence. Add at most one short safety or escalation sentence. Do not give long background, multiple causes, or a symptom checklist unless asked."
+        )
     return ModelRequest(parts=[UserPromptPart(content="\n".join(context_lines))])
 
 

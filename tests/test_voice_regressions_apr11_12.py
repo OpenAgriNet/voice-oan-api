@@ -35,6 +35,7 @@ from app.services.voice import (
     _is_fragment_query,
     _is_signed_in_session,
     _is_hold_message,
+    _voice_answer_mode_for_query,
 )
 from agents.deps import FarmerContext
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
@@ -347,6 +348,10 @@ class TestHelperCoverage:
         assert "Do not mirror kinship words from the translation" in STATIC_VOICE_SYSTEM_PROMPT
         assert "Never address the caller as sister" in STATIC_VOICE_SYSTEM_PROMPT
         assert "Never infer or assign the caller's gender" in STATIC_VOICE_SYSTEM_PROMPT
+        assert "This is a live phone call, not a chat or article." in STATIC_VOICE_SYSTEM_PROMPT
+        assert "Default to one short sentence." in STATIC_VOICE_SYSTEM_PROMPT
+        assert "Do not use colons, headings, labels, hyphens, or en dashes" in STATIC_VOICE_SYSTEM_PROMPT
+        assert "Do not organize the answer as \"one\", \"two\", \"three\"" in STATIC_VOICE_SYSTEM_PROMPT
 
     def test_gujarati_output_rules_keep_addressing_neutral_and_detached(self):
         rules = "\n".join(GU_PREFERRED_TRANSLATION_RULES)
@@ -369,6 +374,40 @@ class TestHelperCoverage:
         assert "Signed-in session: yes" in content
         assert "Normalized mobile: 9723293369" in content
         assert "Farmer context summary:" in content
+
+    def test_runtime_context_adds_compact_comparison_mode(self):
+        deps = FarmerContext(query="What is the difference between A2 milk and normal milk?")
+        request = _build_runtime_context_request(deps)
+        content = request.parts[0].content
+        assert "Voice answer mode: compact comparison." in content
+        assert "Give one short contrast sentence" in content
+        assert "Do not enumerate." in content
+
+    def test_runtime_context_adds_compact_explainer_mode(self):
+        deps = FarmerContext(query="What is mastitis?")
+        request = _build_runtime_context_request(deps)
+        content = request.parts[0].content
+        assert "Voice answer mode: compact explainer." in content
+        assert "Do not teach the full topic." in content
+
+    def test_runtime_context_adds_action_first_symptom_mode(self):
+        deps = FarmerContext(query="My cow has fever")
+        request = _build_runtime_context_request(deps)
+        content = request.parts[0].content
+        assert "Voice answer mode: action-first symptom response." in content
+        assert "Start with the most useful immediate action" in content
+
+    @pytest.mark.parametrize("query, expected", [
+        ("What is the difference between A2 milk and normal milk?", "compact_comparison"),
+        ("What is mastitis?", "compact_explainer"),
+        ("Compare buffalo milk and cow milk", "compact_comparison"),
+        ("My cow has fever", "action_first_symptom"),
+        ("My buffalo is not eating", "action_first_symptom"),
+        ("What is SNF in milk?", "compact_explainer"),
+        ("Hello", None),
+    ])
+    def test_voice_answer_mode_for_query(self, query, expected):
+        assert _voice_answer_mode_for_query(query) == expected
 
     def test_signed_in_session_helper(self):
         assert _is_signed_in_session({"sub": "user-1"}, "anonymous") is True
@@ -406,6 +445,21 @@ class TestHelperCoverage:
         assert "\"feed for the pregnant animal\"" in prompt_text
         assert "\"samudri\"" in prompt_text
         assert "ask for clarification rather than assuming a brand name" in prompt_text
+        assert "This is a phone call. The caller cannot see formatting." in prompt_text
+        assert "Do not use colons, headings, labels, hyphens, or en dashes" in prompt_text
+        assert "For comparison questions, give only the main difference first" in prompt_text
+        assert "Do not append a follow-up question unless it is necessary" in prompt_text
+
+    def test_translation_pipeline_prompt_contains_short_voice_examples(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+        assert "## Voice Examples" in prompt_text
+        assert "User: `What is the difference between A2 milk and normal milk?`" in prompt_text
+        assert "Assistant: `A2 milk differs mainly in the type of beta casein protein." in prompt_text
+        assert "User: `samudri dan for buffalo`" in prompt_text
+        assert "Assistant: `Please repeat that feed name once. I did not understand it clearly.`" in prompt_text
+        assert "User: `No, that is all`" in prompt_text
+        assert "Assistant: `All right. You can call again if you need help.`" in prompt_text
 
     @pytest.mark.parametrize("text, expected", [
         ("દૂધમાં ચરબી ઓછી છે.", "ફેટ"),
