@@ -839,7 +839,7 @@ async def translate_text_stream_fast(
                         buffer += chunk
                         while b'\n' in buffer:
                             line, buffer = buffer.split(b'\n', 1)
-                            line = line.decode('utf-8').strip()
+                            line = line.decode('utf-8').rstrip('\r')
                             if line.startswith('data: '):
                                 data = line[6:]
                                 if data == '[DONE]':
@@ -854,7 +854,11 @@ async def translate_text_stream_fast(
                                             target_lang,
                                             strip_outer=False,
                                         )
-                                        content = normalize_voice_output(content, target_lang)
+                                        content = normalize_voice_output(
+                                            content,
+                                            target_lang,
+                                            streaming=True,
+                                        )
                                         translated_parts.append(content)
                                         yield content
                                 except json.JSONDecodeError:
@@ -899,7 +903,7 @@ async def translate_text_stream_fast(
                         buffer += chunk
                         while b'\n' in buffer:
                             line, buffer = buffer.split(b'\n', 1)
-                            line = line.decode('utf-8').strip()
+                            line = line.decode('utf-8').rstrip('\r')
                             if line.startswith('data: '):
                                 data = line[6:]
                                 if data == '[DONE]':
@@ -914,7 +918,11 @@ async def translate_text_stream_fast(
                                             target_lang,
                                             strip_outer=False,
                                         )
-                                        content = normalize_voice_output(content, target_lang)
+                                        content = normalize_voice_output(
+                                            content,
+                                            target_lang,
+                                            streaming=True,
+                                        )
                                         translated_parts.append(content)
                                         yield content
                                 except json.JSONDecodeError:

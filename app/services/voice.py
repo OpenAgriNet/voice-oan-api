@@ -90,15 +90,15 @@ def extract_complete_sentences(text: str):
     inline_structural_match = re.search(r"(?=\s#{1,6}\s)|(?=\n#{1,6}\s)|(?=\n\d+\.\s)|(?=\n[-*•]\s)", text)
     if inline_structural_match and inline_structural_match.start() > 0:
         split_at = inline_structural_match.start()
-        head = text[:split_at].rstrip()
-        tail = text[split_at:].lstrip()
+        head = text[:split_at]
+        tail = text[split_at:]
         if head:
             return [head], tail
     structural_match = re.search(r"\n(?=(?:#{1,6}\s|[-*•]\s|\d+\.\s))", text)
     if structural_match:
         split_at = structural_match.start()
-        head = text[:split_at].rstrip()
-        tail = text[split_at:].lstrip()
+        head = text[:split_at]
+        tail = text[split_at:]
         if head:
             return [head], tail
     sentences = sentence_segmenter(text)
@@ -138,7 +138,7 @@ def _split_voice_batch_text(text: str, max_chars: int = VOICE_TRANSLATION_BATCH_
     if split_at < 0:
         return text, ""
 
-    return text[:split_at].rstrip(), text[split_at:].lstrip()
+    return text[:split_at], text[split_at:]
 
 
 def extract_translation_units(text: str):
@@ -610,6 +610,7 @@ async def stream_voice_message(
     """Async generator for streaming chat messages."""
     request_started_at = time.monotonic()
     last_owner_refresh_at = 0.0
+    last_emitted_sig_char: str | None = None
 
     async def _request_is_stale(reason: str) -> bool:
         nonlocal last_owner_refresh_at
@@ -650,6 +651,37 @@ async def stream_voice_message(
             return True
 
         return False
+
+    def _first_sig_char(text: str) -> str | None:
+        for ch in text or "":
+            if not ch.isspace():
+                return ch
+        return None
+
+    def _last_sig_char(text: str) -> str | None:
+        for ch in reversed(text or ""):
+            if not ch.isspace():
+                return ch
+        return None
+
+    def _prepare_translated_emit(text: str) -> str:
+        nonlocal last_emitted_sig_char
+        if not isinstance(text, str) or not text:
+            return text
+
+        first_sig = _first_sig_char(text)
+        if (
+            last_emitted_sig_char in {".", "!", "?", "।"}
+            and first_sig is not None
+            and re.match(r"[A-Za-z\u0A80-\u0AFF]", first_sig)
+            and not text[0].isspace()
+        ):
+            text = " " + text
+
+        last_sig = _last_sig_char(text)
+        if last_sig is not None:
+            last_emitted_sig_char = last_sig
+        return text
 
     try:
         with _langfuse_session_context(session_id, user_id, process_id):
@@ -1086,7 +1118,7 @@ async def stream_voice_message(
                                                     pass
                                             if await _request_is_stale("before_translated_yield"):
                                                 break
-                                            yield translated_chunk
+                                            yield _prepare_translated_emit(translated_chunk)
                                         translation_batch = []
                                         batch_word_count = 0
 
@@ -1116,7 +1148,7 @@ async def stream_voice_message(
                                         pass
                                 if await _request_is_stale("before_final_translated_yield"):
                                     break
-                                yield translated_chunk
+                                yield _prepare_translated_emit(translated_chunk)
 
                         if sentence_buffer.strip():
                             async for translated_chunk in _yield_translated_text(sentence_buffer):
@@ -1140,7 +1172,7 @@ async def stream_voice_message(
                                         pass
                                 if await _request_is_stale("before_tail_translated_yield"):
                                     break
-                                yield translated_chunk
+                                yield _prepare_translated_emit(translated_chunk)
                 except StopAsyncIteration:
                     pass
                 except RuntimeError as e:
