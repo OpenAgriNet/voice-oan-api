@@ -27,6 +27,7 @@ from agents.tools.common import (
 )
 from agents.tools.conversation_state import set_conversation_closing_flag
 from agents.tools.terms import get_ambiguity_hints_for_query
+from helpers.gujarati_numbers import mask_tag_identifier
 from helpers.utils import get_logger, clean_output_by_language, get_today_date_str
 from app.config import settings
 from app.utils import (
@@ -495,8 +496,9 @@ def _extract_farmer_tags(records: list[FarmerRecord]) -> list[str]:
             continue
         for tag in str(raw).split(","):
             cleaned = tag.strip()
-            if cleaned and cleaned not in tags:
-                tags.append(cleaned)
+            masked = mask_tag_identifier(cleaned)
+            if masked and masked not in tags:
+                tags.append(masked)
     return tags
 
 

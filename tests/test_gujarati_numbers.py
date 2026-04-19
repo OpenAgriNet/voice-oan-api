@@ -6,6 +6,7 @@ from helpers.gujarati_numbers import (
     number_to_gujarati,
     tag_to_gujarati,
     normalize_numbers_for_tts,
+    mask_tag_identifier,
     _int_to_gujarati,
 )
 
@@ -95,7 +96,9 @@ class TestDecimalConversion:
         (3.56, "ત્રણ પોઈન્ટ પાંચ છ"),
         (4.34, "ચાર પોઈન્ટ ત્રણ ચાર"),
         (54.25, "ચોપન પોઈન્ટ બે પાંચ"),
+        (100.05, "એકસો પોઈન્ટ શૂન્ય પાંચ"),
         (0.5, "શૂન્ય પોઈન્ટ પાંચ"),
+        (0.05, "શૂન્ય પોઈન્ટ શૂન્ય પાંચ"),
     ])
     def test_decimal_values(self, value, expected):
         assert number_to_gujarati(value) == expected
@@ -106,6 +109,11 @@ class TestDecimalConversion:
 # ---------------------------------------------------------------------------
 
 class TestTagConversion:
+    def test_mask_tag_identifier_uses_last_four_digits(self):
+        assert mask_tag_identifier("106285318721") == "TAG:8721"
+
+    def test_mask_tag_identifier_ignores_non_digits(self):
+        assert mask_tag_identifier("tag-10/62") == "TAG:1062"
 
     def test_standard_12_digit_tag(self):
         result = tag_to_gujarati("106285318721")
@@ -167,6 +175,16 @@ class TestTextNormalization:
         assert "નવ નવ સાત નવ" in result
         assert "9979138134" not in result
 
+    def test_masked_tag_token_reads_digit_by_digit(self):
+        text = "પશુ TAG:1754 માટે તપાસ કરો"
+        result = normalize_numbers_for_tts(text)
+        assert result == "પશુ એક સાત પાંચ ચાર માટે તપાસ કરો"
+
+    def test_masked_tag_token_in_gujarati_prefix_reads_digit_by_digit(self):
+        text = "પશુ ટેગ:1754 માટે તપાસ કરો"
+        result = normalize_numbers_for_tts(text)
+        assert result == "પશુ એક સાત પાંચ ચાર માટે તપાસ કરો"
+
     def test_preserves_surrounding_text(self):
         text = "કુલ 4 પશુ છે"
         result = normalize_numbers_for_tts(text)
@@ -193,6 +211,12 @@ class TestTextNormalization:
         text = "20–25 દિવસ"
         result = normalize_numbers_for_tts(text)
         assert result == "વીસ થી પચ્ચીસ દિવસ"
+
+    def test_plain_four_digit_number_stays_quantitative(self):
+        text = "વજન 1754 કિલો છે"
+        result = normalize_numbers_for_tts(text)
+        assert "એક હજાર" in result
+        assert "એક સાત પાંચ ચાર" not in result
 
 
 # ---------------------------------------------------------------------------

@@ -142,6 +142,18 @@ def tag_to_gujarati(tag: str) -> str:
     return " ".join(_ONES[int(d)] for d in tag if d.isdigit())
 
 
+def mask_tag_identifier(tag: str, *, visible_digits: int = 4, prefix: str = "TAG") -> str:
+    """Return an LLM-safe tag identifier token like TAG:1234.
+
+    Keeps only the trailing digits visible so prompts never expose the full
+    registry tag while still letting the model refer to one animal consistently.
+    """
+    digits = "".join(ch for ch in str(tag) if ch.isdigit())
+    if not digits:
+        return ""
+    return f"{prefix}:{digits[-visible_digits:]}"
+
+
 # --- Text normalizer for TTS output ---
 
 # Matches sequences of digits, optionally with one decimal point
@@ -149,6 +161,7 @@ _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 # Matches digit sequences of 10+ digits (tag numbers, phone numbers)
 _LONG_DIGIT_RE = re.compile(r"\d{10,}")
+_TAG_TOKEN_RE = re.compile(r"(?:(?i:tag)|ટેગ)\s*:\s*(\d+)")
 
 # Numeric ranges such as 20-25 or 350–400
 _RANGE_RE = re.compile(
@@ -165,6 +178,13 @@ def normalize_numbers_for_tts(text: str) -> str:
     """
     if not text:
         return text
+
+    def _replace_tag_token(m: re.Match) -> str:
+        return tag_to_gujarati(m.group(1))
+
+    # Tagged identifiers must be read digit-by-digit even when short,
+    # e.g. TAG:1754 -> "એક સાત પાંચ ચાર".
+    text = _TAG_TOKEN_RE.sub(_replace_tag_token, text)
 
     def _replace_range(m: re.Match) -> str:
         left = m.group(1)
