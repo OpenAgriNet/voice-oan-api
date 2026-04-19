@@ -118,11 +118,11 @@ class TestTagConversion:
 
     def test_expand_tag_tokens_for_translation_uses_spaced_digits(self):
         text = "Animal TAG:1754 needs attention."
-        assert expand_tag_tokens_for_translation(text) == "Animal 1 7 5 4 needs attention."
+        assert expand_tag_tokens_for_translation(text) == "Animal one seven five four needs attention."
 
     def test_expand_tag_tokens_for_translation_handles_gujarati_prefix(self):
         text = "પશુ ટેગ:1234 માટે તપાસ કરો"
-        assert expand_tag_tokens_for_translation(text) == "પશુ 1 2 3 4 માટે તપાસ કરો"
+        assert expand_tag_tokens_for_translation(text) == "પશુ one two three four માટે તપાસ કરો"
 
     def test_standard_12_digit_tag(self):
         result = tag_to_gujarati("106285318721")

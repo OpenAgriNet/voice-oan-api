@@ -28,6 +28,19 @@ _ONES = {
     9: "નવ",
 }
 
+_EN_ONES = {
+    "0": "zero",
+    "1": "one",
+    "2": "two",
+    "3": "three",
+    "4": "four",
+    "5": "five",
+    "6": "six",
+    "7": "seven",
+    "8": "eight",
+    "9": "nine",
+}
+
 # Gujarati has unique words for 1-99 (Indian numbering irregularity)
 _1_TO_99 = {
     1: "એક", 2: "બે", 3: "ત્રણ", 4: "ચાર", 5: "પાંચ",
@@ -155,20 +168,21 @@ def mask_tag_identifier(tag: str, *, visible_digits: int = 4, prefix: str = "TAG
 
 
 def expand_tag_tokens_for_translation(text: str) -> str:
-    """Convert masked tag identifiers into spaced digits before translation.
+    """Convert masked tag identifiers into English digit words before translation.
 
     Example:
-        TAG:1234 -> 1 2 3 4
+        TAG:1234 -> one two three four
 
     This prevents the translation model from verbalizing the token as a
-    quantitative number phrase such as "one thousand two hundred thirty four".
+    quantitative number phrase such as "one thousand two hundred thirty four",
+    and avoids downstream Gujarati numeric range/quantity heuristics.
     """
     if not text:
         return text
 
     def _replace_tag_token(m: re.Match) -> str:
         digits = m.group(1)
-        return " ".join(digits)
+        return " ".join(_EN_ONES[d] for d in digits)
 
     return _TAG_TOKEN_RE.sub(_replace_tag_token, text)
 
