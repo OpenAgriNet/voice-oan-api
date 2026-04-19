@@ -179,6 +179,21 @@ def _batch_has_dangling_tag_prefix(text: str) -> bool:
     return bool(re.search(r"(?i)(?:tag|ટેગ)\s*:\s*$", text.rstrip()))
 
 
+def _prepare_text_for_voice_translation(text: str) -> str:
+    """Make English text more translation-safe for voice rendering."""
+    if not text:
+        return text
+
+    out = expand_tag_tokens_for_translation(text)
+    # Flatten markdown list structure into spoken separators before translation.
+    out = re.sub(r"\s*\n\s*[-*•]\s*", ", ", out)
+    out = re.sub(r"\s*\n+\s*", " ", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    out = re.sub(r"\s+,", ",", out)
+    out = re.sub(r":,\s*", ": ", out)
+    return out.strip()
+
+
 # ── Greeting short-circuit helpers ─────────────────────────────────────
 _GREETING_TOKENS = {
     # English
@@ -1030,7 +1045,7 @@ async def stream_voice_message(
                     if not text_to_translate:
                         return
                     text_to_translate = _guard_identity_drift(text_to_translate)
-                    text_to_translate = expand_tag_tokens_for_translation(text_to_translate)
+                    text_to_translate = _prepare_text_for_voice_translation(text_to_translate)
                     try:
                         translated = await translate_text(
                             text=text_to_translate,

@@ -32,6 +32,7 @@ from app.services.voice import (
     _build_compact_farmer_summary,
     _build_runtime_context_request,
     _batch_has_dangling_tag_prefix,
+    _prepare_text_for_voice_translation,
     _has_meaningful_history,
     _is_bare_greeting,
     _is_fragment_query,
@@ -469,6 +470,12 @@ class TestHelperCoverage:
         batch_text = "Your registered animal tag numbers are:\n- TAG:"
         assert _batch_has_dangling_tag_prefix(batch_text) is True
         assert should_translate_batch(batch_text, word_count=8, is_first_batch=False) is False
+
+    def test_prepare_text_for_voice_translation_flattens_tag_bullets(self):
+        text = "Your registered animal tag numbers are:\n- TAG:8721  \n- TAG:5408  \n- TAG:1234"
+        assert _prepare_text_for_voice_translation(text) == (
+            "Your registered animal tag numbers are: eight seven two one, five four zero eight, one two three four"
+        )
 
     def test_translation_pipeline_prompt_has_unclear_input_confirmation_rules(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
