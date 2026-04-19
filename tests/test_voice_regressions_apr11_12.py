@@ -441,7 +441,7 @@ class TestHelperCoverage:
         assert "Farmer refresh after: 2026-04-18T00:00:00+00:00" in summary
         assert "Farmer name: Rameshbhai" in summary
         assert "Farmer code available: yes" in summary
-        assert "Known animal tags: TAG:8721, TAG:5408, TAG:1003" in summary
+        assert "Known animal tags: 8 7 2 1, 5 4 0 8, 1 0 0 3" in summary
         assert "##" not in summary
 
     def test_extract_translation_units_force_splits_oversized_buffer(self):
@@ -468,13 +468,13 @@ class TestHelperCoverage:
 
     def test_batch_does_not_flush_on_dangling_tag_prefix(self):
         batch_text = "Your registered animal tag numbers are:\n- TAG:"
-        assert _batch_has_dangling_tag_prefix(batch_text) is True
-        assert should_translate_batch(batch_text, word_count=8, is_first_batch=False) is False
+        assert _batch_has_dangling_tag_prefix(batch_text) is False
+        assert should_translate_batch(batch_text, word_count=8, is_first_batch=False) is True
 
     def test_prepare_text_for_voice_translation_flattens_tag_bullets(self):
-        text = "Your registered animal tag numbers are:\n- TAG:8721  \n- TAG:5408  \n- TAG:1234"
+        text = "Your registered animal tag numbers are:\n- 8 7 2 1  \n- 5 4 0 8  \n- 1 2 3 4"
         assert _prepare_text_for_voice_translation(text) == (
-            "Your registered animal tag numbers are: eight seven two one, five four zero eight, one two three four"
+            "Your registered animal tag numbers are: 8 7 2 1, 5 4 0 8, 1 2 3 4"
         )
 
     def test_translation_pipeline_prompt_has_unclear_input_confirmation_rules(self):
@@ -491,7 +491,7 @@ class TestHelperCoverage:
         assert "Do not use colons, headings, labels, hyphens, or en dashes" in prompt_text
         assert "For comparison questions, give only the main difference first" in prompt_text
         assert "Do not append a follow-up question unless it is necessary" in prompt_text
-        assert "TAG:1234" in prompt_text
+        assert "TAG:1234" not in prompt_text
 
     def test_translation_pipeline_prompt_contains_short_voice_examples(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
@@ -730,7 +730,7 @@ class TestMultiTurnFlows:
         runtime_context = captured["runtime_context"]
         assert "Farmer data source: cache" in runtime_context
         assert "Farmer name: Rameshbhai" in runtime_context
-        assert "Known animal tags: TAG:8721, TAG:5408" in runtime_context
+        assert "Known animal tags: 8 7 2 1, 5 4 0 8" in runtime_context
 
     def test_signed_in_list_animal_tags_masks_identifiers(self, monkeypatch):
         from agents.tools import farmer_cached as farmer_cached_module
@@ -759,7 +759,7 @@ class TestMultiTurnFlows:
         )
 
         payload = json.loads(result)
-        assert payload["animal_tags"] == ["TAG:8721", "TAG:5408", "TAG:1234"]
+        assert payload["animal_tags"] == ["8 7 2 1", "5 4 0 8", "1 2 3 4"]
 
     def test_signed_in_session_uses_signed_in_agent_and_higher_request_limit(self, monkeypatch):
         from app.services import voice as voice_module

@@ -28,19 +28,6 @@ _ONES = {
     9: "નવ",
 }
 
-_EN_ONES = {
-    "0": "zero",
-    "1": "one",
-    "2": "two",
-    "3": "three",
-    "4": "four",
-    "5": "five",
-    "6": "six",
-    "7": "seven",
-    "8": "eight",
-    "9": "nine",
-}
-
 # Gujarati has unique words for 1-99 (Indian numbering irregularity)
 _1_TO_99 = {
     1: "એક", 2: "બે", 3: "ત્રણ", 4: "ચાર", 5: "પાંચ",
@@ -155,36 +142,16 @@ def tag_to_gujarati(tag: str) -> str:
     return " ".join(_ONES[int(d)] for d in tag if d.isdigit())
 
 
-def mask_tag_identifier(tag: str, *, visible_digits: int = 4, prefix: str = "TAG") -> str:
-    """Return an LLM-safe tag identifier token like TAG:1234.
+def mask_tag_identifier(tag: str, *, visible_digits: int = 4) -> str:
+    """Return an LLM-safe voice-friendly tag like ``1 2 3 4``.
 
-    Keeps only the trailing digits visible so prompts never expose the full
-    registry tag while still letting the model refer to one animal consistently.
+    Keeps only the trailing digits visible and spaces them out so the model
+    sees an identifier-like spoken form instead of a quantity-like number.
     """
     digits = "".join(ch for ch in str(tag) if ch.isdigit())
     if not digits:
         return ""
-    return f"{prefix}:{digits[-visible_digits:]}"
-
-
-def expand_tag_tokens_for_translation(text: str) -> str:
-    """Convert masked tag identifiers into English digit words before translation.
-
-    Example:
-        TAG:1234 -> one two three four
-
-    This prevents the translation model from verbalizing the token as a
-    quantitative number phrase such as "one thousand two hundred thirty four",
-    and avoids downstream Gujarati numeric range/quantity heuristics.
-    """
-    if not text:
-        return text
-
-    def _replace_tag_token(m: re.Match) -> str:
-        digits = m.group(1)
-        return " ".join(_EN_ONES[d] for d in digits)
-
-    return _TAG_TOKEN_RE.sub(_replace_tag_token, text)
+    return " ".join(digits[-visible_digits:])
 
 
 # --- Text normalizer for TTS output ---
@@ -194,8 +161,6 @@ _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 # Matches digit sequences of 10+ digits (tag numbers, phone numbers)
 _LONG_DIGIT_RE = re.compile(r"\d{10,}")
-_TAG_TOKEN_RE = re.compile(r"(?:(?i:tag)|ટેગ)\s*:\s*(\d+)")
-
 # Numeric ranges such as 20-25 or 350–400
 _RANGE_RE = re.compile(
     r"(?<!\d[-–—])(\d+(?:\.\d+)?)\s*[-–—]\s*(\d+(?:\.\d+)?)(?![-–—]\d)"
@@ -211,13 +176,6 @@ def normalize_numbers_for_tts(text: str) -> str:
     """
     if not text:
         return text
-
-    def _replace_tag_token(m: re.Match) -> str:
-        return tag_to_gujarati(m.group(1))
-
-    # Tagged identifiers must be read digit-by-digit even when short,
-    # e.g. TAG:1754 -> "એક સાત પાંચ ચાર".
-    text = _TAG_TOKEN_RE.sub(_replace_tag_token, text)
 
     def _replace_range(m: re.Match) -> str:
         left = m.group(1)

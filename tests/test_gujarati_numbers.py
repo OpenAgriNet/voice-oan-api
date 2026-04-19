@@ -7,7 +7,6 @@ from helpers.gujarati_numbers import (
     tag_to_gujarati,
     normalize_numbers_for_tts,
     mask_tag_identifier,
-    expand_tag_tokens_for_translation,
     _int_to_gujarati,
 )
 
@@ -111,18 +110,10 @@ class TestDecimalConversion:
 
 class TestTagConversion:
     def test_mask_tag_identifier_uses_last_four_digits(self):
-        assert mask_tag_identifier("106285318721") == "TAG:8721"
+        assert mask_tag_identifier("106285318721") == "8 7 2 1"
 
     def test_mask_tag_identifier_ignores_non_digits(self):
-        assert mask_tag_identifier("tag-10/62") == "TAG:1062"
-
-    def test_expand_tag_tokens_for_translation_uses_spaced_digits(self):
-        text = "Animal TAG:1754 needs attention."
-        assert expand_tag_tokens_for_translation(text) == "Animal one seven five four needs attention."
-
-    def test_expand_tag_tokens_for_translation_handles_gujarati_prefix(self):
-        text = "પશુ ટેગ:1234 માટે તપાસ કરો"
-        assert expand_tag_tokens_for_translation(text) == "પશુ one two three four માટે તપાસ કરો"
+        assert mask_tag_identifier("tag-10/62") == "1 0 6 2"
 
     def test_standard_12_digit_tag(self):
         result = tag_to_gujarati("106285318721")
@@ -184,13 +175,8 @@ class TestTextNormalization:
         assert "નવ નવ સાત નવ" in result
         assert "9979138134" not in result
 
-    def test_masked_tag_token_reads_digit_by_digit(self):
-        text = "પશુ TAG:1754 માટે તપાસ કરો"
-        result = normalize_numbers_for_tts(text)
-        assert result == "પશુ એક સાત પાંચ ચાર માટે તપાસ કરો"
-
-    def test_masked_tag_token_in_gujarati_prefix_reads_digit_by_digit(self):
-        text = "પશુ ટેગ:1754 માટે તપાસ કરો"
+    def test_spaced_digits_read_digit_by_digit(self):
+        text = "પશુ 1 7 5 4 માટે તપાસ કરો"
         result = normalize_numbers_for_tts(text)
         assert result == "પશુ એક સાત પાંચ ચાર માટે તપાસ કરો"
 

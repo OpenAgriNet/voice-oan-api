@@ -27,7 +27,7 @@ from agents.tools.common import (
 )
 from agents.tools.conversation_state import set_conversation_closing_flag
 from agents.tools.terms import get_ambiguity_hints_for_query
-from helpers.gujarati_numbers import mask_tag_identifier, expand_tag_tokens_for_translation
+from helpers.gujarati_numbers import mask_tag_identifier
 from helpers.utils import get_logger, clean_output_by_language, get_today_date_str
 from app.config import settings
 from app.utils import (
@@ -173,10 +173,8 @@ def _batch_starts_new_line_or_list(text: str) -> bool:
 
 
 def _batch_has_dangling_tag_prefix(text: str) -> bool:
-    """Whether a buffered translation batch ends with an incomplete tag token."""
-    if not text:
-        return False
-    return bool(re.search(r"(?i)(?:tag|ટેગ)\s*:\s*$", text.rstrip()))
+    """Legacy guard kept for compatibility; spaced-digit tags no longer need it."""
+    return False
 
 
 def _prepare_text_for_voice_translation(text: str) -> str:
@@ -184,7 +182,7 @@ def _prepare_text_for_voice_translation(text: str) -> str:
     if not text:
         return text
 
-    out = expand_tag_tokens_for_translation(text)
+    out = text
     # Flatten markdown list structure into spoken separators before translation.
     out = re.sub(r"\s*\n\s*[-*•]\s*", ", ", out)
     out = re.sub(r"\s*\n+\s*", " ", out)
