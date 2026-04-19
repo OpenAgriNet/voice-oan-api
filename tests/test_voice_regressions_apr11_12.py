@@ -31,6 +31,7 @@ from app.services.voice import (
     TELEPHONY_TERMINATE_CALL_TOKEN,
     _build_compact_farmer_summary,
     _build_runtime_context_request,
+    _batch_has_dangling_tag_prefix,
     _has_meaningful_history,
     _is_bare_greeting,
     _is_fragment_query,
@@ -463,6 +464,11 @@ class TestHelperCoverage:
     def test_should_translate_batch_forces_flush_on_large_char_batch(self):
         batch_text = "word " * 140
         assert should_translate_batch(batch_text, word_count=20, is_first_batch=False) is True
+
+    def test_batch_does_not_flush_on_dangling_tag_prefix(self):
+        batch_text = "Your registered animal tag numbers are:\n- TAG:"
+        assert _batch_has_dangling_tag_prefix(batch_text) is True
+        assert should_translate_batch(batch_text, word_count=8, is_first_batch=False) is False
 
     def test_translation_pipeline_prompt_has_unclear_input_confirmation_rules(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"

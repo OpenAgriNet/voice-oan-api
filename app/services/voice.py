@@ -172,6 +172,13 @@ def _batch_starts_new_line_or_list(text: str) -> bool:
     return bool(re.match(r"^\d+\.\s", stripped))
 
 
+def _batch_has_dangling_tag_prefix(text: str) -> bool:
+    """Whether a buffered translation batch ends with an incomplete tag token."""
+    if not text:
+        return False
+    return bool(re.search(r"(?i)(?:tag|ટેગ)\s*:\s*$", text.rstrip()))
+
+
 # ── Greeting short-circuit helpers ─────────────────────────────────────
 _GREETING_TOKENS = {
     # English
@@ -547,6 +554,8 @@ def should_translate_batch(
 ) -> bool:
     """Decide whether the accumulated batch should be flushed for translation."""
     text_end = batch_text.rstrip()
+    if _batch_has_dangling_tag_prefix(text_end):
+        return False
     ends_sentence = text_end.endswith(('.', '!', '?', ':'))
 
     # Phase 1: first batch — get first audio to the caller fast.
