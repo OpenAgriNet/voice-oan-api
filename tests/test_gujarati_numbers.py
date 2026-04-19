@@ -7,6 +7,7 @@ from helpers.gujarati_numbers import (
     tag_to_gujarati,
     normalize_numbers_for_tts,
     mask_tag_identifier,
+    expand_tag_tokens_for_translation,
     _int_to_gujarati,
 )
 
@@ -114,6 +115,14 @@ class TestTagConversion:
 
     def test_mask_tag_identifier_ignores_non_digits(self):
         assert mask_tag_identifier("tag-10/62") == "TAG:1062"
+
+    def test_expand_tag_tokens_for_translation_uses_spaced_digits(self):
+        text = "Animal TAG:1754 needs attention."
+        assert expand_tag_tokens_for_translation(text) == "Animal 1 7 5 4 needs attention."
+
+    def test_expand_tag_tokens_for_translation_handles_gujarati_prefix(self):
+        text = "પશુ ટેગ:1234 માટે તપાસ કરો"
+        assert expand_tag_tokens_for_translation(text) == "પશુ 1 2 3 4 માટે તપાસ કરો"
 
     def test_standard_12_digit_tag(self):
         result = tag_to_gujarati("106285318721")

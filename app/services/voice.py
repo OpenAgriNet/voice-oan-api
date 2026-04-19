@@ -27,7 +27,7 @@ from agents.tools.common import (
 )
 from agents.tools.conversation_state import set_conversation_closing_flag
 from agents.tools.terms import get_ambiguity_hints_for_query
-from helpers.gujarati_numbers import mask_tag_identifier
+from helpers.gujarati_numbers import mask_tag_identifier, expand_tag_tokens_for_translation
 from helpers.utils import get_logger, clean_output_by_language, get_today_date_str
 from app.config import settings
 from app.utils import (
@@ -1021,6 +1021,7 @@ async def stream_voice_message(
                     if not text_to_translate:
                         return
                     text_to_translate = _guard_identity_drift(text_to_translate)
+                    text_to_translate = expand_tag_tokens_for_translation(text_to_translate)
                     try:
                         translated = await translate_text(
                             text=text_to_translate,

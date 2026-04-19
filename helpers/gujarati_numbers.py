@@ -154,6 +154,25 @@ def mask_tag_identifier(tag: str, *, visible_digits: int = 4, prefix: str = "TAG
     return f"{prefix}:{digits[-visible_digits:]}"
 
 
+def expand_tag_tokens_for_translation(text: str) -> str:
+    """Convert masked tag identifiers into spaced digits before translation.
+
+    Example:
+        TAG:1234 -> 1 2 3 4
+
+    This prevents the translation model from verbalizing the token as a
+    quantitative number phrase such as "one thousand two hundred thirty four".
+    """
+    if not text:
+        return text
+
+    def _replace_tag_token(m: re.Match) -> str:
+        digits = m.group(1)
+        return " ".join(digits)
+
+    return _TAG_TOKEN_RE.sub(_replace_tag_token, text)
+
+
 # --- Text normalizer for TTS output ---
 
 # Matches sequences of digits, optionally with one decimal point
