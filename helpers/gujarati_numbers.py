@@ -28,6 +28,19 @@ _ONES = {
     9: "નવ",
 }
 
+_EN_DIGIT_WORDS = {
+    "0": "zero",
+    "1": "one",
+    "2": "two",
+    "3": "three",
+    "4": "four",
+    "5": "five",
+    "6": "six",
+    "7": "seven",
+    "8": "eight",
+    "9": "nine",
+}
+
 # Gujarati has unique words for 1-99 (Indian numbering irregularity)
 _1_TO_99 = {
     1: "એક", 2: "બે", 3: "ત્રણ", 4: "ચાર", 5: "પાંચ",
@@ -143,15 +156,16 @@ def tag_to_gujarati(tag: str) -> str:
 
 
 def mask_tag_identifier(tag: str, *, visible_digits: int = 4) -> str:
-    """Return an LLM-safe voice-friendly tag like ``1 2 3 4``.
+    """Return an LLM-safe voice-friendly tag like ``one two three four``.
 
-    Keeps only the trailing digits visible and spaces them out so the model
-    sees an identifier-like spoken form instead of a quantity-like number.
+    Keeps only the trailing digits visible and verbalizes them in English so
+    downstream translation preserves identifier intent instead of collapsing
+    the digits into a quantitative number phrase.
     """
     digits = "".join(ch for ch in str(tag) if ch.isdigit())
     if not digits:
         return ""
-    return " ".join(digits[-visible_digits:])
+    return " ".join(_EN_DIGIT_WORDS[d] for d in digits[-visible_digits:])
 
 
 # --- Text normalizer for TTS output ---

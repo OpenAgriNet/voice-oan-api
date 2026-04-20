@@ -31,7 +31,6 @@ from app.services.voice import (
     TELEPHONY_TERMINATE_CALL_TOKEN,
     _build_compact_farmer_summary,
     _build_runtime_context_request,
-    _batch_has_dangling_tag_prefix,
     _prepare_text_for_voice_translation,
     _has_meaningful_history,
     _is_bare_greeting,
@@ -441,7 +440,7 @@ class TestHelperCoverage:
         assert "Farmer refresh after: 2026-04-18T00:00:00+00:00" in summary
         assert "Farmer name: Rameshbhai" in summary
         assert "Farmer code available: yes" in summary
-        assert "Known animal tags: 8 7 2 1, 5 4 0 8, 1 0 0 3" in summary
+        assert "Known animal tags: eight seven two one, five four zero eight, one zero zero three" in summary
         assert "##" not in summary
 
     def test_extract_translation_units_force_splits_oversized_buffer(self):
@@ -466,15 +465,10 @@ class TestHelperCoverage:
         batch_text = "word " * 140
         assert should_translate_batch(batch_text, word_count=20, is_first_batch=False) is True
 
-    def test_batch_does_not_flush_on_dangling_tag_prefix(self):
-        batch_text = "Your registered animal tag numbers are:\n- TAG:"
-        assert _batch_has_dangling_tag_prefix(batch_text) is False
-        assert should_translate_batch(batch_text, word_count=8, is_first_batch=False) is True
-
     def test_prepare_text_for_voice_translation_flattens_tag_bullets(self):
-        text = "Your registered animal tag numbers are:\n- 8 7 2 1  \n- 5 4 0 8  \n- 1 2 3 4"
+        text = "Your registered animal tag numbers are:\n- eight seven two one  \n- five four zero eight  \n- one two three four"
         assert _prepare_text_for_voice_translation(text) == (
-            "Your registered animal tag numbers are: 8 7 2 1, 5 4 0 8, 1 2 3 4"
+            "Your registered animal tag numbers are: eight seven two one, five four zero eight, one two three four"
         )
 
     def test_translation_pipeline_prompt_has_unclear_input_confirmation_rules(self):
@@ -730,7 +724,7 @@ class TestMultiTurnFlows:
         runtime_context = captured["runtime_context"]
         assert "Farmer data source: cache" in runtime_context
         assert "Farmer name: Rameshbhai" in runtime_context
-        assert "Known animal tags: 8 7 2 1, 5 4 0 8" in runtime_context
+        assert "Known animal tags: eight seven two one, five four zero eight" in runtime_context
 
     def test_signed_in_list_animal_tags_masks_identifiers(self, monkeypatch):
         from agents.tools import farmer_cached as farmer_cached_module
@@ -759,7 +753,7 @@ class TestMultiTurnFlows:
         )
 
         payload = json.loads(result)
-        assert payload["animal_tags"] == ["8 7 2 1", "5 4 0 8", "1 2 3 4"]
+        assert payload["animal_tags"] == ["eight seven two one", "five four zero eight", "one two three four"]
 
     def test_signed_in_session_uses_signed_in_agent_and_higher_request_limit(self, monkeypatch):
         from app.services import voice as voice_module

@@ -172,11 +172,6 @@ def _batch_starts_new_line_or_list(text: str) -> bool:
     return bool(re.match(r"^\d+\.\s", stripped))
 
 
-def _batch_has_dangling_tag_prefix(text: str) -> bool:
-    """Legacy guard kept for compatibility; spaced-digit tags no longer need it."""
-    return False
-
-
 def _prepare_text_for_voice_translation(text: str) -> str:
     """Make English text more translation-safe for voice rendering."""
     if not text:
@@ -567,8 +562,6 @@ def should_translate_batch(
 ) -> bool:
     """Decide whether the accumulated batch should be flushed for translation."""
     text_end = batch_text.rstrip()
-    if _batch_has_dangling_tag_prefix(text_end):
-        return False
     ends_sentence = text_end.endswith(('.', '!', '?', ':'))
 
     # Phase 1: first batch — get first audio to the caller fast.
