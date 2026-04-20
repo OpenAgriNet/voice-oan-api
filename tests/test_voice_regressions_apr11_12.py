@@ -19,6 +19,7 @@ from pydantic_ai.messages import ModelRequest, TextPart, UserPromptPart
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agents.voice import voice_agent, voice_agent_signed_in, STATIC_VOICE_SYSTEM_PROMPT
+from agents.tools.farmer_cached import list_animal_tags
 from app.services.stt_signals import detect_stt_signal
 from app.services.translation import (
     GU_PREFERRED_TRANSLATION_RULES,
@@ -30,6 +31,7 @@ from app.services.voice import (
     TELEPHONY_TERMINATE_CALL_TOKEN,
     _build_compact_farmer_summary,
     _build_runtime_context_request,
+    _prepare_text_for_voice_translation,
     _has_meaningful_history,
     _is_bare_greeting,
     _is_fragment_query,
@@ -424,7 +426,7 @@ class TestHelperCoverage:
                     societyName="Anand Dairy Society",
                     farmerCode="F123",
                     totalAnimals=6,
-                    tagNumbers="1001,1002,1003",
+                    tagNumbers="106285318721,100066235408,1003",
                 )
             ],
             source="cache",
@@ -438,7 +440,7 @@ class TestHelperCoverage:
         assert "Farmer refresh after: 2026-04-18T00:00:00+00:00" in summary
         assert "Farmer name: Rameshbhai" in summary
         assert "Farmer code available: yes" in summary
-        assert "Known animal tags: 1001, 1002, 1003" in summary
+        assert "Known animal tags: eight seven two one, five four zero eight, one zero zero three" in summary
         assert "##" not in summary
 
     def test_extract_translation_units_force_splits_oversized_buffer(self):
@@ -463,6 +465,12 @@ class TestHelperCoverage:
         batch_text = "word " * 140
         assert should_translate_batch(batch_text, word_count=20, is_first_batch=False) is True
 
+    def test_prepare_text_for_voice_translation_flattens_tag_bullets(self):
+        text = "Your registered animal tag numbers are:\n- eight seven two one  \n- five four zero eight  \n- one two three four"
+        assert _prepare_text_for_voice_translation(text) == (
+            "Your registered animal tag numbers are: eight seven two one, five four zero eight, one two three four"
+        )
+
     def test_translation_pipeline_prompt_has_unclear_input_confirmation_rules(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
         prompt_text = prompt_path.read_text(encoding="utf-8")
@@ -477,6 +485,7 @@ class TestHelperCoverage:
         assert "Do not use colons, headings, labels, hyphens, or en dashes" in prompt_text
         assert "For comparison questions, give only the main difference first" in prompt_text
         assert "Do not append a follow-up question unless it is necessary" in prompt_text
+        assert "TAG:1234" not in prompt_text
 
     def test_translation_pipeline_prompt_contains_short_voice_examples(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
@@ -676,7 +685,7 @@ class TestMultiTurnFlows:
                         societyName="Anand Dairy Society",
                         farmerCode="F123",
                         totalAnimals=6,
-                        tagNumbers="1001,1002",
+                        tagNumbers="106285318721,100066235408",
                     )
                 ],
                 source="cache",
@@ -715,7 +724,36 @@ class TestMultiTurnFlows:
         runtime_context = captured["runtime_context"]
         assert "Farmer data source: cache" in runtime_context
         assert "Farmer name: Rameshbhai" in runtime_context
-        assert "Known animal tags: 1001, 1002" in runtime_context
+        assert "Known animal tags: eight seven two one, five four zero eight" in runtime_context
+
+    def test_signed_in_list_animal_tags_masks_identifiers(self, monkeypatch):
+        from agents.tools import farmer_cached as farmer_cached_module
+
+        async def _fake_farmer_data(_mobile):
+            return FarmerDataEnvelope(
+                farmers=[
+                    FarmerRecord(tagNumbers="106285318721,100066235408"),
+                    FarmerRecord(tagNo="106285318721,1234"),
+                ],
+                source="cache",
+            )
+
+        monkeypatch.setattr(farmer_cached_module, "get_or_fetch_farmer_data", _fake_farmer_data)
+
+        result = asyncio.run(
+            list_animal_tags(
+                SimpleNamespace(
+                    deps=FarmerContext(
+                        query="Which tags are registered?",
+                        mobile="9723293369",
+                        signed_in=True,
+                    )
+                )
+            )
+        )
+
+        payload = json.loads(result)
+        assert payload["animal_tags"] == ["eight seven two one", "five four zero eight", "one two three four"]
 
     def test_signed_in_session_uses_signed_in_agent_and_higher_request_limit(self, monkeypatch):
         from app.services import voice as voice_module
