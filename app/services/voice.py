@@ -33,7 +33,7 @@ def _langfuse_usage_details(run_result: object) -> Optional[dict[str, object]]:
     """
     Best-effort extraction of PydanticAI usage for Langfuse.
 
-    Langfuse can infer USD costs from `usage_details` + `model` if the model is known.
+    Langfuse expects OpenAI-shaped keys like `input_tokens`/`output_tokens`/`total_tokens`.
     """
     usage = getattr(run_result, "usage", None)
     if callable(usage):
@@ -47,23 +47,15 @@ def _langfuse_usage_details(run_result: object) -> Optional[dict[str, object]]:
 
     input_tokens = _get_int("input_tokens")
     output_tokens = _get_int("output_tokens")
-    cache_read_tokens = _get_int("cache_read_tokens")
-    cache_write_tokens = _get_int("cache_write_tokens")
 
-    # Match `OpenAiResponseUsageSchema` from the Langfuse SDK.
     out: dict[str, object] = {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": input_tokens + output_tokens,
-        # Extra breakdown (won't break Langfuse UI's main counters).
-        "input_tokens_details": {
-            "cache_read_tokens": cache_read_tokens or None,
-            "cache_write_tokens": cache_write_tokens or None,
-        },
     }
 
     # Only send if we have any signal.
-    if (input_tokens + output_tokens) > 0 or cache_read_tokens > 0 or cache_write_tokens > 0:
+    if (input_tokens + output_tokens) > 0:
         return out
     return None
 
@@ -76,16 +68,6 @@ def _langfuse_kv_tags(**key_values: object) -> list[str]:
             continue
         tags.append(f"{key}:{value}")
     return tags
-
-
-def _langfuse_user_info_tags(user_info: Optional[dict]) -> list[str]:
-    if not user_info:
-        return []
-    out: list[str] = []
-    for k, v in user_info.items():
-        if isinstance(v, (str, int, float, bool)):
-            out.append(f"user.{k}:{v}")
-    return out
 
 
 # Default trim history configuration for voice endpoints
@@ -135,20 +117,18 @@ async def stream_voice_message(
             source_lang=source_lang,
             target_lang=target_lang,
             provider=provider,
-            process_id=process_id,
-            user_id=user_id,
             history_message_count=len(history),
             content_id=content_id,
             llm_provider=_langfuse_llm_provider(),
             llm_model=_langfuse_llm_model(),
         ),
-        *_langfuse_user_info_tags(user_info),
     ]
 
     with traced_voice_request(
         trace_name="voice",
         session_id=session_id,
-        user_id=user_id,
+        # Avoid sending PII to Langfuse by default.
+        user_id=None,
         tags=tags,
         observation_name="voice-agent-stream",
         trace_input=query,
@@ -243,7 +223,6 @@ async def get_voice_message_with_translation(
         *_langfuse_kv_tags(
             environment=settings.environment or os.getenv("ENVIRONMENT"),
             provider=provider,
-            process_id=process_id,
             history_message_count=len(history),
             llm_provider=_langfuse_llm_provider(),
             llm_model=_langfuse_llm_model(),
