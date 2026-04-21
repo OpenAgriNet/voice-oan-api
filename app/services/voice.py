@@ -45,17 +45,25 @@ def _langfuse_usage_details(run_result: object) -> Optional[dict[str, object]]:
         v = getattr(usage, name, 0)
         return int(v or 0)
 
+    input_tokens = _get_int("input_tokens")
+    output_tokens = _get_int("output_tokens")
+    cache_read_tokens = _get_int("cache_read_tokens")
+    cache_write_tokens = _get_int("cache_write_tokens")
+
+    # Match `OpenAiResponseUsageSchema` from the Langfuse SDK.
     out: dict[str, object] = {
-        "input": _get_int("input_tokens"),
-        "output": _get_int("output_tokens"),
-        "cache_read_input_tokens": _get_int("cache_read_tokens"),
-        "cache_write_input_tokens": _get_int("cache_write_tokens"),
-        "requests": _get_int("requests"),
-        "tool_calls": _get_int("tool_calls"),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+        # Extra breakdown (won't break Langfuse UI's main counters).
+        "input_tokens_details": {
+            "cache_read_tokens": cache_read_tokens or None,
+            "cache_write_tokens": cache_write_tokens or None,
+        },
     }
 
     # Only send if we have any signal.
-    if any(int(out[k]) > 0 for k in ("input", "output", "requests", "tool_calls")):
+    if (input_tokens + output_tokens) > 0 or cache_read_tokens > 0 or cache_write_tokens > 0:
         return out
     return None
 
