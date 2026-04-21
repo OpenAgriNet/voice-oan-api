@@ -64,7 +64,9 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     sarvam_api_key: Optional[str] = None
     meity_api_key_value: Optional[str] = None
-    logfire_token: Optional[str] = None
+    langfuse_public_key: Optional[str] = None
+    langfuse_secret_key: Optional[str] = None
+    langfuse_base_url: Optional[str] = None
     inference_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
     mapbox_api_token: Optional[str] = None

@@ -24,6 +24,13 @@ class FarmerContext(BaseModel):
     provider: Optional[Literal['RAYA', 'RINGG']] = Field(default=None, description="The provider for the voice service - can be RAYA, RINGG, or None.")
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
+
+    # Langfuse trace context (optional). When set, tool spans can be reliably attached
+    # even if async context propagation is lost across tasks.
+    langfuse_trace_id: Optional[str] = Field(default=None, description="Langfuse trace id (32 hex chars).")
+    langfuse_root_observation_id: Optional[str] = Field(
+        default=None, description="Langfuse parent observation id (16 hex chars)."
+    )
     
     def _language_string(self):
         """Get the language string for the agrinet agent."""

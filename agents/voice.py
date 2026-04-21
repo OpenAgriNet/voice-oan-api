@@ -1,31 +1,27 @@
-import os
 from pydantic_ai import Agent, RunContext
-from datetime import datetime, timezone
 from helpers.utils import get_prompt, get_today_date_str, get_logger
 from dotenv import load_dotenv
-import logfire
 from agents.models import LLM_MODEL
 from agents.tools import TOOLS
 from pydantic_ai.settings import ModelSettings
 from agents.deps import FarmerContext
+from app.langfuse_pydantic_ai import langfuse_event_stream_handler
 
 logger = get_logger(__name__)
 
 load_dotenv()
 
-logfire.configure(scrubbing=False, environment='voice')
-
-
 voice_agent = Agent(
     model=LLM_MODEL,
     name="Voice Agent",
-    instrument=True,
+    instrument=False,
     output_type=str,
     deps=FarmerContext,
     retries=3,
     tools=TOOLS,
     #system_prompt=get_prompt('voice_system', context={'today_date': get_today_date_str()}),
     end_strategy='exhaustive',
+    event_stream_handler=langfuse_event_stream_handler,
     model_settings=ModelSettings(
         max_tokens=8192,
         parallel_tool_calls=True,
