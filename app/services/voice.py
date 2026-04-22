@@ -49,6 +49,7 @@ from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
     translate_text,
+    translate_text_stream_fast,
     translate_to_english_with_gpt5_mini,
     translate_to_english_with_structured_fallback,
 )
@@ -274,6 +275,11 @@ TELEPHONY_TERMINATE_CALL_TOKEN = {
     "en": "Goodbye.",
 }
 
+TRANSLATION_TROUBLE_MESSAGE = {
+    "gu": "માફ કરશો, હાલમાં તમારા સવાલનો જવાબ આપવામાં તકલીફ થઈ રહી છે. કૃપા કરીને થોડા સમય પછી ફરી કોલ કરો.",
+    "en": "I'm having some trouble answering your question right now, please call in some time.",
+}
+
 
 def _has_meaningful_history(history: list) -> bool:
     """Return True when the session already contains non-trivial conversation."""
@@ -445,7 +451,10 @@ async def _render_text_for_caller(text_en: str, target_lang: str) -> str:
             text_en[:120],
             e,
         )
-        return _prepare_voice_output(text_en, "en")
+        return TRANSLATION_TROUBLE_MESSAGE.get(
+            normalized_target,
+            TRANSLATION_TROUBLE_MESSAGE["en"],
+        )
 
 
 def _history_pair(user_text: str, assistant_text: str) -> tuple[ModelRequest, ModelResponse]:
@@ -1038,26 +1047,30 @@ async def stream_voice_message(
                     text_to_translate = _guard_identity_drift(text_to_translate)
                     text_to_translate = _prepare_text_for_voice_translation(text_to_translate)
                     try:
-                        translated = await translate_text(
+                        async for chunk in translate_text_stream_fast(
                             text=text_to_translate,
                             source_lang="english",
                             target_lang=requested_target_lang,
-                        )
-                        if await _request_is_stale("during_output_translation"):
-                            return
-                        cleaned = (
-                            _prepare_voice_output(translated, requested_target_lang)
-                            if isinstance(translated, str) and translated
-                            else translated
-                        )
-                        yield cleaned
+                        ):
+                            if await _request_is_stale("during_output_translation"):
+                                return
+                            cleaned = (
+                                _prepare_voice_output(chunk, requested_target_lang)
+                                if isinstance(chunk, str) and chunk
+                                else chunk
+                            )
+                            yield cleaned
                     except Exception as e:
                         logger.error(
                             "Translation pipeline output translation failed for session_id=%s error=%s",
                             session_id,
                             e,
                         )
-                        yield _prepare_voice_output(text_to_translate, "en")
+                        trouble = TRANSLATION_TROUBLE_MESSAGE.get(
+                            requested_target_lang,
+                            TRANSLATION_TROUBLE_MESSAGE["en"],
+                        )
+                        yield trouble
 
                 try:
                     async for chunk in stream_iter:
