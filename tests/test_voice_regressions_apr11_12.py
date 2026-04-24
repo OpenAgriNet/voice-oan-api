@@ -40,6 +40,7 @@ from app.services.voice import (
     should_translate_batch,
 )
 from agents.deps import FarmerContext
+from agents.models.ai_call import AICallRequestModel, AISpecies
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 
 
@@ -455,21 +456,82 @@ class TestHelperCoverage:
                     farmerCode="F123",
                     totalAnimals=6,
                     tagNumbers="1001,1002,1003",
-                )
+                ),
+                FarmerRecord(
+                    farmerName="Sureshbhai",
+                    societyName="Vidya Dairy Society",
+                    farmerCode="F456",
+                    totalAnimals=4,
+                ),
+            ],
+            aiTechnicians=[
+                {
+                    "farmerName": "Rameshbhai",
+                    "farmerCode": "F123",
+                    "societyName": "Anand Dairy Society",
+                    "societyCode": "1066",
+                    "unionCode": "2021",
+                    "technicians": [
+                        {
+                            "aitName": "Ramesh Patel",
+                            "aitMobileNo": "9876543210",
+                            "userId": "tech-1",
+                        }
+                    ],
+                },
+                {
+                    "farmerName": "Sureshbhai",
+                    "farmerCode": "F456",
+                    "societyName": "Vidya Dairy Society",
+                    "societyCode": "2044",
+                    "unionCode": "2021",
+                    "technicians": [
+                        {
+                            "aitName": "Suresh Patel",
+                            "aitMobileNo": "9988776655",
+                            "userId": "tech-2",
+                        }
+                    ],
+                },
             ],
             source="cache",
             stale=True,
             refreshAfter="2026-04-18T00:00:00+00:00",
         )
         summary = _build_compact_farmer_summary(envelope)
-        assert "Farmer records matched: 1" in summary
+        assert "Farmer records matched: 2" in summary
         assert "Farmer data source: cache" in summary
         assert "Farmer cache state: stale" in summary
         assert "Farmer refresh after: 2026-04-18T00:00:00+00:00" in summary
         assert "Farmer name: Rameshbhai" in summary
+        assert "Multiple farmer records are registered on this mobile number." in summary
+        assert "For AI booking, first ask which farmer name the caller wants to use." in summary
         assert "Farmer code available: yes" in summary
         assert "Known animal tags: 1001, 1002, 1003" in summary
+        assert "Farmer option 1: name=Rameshbhai, society_name=Anand Dairy Society, farmer_code=F123" in summary
+        assert "Farmer option 2: name=Sureshbhai, society_name=Vidya Dairy Society, farmer_code=F456" in summary
+        assert "AI technician options for booking are grouped by farmer and society" in summary
+        assert "Each technician option only has these fields: full_name, phone, internal_user_id." in summary
+        assert "Technician group: farmer_name=Rameshbhai, society_name=Anand Dairy Society, union_code=2021, society_code=1066" in summary
+        assert "full_name=Ramesh Patel, phone=9876543210, internal_user_id=tech-1" in summary
         assert "##" not in summary
+
+    def test_ai_call_request_model_includes_user_id_in_query_params(self):
+        request = AICallRequestModel(
+            unionCode="2021",
+            societyCode="1066",
+            farmerCode="F123",
+            userId="tech-1",
+            species=AISpecies.COW,
+        )
+
+        params = request.to_query_params()
+
+        assert params["unionCode"] == "2021"
+        assert params["societyCode"] == "1066"
+        assert params["farmerCode"] == "F123"
+        assert params["userId"] == "tech-1"
+        assert params["speciesId"] == AISpecies.COW.encrypted_species_id
 
     def test_extract_translation_units_force_splits_oversized_buffer(self):
         text = (
@@ -516,8 +578,25 @@ class TestHelperCoverage:
         assert "Assistant: `A2 milk differs mainly in the type of beta casein protein." in prompt_text
         assert "User: `samudri dan for buffalo`" in prompt_text
         assert "Assistant: `Please repeat that feed name once. I did not understand it clearly.`" in prompt_text
+        assert "User: `Book beech daan for my cow`" in prompt_text
+        assert "Assistant: `Which technician should I book with? I can book with Ramesh Patel or Suresh Patel.`" in prompt_text
+        assert "User: `Book beech daan`" in prompt_text
+        assert "Assistant: `Which farmer name should I use for the booking? I found Rameshbhai and Sureshbhai.`" in prompt_text
         assert "User: `No, that is all`" in prompt_text
         assert "Assistant: `All right. You can call again if you need help.`" in prompt_text
+
+    def test_translation_pipeline_prompt_has_voice_specific_ai_booking_rules(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+        assert "If the runtime Farmer Context shows more than one farmer record for the mobile number" in prompt_text
+        assert "Which farmer name should I use for the booking? I found Rameshbhai and Sureshbhai." in prompt_text
+        assert "Each technician option only has these fields: technician full name, phone number, and internal `internal_user_id`." in prompt_text
+        assert "Never ask the farmer for a technician ID or internal user ID." in prompt_text
+        assert "If more than one technician option is available for the selected farmer, ask the farmer which technician they want." in prompt_text
+        assert "If exactly one technician option is available for the selected farmer, use that technician directly." in prompt_text
+        assert "Use the technician full name formatted properly in natural spoken form." in prompt_text
+        assert "Which technician should I book with? I can book with Ramesh Patel or Suresh Patel." in prompt_text
+        assert "selected farmer's technician group" in prompt_text
 
     @pytest.mark.parametrize("text, expected", [
         ("દૂધમાં ચરબી ઓછી છે.", "ફેટ"),

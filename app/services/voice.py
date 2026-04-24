@@ -544,6 +544,56 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
         preview = ", ".join(tags[:8])
         extra = f" (+{len(tags) - 8} more)" if len(tags) > 8 else ""
         lines.append(f"- Known animal tags: {preview}{extra}")
+    if len(envelope.farmers) > 1:
+        lines.append("- Multiple farmer records are registered on this mobile number.")
+        lines.append("- For AI booking, first ask which farmer name the caller wants to use.")
+        lines.append("- Use the selected farmer's society and codes only after the farmer is identified.")
+
+    for index, record in enumerate(envelope.farmers[:5], start=1):
+        record_data = record.model_dump()
+        farmer_name = record_data.get("farmerName") or "Unknown farmer"
+        society_name = record_data.get("societyName") or "Unknown society"
+        farmer_code = record_data.get("farmerCode")
+        union_code = record_data.get("unionCode") or record_data.get("union_code")
+        society_code = record_data.get("societyCode") or record_data.get("society_code")
+        lines.append(
+            f"- Farmer option {index}: name={farmer_name}, society_name={society_name}, "
+            f"farmer_code={farmer_code}, union_code={union_code}, society_code={society_code}"
+        )
+
+    technician_groups = envelope.aiTechnicians or []
+    if technician_groups:
+        lines.append("- AI technician options for booking are grouped by farmer and society in this farmer context.")
+        lines.append("- Each technician option only has these fields: full_name, phone, internal_user_id.")
+        lines.append("- When asking the farmer to choose a technician, use the technician full name in natural spoken form.")
+        lines.append("- Mention phone only if a disambiguating mobile number is needed.")
+        for group in technician_groups[:5]:
+            farmer_name = group.get("farmerName") or "Unknown farmer"
+            society_name = group.get("societyName") or "Unknown society"
+            society_code = group.get("societyCode")
+            union_code = group.get("unionCode")
+            lines.append(
+                f"- Technician group: farmer_name={farmer_name}, society_name={society_name}, "
+                f"union_code={union_code}, society_code={society_code}"
+            )
+            technicians = group.get("technicians") or []
+            if not technicians:
+                lines.append("- AI technician option: none available for this farmer group.")
+                continue
+            for technician in technicians[:5]:
+                name = technician.get("aitName")
+                mobile = technician.get("aitMobileNo")
+                user_id = technician.get("userId")
+                option = "- AI technician option:"
+                if name:
+                    option += f" full_name={name}"
+                if mobile:
+                    option += f", phone={mobile}"
+                if user_id:
+                    option += f", internal_user_id={user_id}"
+                lines.append(option)
+    else:
+        lines.append("- AI technician options for booking are not available in the current farmer context.")
     return "\n".join(lines)
 
 

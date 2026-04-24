@@ -9,12 +9,18 @@ from key expiry:
 This lets the request path return cached data immediately, mark it stale in the
 read result, and schedule a background refresh without blocking the caller.
 """
+import asyncio
 import hashlib
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.core.cache import cache, redis_client, build_cache_key
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
+from agents.tools.farmer_animal_backends import (
+    GetAITechniciansBySocietyQueryParams,
+    get_ai_technicians_by_society_api,
+)
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -59,6 +65,10 @@ async def get_cached_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             envelope.source = "cache"
             envelope.lookupStatus = envelope.lookupStatus or ("found" if envelope.farmers else "not_found")
             envelope.stale, envelope.staleReason, envelope.refreshAfter = _compute_freshness(envelope)
+            if envelope.farmers and "aiTechnicians" not in raw:
+                envelope.stale = True
+                envelope.staleReason = "missing_ai_technicians"
+                envelope.refreshAfter = datetime.now(timezone.utc).isoformat()
             return envelope
     except Exception as e:
         logger.warning(f"Failed to read farmer cache for phone hash {key[:8]}...: {e}")
@@ -94,6 +104,7 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
         records = await fetch_farmer_info_raw(phone)
         if records:
             envelope = FarmerDataEnvelope.from_records(records, source="api", lookup_status="found")
+            envelope.aiTechnicians = await _fetch_ai_technicians(records)
         else:
             envelope = FarmerDataEnvelope.not_found(source="api")
         await set_cached_farmer_data(phone, envelope)
@@ -127,3 +138,46 @@ async def get_or_fetch_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
         return cached
 
     return await refresh_farmer_data(phone)
+
+
+async def _fetch_ai_technicians(records: list[FarmerRecord]) -> list[dict]:
+    token = os.getenv("PASHUGPT_TOKEN")
+    if not token or not records:
+        return []
+
+    async def _fetch_for_farmer(record: FarmerRecord) -> Optional[dict]:
+        data = record.model_dump()
+        union_code = data.get("unionCode") or data.get("union_code")
+        society_code = data.get("societyCode") or data.get("society_code")
+        if not union_code or not society_code:
+            return None
+
+        try:
+            technicians = await get_ai_technicians_by_society_api(
+                GetAITechniciansBySocietyQueryParams(
+                    unionCode=str(union_code),
+                    societyCode=str(society_code),
+                ),
+                token,
+            )
+        except Exception as e:
+            logger.warning(
+                "AI technician lookup failed for farmer=%s union=%s society=%s: %s",
+                data.get("farmerName"),
+                union_code,
+                society_code,
+                e,
+            )
+            technicians = None
+
+        return {
+            "farmerName": data.get("farmerName"),
+            "farmerCode": data.get("farmerCode"),
+            "societyName": data.get("societyName"),
+            "societyCode": str(society_code),
+            "unionCode": str(union_code),
+            "technicians": [technician.model_dump() for technician in (technicians or [])],
+        }
+
+    groups = await asyncio.gather(*[_fetch_for_farmer(record) for record in records])
+    return [group for group in groups if group is not None]
