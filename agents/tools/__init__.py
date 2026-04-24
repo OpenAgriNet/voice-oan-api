@@ -68,9 +68,9 @@ TOOLS = [
     ),
     Tool(
         _trace_tool(get_scheme_info, name="get_scheme_info"),
-        takes_ctx=True,
+        takes_ctx=False,
     ),
-     Tool(
+    Tool(
         _trace_tool(agri_services, name="agri_services"),
         takes_ctx=False,
         docstring_format='auto', 
