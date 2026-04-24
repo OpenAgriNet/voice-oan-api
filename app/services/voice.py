@@ -44,6 +44,7 @@ from app.services.stt_signals import (
     generate_stt_signal_response,
     count_consecutive_stt_signals,
 )
+from app.services.moderation import ModerationVerdict, check_moderation
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
@@ -224,6 +225,7 @@ _HISTORY_MARKERS = {
     "pretranslation_failed": "[pretranslation-failed]",
     "stt_no_audio": "[stt:no-audio]",
     "stt_unclear": "[stt:unclear-speech]",
+    "moderation_reject": "[moderation-rejected]",
 }
 
 
@@ -881,6 +883,13 @@ async def stream_voice_message(
                 else None
             )
 
+            # Kick off content moderation in parallel with pretranslation.
+            # Moderation receives the raw native-language text so it does
+            # not need to wait for pretranslation to finish.
+            moderation_task = asyncio.create_task(
+                check_moderation(text=query, source_lang=requested_source_lang)
+            )
+
             if requested_source_lang not in {"en", "english"}:
                 logger.info(
                     "Translation pipeline enabled; pretranslating %s -> en with %s",
@@ -888,6 +897,7 @@ async def stream_voice_message(
                     OPENAI_PRETRANSLATION_MODEL,
                 )
                 if await _request_is_stale("before_query_pretranslation"):
+                    moderation_task.cancel()
                     return
                 try:
                     processing_query, pretranslation_confidence = await translate_to_english_with_gpt5_mini(
@@ -922,6 +932,49 @@ async def stream_voice_message(
 
             else:
                 history_user_text = query
+
+            # ── Content moderation gate ──────────────────────────────────
+            # Await the moderation task that was started alongside
+            # pretranslation. If it rejected the query, short-circuit with
+            # a canned decline and do not run the agent. Fail-open on any
+            # unexpected exception — a flaky moderation call must never
+            # drop a real farmer call.
+            try:
+                moderation_verdict: ModerationVerdict = await moderation_task
+            except asyncio.CancelledError:
+                raise
+            except Exception as moderation_error:
+                logger.error(
+                    "Moderation task raised unexpectedly for session_id=%s error=%s",
+                    session_id,
+                    moderation_error,
+                )
+                moderation_verdict = None  # type: ignore[assignment]
+
+            if moderation_verdict is not None:
+                logger.info(
+                    "Moderation verdict: category=%s rejected=%s failed_open=%s reason=%r session_id=%s process_id=%s",
+                    moderation_verdict.category,
+                    moderation_verdict.rejected,
+                    moderation_verdict.failed_open,
+                    moderation_verdict.reason,
+                    session_id,
+                    process_id,
+                )
+
+            if moderation_verdict is not None and moderation_verdict.rejected:
+                if await _request_is_stale("after_moderation_reject"):
+                    return
+                decline_en = (
+                    moderation_verdict.decline_text_en()
+                    or "This helpline only handles dairy farming and animal husbandry questions."
+                )
+                decline_for_caller = await _render_text_for_caller(decline_en, requested_target_lang)
+                decline_user_text = _canonical_history_user_text("moderation_reject")
+                decl_req, decl_resp = _history_pair(decline_user_text, decline_en)
+                await update_message_history(session_id, [*history, decl_req, decl_resp])
+                yield _prepare_voice_output(decline_for_caller, requested_target_lang)
+                return
 
             # ── Low-confidence pretranslation filter ─────────────────────
             # When the pretranslation model reports low confidence, the
