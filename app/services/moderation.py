@@ -122,22 +122,32 @@ def _parse_verdict(raw: str) -> ModerationVerdict:
     return ModerationVerdict(category=category, reason=reason, raw_output=raw)  # type: ignore[arg-type]
 
 
-def _build_messages(text: str, source_lang: str) -> list[dict[str, str]]:
-    user_content = (
-        f"Source language: {source_lang}\n"
-        f"Caller utterance:\n{text.strip()}"
-    )
+def _build_messages(
+    text: str,
+    source_lang: str,
+    recent_history_text: str = "",
+) -> list[dict[str, str]]:
+    user_parts = [f"Source language: {source_lang}"]
+    if recent_history_text.strip():
+        user_parts.append(f"Recent conversation context:\n{recent_history_text.strip()}")
+    user_parts.append(f"Caller utterance:\n{text.strip()}")
+    user_content = "\n\n".join(user_parts)
     return [
         {"role": "system", "content": _STATIC_MODERATION_SYSTEM_PROMPT},
         {"role": "user", "content": user_content},
     ]
 
 
-async def _create_moderation_response(client: AsyncOpenAI, text: str, source_lang: str):
+async def _create_moderation_response(
+    client: AsyncOpenAI,
+    text: str,
+    source_lang: str,
+    recent_history_text: str = "",
+):
     return await asyncio.wait_for(
         client.chat.completions.create(
             model=OPENAI_PRETRANSLATION_MODEL,
-            messages=_build_messages(text, source_lang),
+            messages=_build_messages(text, source_lang, recent_history_text),
             max_completion_tokens=200,
             response_format={"type": "json_object"},
         ),
@@ -145,7 +155,11 @@ async def _create_moderation_response(client: AsyncOpenAI, text: str, source_lan
     )
 
 
-async def check_moderation(text: str, source_lang: str) -> ModerationVerdict:
+async def check_moderation(
+    text: str,
+    source_lang: str,
+    recent_history_text: str = "",
+) -> ModerationVerdict:
     """Classify a caller utterance. Returns a ModerationVerdict.
 
     Fails open on any error — the returned verdict will have
@@ -160,21 +174,35 @@ async def check_moderation(text: str, source_lang: str) -> ModerationVerdict:
 
     try:
         if not langfuse:
-            response = await _create_moderation_response(client, text, source_lang)
+            response = await _create_moderation_response(
+                client,
+                text,
+                source_lang,
+                recent_history_text,
+            )
             raw = (response.choices[0].message.content or "").strip()
             return _parse_verdict(raw)
 
         with langfuse.start_as_current_observation(
             name="query_moderation",
             as_type="generation",
-            input={"source_lang": source_lang, "text": text},
+            input={
+                "source_lang": source_lang,
+                "text": text,
+                "recent_history_text": recent_history_text,
+            },
             model=OPENAI_PRETRANSLATION_MODEL,
             metadata={
                 "pipeline_stage": "query_moderation",
                 "moderation_provider": "openai",
             },
         ) as observation:
-            response = await _create_moderation_response(client, text, source_lang)
+            response = await _create_moderation_response(
+                client,
+                text,
+                source_lang,
+                recent_history_text,
+            )
             raw = (response.choices[0].message.content or "").strip()
             verdict = _parse_verdict(raw)
             observation.update(

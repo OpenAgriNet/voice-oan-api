@@ -874,6 +874,7 @@ async def stream_voice_message(
             processing_lang = "en"
             pretranslation_confidence = "unknown"
             history_user_text = query
+            moderation_recent_history = "\n\n".join(format_message_pairs(history, 2))
             mobile = normalize_phone_to_mobile(user_id)
             signed_in = _is_signed_in_session(user_info, user_id)
             farmer_info = ""
@@ -887,7 +888,11 @@ async def stream_voice_message(
             # Moderation receives the raw native-language text so it does
             # not need to wait for pretranslation to finish.
             moderation_task = asyncio.create_task(
-                check_moderation(text=query, source_lang=requested_source_lang)
+                check_moderation(
+                    text=query,
+                    source_lang=requested_source_lang,
+                    recent_history_text=moderation_recent_history,
+                )
             )
 
             if requested_source_lang not in {"en", "english"}:
@@ -965,6 +970,17 @@ async def stream_voice_message(
             if moderation_verdict is not None and moderation_verdict.rejected:
                 if await _request_is_stale("after_moderation_reject"):
                     return
+                if nudge_task and not nudge_task.done():
+                    nudge_task.cancel()
+                    logger.info(
+                        "Nudge canceled (moderation rejected); session_id=%s process_id=%s",
+                        session_id,
+                        process_id,
+                    )
+                    try:
+                        await nudge_task
+                    except asyncio.CancelledError:
+                        pass
                 decline_en = (
                     moderation_verdict.decline_text_en()
                     or "This helpline only handles dairy farming and animal husbandry questions."
