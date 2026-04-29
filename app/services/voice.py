@@ -39,6 +39,7 @@ from app.utils import (
     refresh_session_request_ownership,
     release_session_request_ownership,
 )
+from app.model_boundary_capture import boundary_capture_context
 from app.services.stt_signals import (
     detect_stt_signal,
     generate_stt_signal_response,
@@ -1082,209 +1083,214 @@ async def stream_voice_message(
                     requested_target_lang,
                 )
 
-            async with active_agent.run_stream(
-                user_prompt=user_message,
-                message_history=model_input_history,
-                deps=deps,
-                usage_limits=usage_limits,
-            ) as response_stream:
-                stream_iter = response_stream.stream_text(delta=True)
-                first_text_chunk_received = False
-                sentence_buffer = ""
-                translation_batch: list[str] = []
-                batch_word_count = 0
-                async def _yield_translated_text(text_to_translate: str) -> AsyncGenerator[str, None]:
-                    if not text_to_translate:
-                        return
-                    text_to_translate = _guard_identity_drift(text_to_translate)
-                    try:
-                        async for chunk in translate_text_stream_fast(
-                            text=text_to_translate,
-                            source_lang="english",
-                            target_lang=requested_target_lang,
-                        ):
-                            if await _request_is_stale("during_output_translation"):
-                                return
-                            cleaned = (
-                                _prepare_voice_output(chunk, requested_target_lang)
-                                if isinstance(chunk, str) and chunk
-                                else chunk
-                            )
-                            yield cleaned
-                    except Exception as e:
-                        logger.error(
-                            "Translation pipeline output translation failed for session_id=%s error=%s",
-                            session_id,
-                            e,
-                        )
-                        trouble = TRANSLATION_TROUBLE_MESSAGE.get(
-                            requested_target_lang,
-                            TRANSLATION_TROUBLE_MESSAGE["en"],
-                        )
-                        yield trouble
-
-                try:
-                    async for chunk in stream_iter:
-                        if await _request_is_stale("during_agent_stream"):
-                            break
-
-                        if not needs_output_translation:
-                            if (
-                                not first_text_chunk_received
-                                and isinstance(chunk, str)
-                                and chunk
-                                and chunk.strip()
-                            ):
-                                first_text_chunk_received = True
-                                if nudge_task: nudge_task.cancel()
-                                logger.info(
-                                    "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
-                                    session_id,
-                                    process_id,
-                                    chunk[:50] if len(chunk) > 50 else chunk,
-                                )
-                                try:
-                                    await nudge_task
-                                except asyncio.CancelledError:
-                                    pass
-
-                            cleaned_chunk = (
-                                _prepare_voice_output(chunk, requested_target_lang)
-                                if isinstance(chunk, str) and chunk
-                                else chunk
-                            )
-                            if await _request_is_stale("before_direct_yield"):
-                                break
-                            yield cleaned_chunk
-                            continue
-
-                        sentence_buffer += chunk
-                        ready_units, remaining = extract_translation_units(sentence_buffer)
-                        if ready_units:
-                            for unit in ready_units:
-                                candidate_units = [unit]
-                                if len(unit) >= VOICE_TRANSLATION_BATCH_CHAR_LIMIT:
-                                    candidate_units = []
-                                    remaining_unit = unit
-                                    while remaining_unit:
-                                        head, tail = _split_voice_batch_text(remaining_unit)
-                                        if not tail or head == remaining_unit:
-                                            candidate_units.append(remaining_unit)
-                                            break
-                                        candidate_units.append(head)
-                                        remaining_unit = tail
-
-                                for candidate in candidate_units:
-                                    translation_batch.append(candidate)
-                                    batch_word_count += len(candidate.split())
-                                    batch_text = "".join(translation_batch)
-
-                                    if should_translate_batch(batch_text, batch_word_count, is_first_batch=not first_text_chunk_received):
-                                        async for translated_chunk in _yield_translated_text(batch_text):
-                                            if (
-                                                not first_text_chunk_received
-                                                and isinstance(translated_chunk, str)
-                                                and translated_chunk
-                                                and translated_chunk.strip()
-                                            ):
-                                                first_text_chunk_received = True
-                                                if nudge_task: nudge_task.cancel()
-                                                logger.info(
-                                                    "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
-                                                    session_id,
-                                                    process_id,
-                                                )
-                                                try:
-                                                    await nudge_task
-                                                except asyncio.CancelledError:
-                                                    pass
-                                            if await _request_is_stale("before_translated_yield"):
-                                                break
-                                            yield _prepare_translated_emit(translated_chunk)
-                                        translation_batch = []
-                                        batch_word_count = 0
-
-                            sentence_buffer = remaining
-
-                    if needs_output_translation and not await _request_is_stale("before_translation_flush"):
-                        if translation_batch:
-                            batch_text = "".join(translation_batch)
-                            async for translated_chunk in _yield_translated_text(batch_text):
-                                if (
-                                    not first_text_chunk_received
-                                    and isinstance(translated_chunk, str)
-                                    and translated_chunk
-                                    and translated_chunk.strip()
-                                ):
-                                    first_text_chunk_received = True
-                                    if nudge_task: nudge_task.cancel()
-                                    logger.info(
-                                        "Nudge canceled (final translated batch); session_id=%s process_id=%s",
-                                        session_id,
-                                        process_id,
-                                    )
-                                    try:
-                                        if nudge_task:
-                                            await nudge_task
-                                    except asyncio.CancelledError:
-                                        pass
-                                if await _request_is_stale("before_final_translated_yield"):
-                                    break
-                                yield _prepare_translated_emit(translated_chunk)
-
-                        if sentence_buffer.strip():
-                            async for translated_chunk in _yield_translated_text(sentence_buffer):
-                                if (
-                                    not first_text_chunk_received
-                                    and isinstance(translated_chunk, str)
-                                    and translated_chunk
-                                    and translated_chunk.strip()
-                                ):
-                                    first_text_chunk_received = True
-                                    if nudge_task: nudge_task.cancel()
-                                    logger.info(
-                                        "Nudge canceled (tail translated fragment); session_id=%s process_id=%s",
-                                        session_id,
-                                        process_id,
-                                    )
-                                    try:
-                                        if nudge_task:
-                                            await nudge_task
-                                    except asyncio.CancelledError:
-                                        pass
-                                if await _request_is_stale("before_tail_translated_yield"):
-                                    break
-                                yield _prepare_translated_emit(translated_chunk)
-                except StopAsyncIteration:
-                    pass
-                except RuntimeError as e:
-                    if "StopAsyncIteration" in str(e) or "anext()" in str(e):
-                        # anext() errors occur on superseded processes during
-                        # teardown — the final process_id has its own generator
-                        # and is unaffected, so this is just cleanup noise.
-                        logger.debug(
-                            "Suppressed stream runtime error (superseded process teardown) - session_id=%s process_id=%s error=%s",
-                            session_id,
-                            process_id,
-                            e,
-                        )
-                    else:
-                        raise
-                finally:
-                    if nudge_task and not nudge_task.done():
-                        if nudge_task: nudge_task.cancel()
-                        logger.info(
-                            "Nudge canceled (stream ended); session_id=%s process_id=%s",
-                            session_id,
-                            process_id,
-                        )
+            with boundary_capture_context(
+                session_id=session_id,
+                process_id=process_id,
+                user_query=processing_query,
+            ):
+                async with active_agent.run_stream(
+                    user_prompt=user_message,
+                    message_history=model_input_history,
+                    deps=deps,
+                    usage_limits=usage_limits,
+                ) as response_stream:
+                    stream_iter = response_stream.stream_text(delta=True)
+                    first_text_chunk_received = False
+                    sentence_buffer = ""
+                    translation_batch: list[str] = []
+                    batch_word_count = 0
+                    async def _yield_translated_text(text_to_translate: str) -> AsyncGenerator[str, None]:
+                        if not text_to_translate:
+                            return
+                        text_to_translate = _guard_identity_drift(text_to_translate)
                         try:
-                            await nudge_task
-                        except asyncio.CancelledError:
-                            pass
+                            async for chunk in translate_text_stream_fast(
+                                text=text_to_translate,
+                                source_lang="english",
+                                target_lang=requested_target_lang,
+                            ):
+                                if await _request_is_stale("during_output_translation"):
+                                    return
+                                cleaned = (
+                                    _prepare_voice_output(chunk, requested_target_lang)
+                                    if isinstance(chunk, str) and chunk
+                                    else chunk
+                                )
+                                yield cleaned
+                        except Exception as e:
+                            logger.error(
+                                "Translation pipeline output translation failed for session_id=%s error=%s",
+                                session_id,
+                                e,
+                            )
+                            trouble = TRANSLATION_TROUBLE_MESSAGE.get(
+                                requested_target_lang,
+                                TRANSLATION_TROUBLE_MESSAGE["en"],
+                            )
+                            yield trouble
 
-                logger.info(f"Streaming complete for session {session_id}")
-                new_messages = response_stream.new_messages()
+                    try:
+                        async for chunk in stream_iter:
+                            if await _request_is_stale("during_agent_stream"):
+                                break
+
+                            if not needs_output_translation:
+                                if (
+                                    not first_text_chunk_received
+                                    and isinstance(chunk, str)
+                                    and chunk
+                                    and chunk.strip()
+                                ):
+                                    first_text_chunk_received = True
+                                    if nudge_task: nudge_task.cancel()
+                                    logger.info(
+                                        "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
+                                        session_id,
+                                        process_id,
+                                        chunk[:50] if len(chunk) > 50 else chunk,
+                                    )
+                                    try:
+                                        await nudge_task
+                                    except asyncio.CancelledError:
+                                        pass
+
+                                cleaned_chunk = (
+                                    _prepare_voice_output(chunk, requested_target_lang)
+                                    if isinstance(chunk, str) and chunk
+                                    else chunk
+                                )
+                                if await _request_is_stale("before_direct_yield"):
+                                    break
+                                yield cleaned_chunk
+                                continue
+
+                            sentence_buffer += chunk
+                            ready_units, remaining = extract_translation_units(sentence_buffer)
+                            if ready_units:
+                                for unit in ready_units:
+                                    candidate_units = [unit]
+                                    if len(unit) >= VOICE_TRANSLATION_BATCH_CHAR_LIMIT:
+                                        candidate_units = []
+                                        remaining_unit = unit
+                                        while remaining_unit:
+                                            head, tail = _split_voice_batch_text(remaining_unit)
+                                            if not tail or head == remaining_unit:
+                                                candidate_units.append(remaining_unit)
+                                                break
+                                            candidate_units.append(head)
+                                            remaining_unit = tail
+
+                                    for candidate in candidate_units:
+                                        translation_batch.append(candidate)
+                                        batch_word_count += len(candidate.split())
+                                        batch_text = "".join(translation_batch)
+
+                                        if should_translate_batch(batch_text, batch_word_count, is_first_batch=not first_text_chunk_received):
+                                            async for translated_chunk in _yield_translated_text(batch_text):
+                                                if (
+                                                    not first_text_chunk_received
+                                                    and isinstance(translated_chunk, str)
+                                                    and translated_chunk
+                                                    and translated_chunk.strip()
+                                                ):
+                                                    first_text_chunk_received = True
+                                                    if nudge_task: nudge_task.cancel()
+                                                    logger.info(
+                                                        "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
+                                                        session_id,
+                                                        process_id,
+                                                    )
+                                                    try:
+                                                        await nudge_task
+                                                    except asyncio.CancelledError:
+                                                        pass
+                                                if await _request_is_stale("before_translated_yield"):
+                                                    break
+                                                yield _prepare_translated_emit(translated_chunk)
+                                            translation_batch = []
+                                            batch_word_count = 0
+
+                                sentence_buffer = remaining
+
+                        if needs_output_translation and not await _request_is_stale("before_translation_flush"):
+                            if translation_batch:
+                                batch_text = "".join(translation_batch)
+                                async for translated_chunk in _yield_translated_text(batch_text):
+                                    if (
+                                        not first_text_chunk_received
+                                        and isinstance(translated_chunk, str)
+                                        and translated_chunk
+                                        and translated_chunk.strip()
+                                    ):
+                                        first_text_chunk_received = True
+                                        if nudge_task: nudge_task.cancel()
+                                        logger.info(
+                                            "Nudge canceled (final translated batch); session_id=%s process_id=%s",
+                                            session_id,
+                                            process_id,
+                                        )
+                                        try:
+                                            if nudge_task:
+                                                await nudge_task
+                                        except asyncio.CancelledError:
+                                            pass
+                                    if await _request_is_stale("before_final_translated_yield"):
+                                        break
+                                    yield _prepare_translated_emit(translated_chunk)
+
+                            if sentence_buffer.strip():
+                                async for translated_chunk in _yield_translated_text(sentence_buffer):
+                                    if (
+                                        not first_text_chunk_received
+                                        and isinstance(translated_chunk, str)
+                                        and translated_chunk
+                                        and translated_chunk.strip()
+                                    ):
+                                        first_text_chunk_received = True
+                                        if nudge_task: nudge_task.cancel()
+                                        logger.info(
+                                            "Nudge canceled (tail translated fragment); session_id=%s process_id=%s",
+                                            session_id,
+                                            process_id,
+                                        )
+                                        try:
+                                            if nudge_task:
+                                                await nudge_task
+                                        except asyncio.CancelledError:
+                                            pass
+                                    if await _request_is_stale("before_tail_translated_yield"):
+                                        break
+                                    yield _prepare_translated_emit(translated_chunk)
+                    except StopAsyncIteration:
+                        pass
+                    except RuntimeError as e:
+                        if "StopAsyncIteration" in str(e) or "anext()" in str(e):
+                            # anext() errors occur on superseded processes during
+                            # teardown — the final process_id has its own generator
+                            # and is unaffected, so this is just cleanup noise.
+                            logger.debug(
+                                "Suppressed stream runtime error (superseded process teardown) - session_id=%s process_id=%s error=%s",
+                                session_id,
+                                process_id,
+                                e,
+                            )
+                        else:
+                            raise
+                    finally:
+                        if nudge_task and not nudge_task.done():
+                            if nudge_task: nudge_task.cancel()
+                            logger.info(
+                                "Nudge canceled (stream ended); session_id=%s process_id=%s",
+                                session_id,
+                                process_id,
+                            )
+                            try:
+                                await nudge_task
+                            except asyncio.CancelledError:
+                                pass
+
+                    logger.info(f"Streaming complete for session {session_id}")
+                    new_messages = response_stream.new_messages()
 
             # If the LLM called signal_conversation_state("conversation_closing"),
             # append the termination token so RAYA disconnects the call.
