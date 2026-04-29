@@ -8,11 +8,11 @@ from fastapi import Request
 
 import regex
 # from fastapi import BackgroundTasks
-from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart
+from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart, SystemPromptPart
 
 from pydantic_ai.usage import UsageLimits
 
-from agents.voice import voice_agent, voice_agent_signed_in
+from agents.voice import voice_agent, voice_agent_signed_in, STATIC_VOICE_SYSTEM_PROMPT
 from agents.tools.farmer import normalize_phone_to_mobile
 from agents.services.farmer_cache import (
     get_farmer_data_cached_only,
@@ -1013,11 +1013,12 @@ async def stream_voice_message(
             trimmed_history = trim_history(
                 history,
                 max_tokens=80_000,
-                include_system_prompts=True,
+                include_system_prompts=False,
                 include_tool_calls=True,
             )
             logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
-            model_input_history = [runtime_context_request, *trimmed_history]
+            system_request = ModelRequest(parts=[SystemPromptPart(content=STATIC_VOICE_SYSTEM_PROMPT)])
+            model_input_history = [system_request, runtime_context_request, *trimmed_history]
             active_agent = voice_agent_signed_in if (signed_in and mobile) else voice_agent
             usage_limits = UsageLimits(request_limit=6 if (signed_in and mobile) else 4)
 
