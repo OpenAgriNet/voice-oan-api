@@ -1,16 +1,22 @@
 import os
-import httpx
 import uuid
 import json
 from datetime import datetime, timezone
 from helpers.utils import get_logger
+import httpx
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
-from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
-from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya
-
+from pydantic_ai import ModelRetry, UnexpectedModelBehavior
+from langfuse import observe
 logger = get_logger(__name__)
+
+# Load scheme list once at module level
+with open('assets/scheme_list.json', 'r', encoding='utf-8') as _f:
+    SCHEME_LIST = json.load(_f)
+
+_scheme_codes_set = {s["scheme_code"] for s in SCHEME_LIST}
+STATE_SCHEMES = {s["scheme_code"] for s in SCHEME_LIST if s.get("type") == "state"}
+CENTRAL_SCHEMES = {s["scheme_code"] for s in SCHEME_LIST if s.get("type") == "central"}
 
 # -----------------------
 # Basic Models
@@ -26,11 +32,7 @@ class Descriptor(BaseModel):
     images: Optional[List[Image]] = None
 
     def __str__(self) -> str:
-        if self.name:
-            return self.name
-        elif self.code:
-            return self.code
-        return ""
+        return self.long_desc or self.short_desc or self.name or self.code or ""
 
 class Country(BaseModel):
     name: Optional[str] = None
@@ -99,22 +101,15 @@ class Item(BaseModel):
 
     def __str__(self) -> str:
         lines = []
-        
-        # Use the scheme name from the descriptor, fallback to id if not available
-        scheme_name = self.descriptor.name or self.id
-        lines.append(f"# Scheme: {scheme_name}")
-        lines.append("")  # Add blank line after scheme name
-        
+        # Ignore tags that have no meaningful content
         if self.tags:
             for tag in self.tags:
                 for tag_item in tag.list:
                     # Show all tag items that have meaningful content
-                    if tag_item.value and tag_item.value.strip() and tag_item.descriptor.name:
-                        lines.append(f"## {tag_item.descriptor.name}")
-                        lines.append(f"{tag_item.value}")
-                        lines.append("")  # Add blank line after each section
-        
-        return "\n".join(lines)
+                    if tag_item.value and tag_item.value.strip() and tag_item.descriptor.name and tag_item.value.strip().lower() != "null":
+                        lines.append(f"*{tag_item.descriptor.name}*:\n{tag_item.value.strip()}")
+
+        return "\n\n".join(lines).strip()
 
     class Config:
         extra = "allow"  # Allow extra fields in the response
@@ -223,8 +218,7 @@ class SchemeRequest(BaseModel):
     """SchemeRequest model for the scheme API.
     
     Args:
-        scheme_name (Optional[str]): Code of the scheme to retrieve. Available scheme codes
-            can be found by calling get_scheme_code(). If None, retrieves all available schemes.
+        scheme_code (str): Code of the scheme to retrieve. Available scheme codes can be found by calling get_scheme_code().
     """
     context: Optional[Context] = None
     message: Optional[RequestMessage] = None
@@ -241,7 +235,6 @@ class SchemeRequest(BaseModel):
         
         return {
             "context": {
-                # NOTE: this was earlier schemes:mh-vistaar
                 "domain": "advisory:mh-vistaar",
                 "location": {
                     "country": {
@@ -250,7 +243,7 @@ class SchemeRequest(BaseModel):
                 },
                 "action": "search",
                 "version": "1.1.0",
-                "bap_id": os.getenv("BAP_ID"),  
+                "bap_id": os.getenv("BAP_ID"),
                 "bap_uri": os.getenv("BAP_URI"),
                 "bpp_id": os.getenv("POCRA_BPP_ID"),
                 "bpp_uri": os.getenv("POCRA_BPP_URI"),
@@ -274,40 +267,32 @@ class SchemeRequest(BaseModel):
             }
         }
 
-
-def _validate_scheme_code(scheme_code: str) -> bool:
-    """Validate the scheme code.
-    
-    Args:
-        scheme_code (str): The scheme code to validate.
-        
-    Returns:
-        bool: True if the scheme code is valid, False otherwise.
-    """
-    with open('assets/scheme_list.json', 'r') as f:
-        scheme_list = json.load(f)
-    return any(scheme['scheme_code'] == scheme_code for scheme in scheme_list)
-
-
+@observe(name="tool:get_scheme_codes", as_type="tool")
 async def get_scheme_codes() -> str:
-    """Returns a list of scheme names and codes.
-    
+    """Returns a prioritized list of scheme names and codes with state schemes first.
+
     Returns:
         str: A markdown-formatted table with scheme names and codes.
     """
-    with open('assets/scheme_list.json', 'r') as f:
-        scheme_list = json.load(f)
-    
-    markdown_table = "| Scheme Name | Scheme Code |\n|-------------|-------------|\n"
-    
-    for scheme in scheme_list:
+    scheme_lookup = {s['scheme_code']: s for s in SCHEME_LIST}
+
+    state_schemes = [scheme_lookup[c] for c in STATE_SCHEMES if c in scheme_lookup]
+    central_schemes = [scheme_lookup[c] for c in CENTRAL_SCHEMES if c in scheme_lookup]
+
+    markdown_table = "## State Schemes (Maharashtra)\n\n"
+    markdown_table += "| Scheme Name | Scheme Code |\n|-------------|-------------|\n"
+    for scheme in state_schemes:
         markdown_table += f"| {scheme['scheme_name']} | {scheme['scheme_code']} |\n"
-    
+
+    markdown_table += "\n## Central Schemes\n\n"
+    markdown_table += "| Scheme Name | Scheme Code |\n|-------------|-------------|\n"
+    for scheme in central_schemes:
+        markdown_table += f"| {scheme['scheme_name']} | {scheme['scheme_code']} |\n"
+
     return markdown_table
 
-
-
-async def get_scheme_info(ctx: RunContext[FarmerContext], scheme_code: str) -> str:
+@observe(name="tool:get_scheme_info", as_type="tool")
+async def get_scheme_info(scheme_code: str) -> str:
     """Retrieve detailed information about government agricultural schemes.
     
     This tool fetches comprehensive scheme data including benefits, eligibility criteria, application process, and other relevant details for agricultural schemes. 
@@ -315,38 +300,32 @@ async def get_scheme_info(ctx: RunContext[FarmerContext], scheme_code: str) -> s
     Available scheme codes can be found by calling `get_scheme_codes()` which returns a markdown table with scheme names and codes.
 
     Args:
-        ctx (RunContext[FarmerContext]): The context containing session information
-        scheme_code (str): Code of the scheme to retrieve (e.g., 'pmkisan', 'pmfby').
+        scheme_code (str): Code of the scheme to retrieve (e.g., 'mahadbt-pmkisan', 'mahadbt-pmfby').
 
     Returns:
         str: Formatted scheme data including introduction, benefits, eligibility, application process, and other relevant information.
     """
     try:
-        # Send nudge message asynchronously without blocking
-        if ctx.deps.provider == "RAYA":
-            # Since only RAYA supports nudge messages, we only send it if the provider is RAYA.
-            nudge_message = get_nudge_message("scheme_info", ctx.deps.lang_code)
-            result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-            logger.info(f"Nudge message sent: {result}")
-        
-        # Check if the scheme code is valid
-        if not _validate_scheme_code(scheme_code):
-            return f"Invalid scheme code: {scheme_code}. Available scheme codes can be found by calling `get_scheme_codes()` which returns a markdown table with scheme names and codes."
+        if scheme_code not in _scheme_codes_set:
+            raise ModelRetry(f"Invalid scheme code: {scheme_code}. Use get_scheme_codes() to find valid codes.")
         
         payload = SchemeRequest(scheme_code=scheme_code).get_payload()
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 os.getenv("BAP_ENDPOINT"),
                 json=payload,
-                timeout=(20, 30)
+                timeout=15.0
             )
+        
+        if response.status_code != 200:
+            logger.error(f"Scheme API returned status code {response.status_code}")
+            return "Scheme service unavailable. Retrying"
             
-            if response.status_code != 200:
-                logger.error(f"Scheme API returned status code {response.status_code}")
-                return "Scheme service unavailable. Retrying"
-                
-            scheme_response = SchemeResponse.model_validate(response.json())
-            return str(scheme_response)
+        scheme_response = SchemeResponse.model_validate(response.json())
+        # Sponsor field is already in the response text (e.g., "Sponsor: State" or "Sponsor: Central")
+        # Agent can read this directly from the response to determine prioritization
+        return str(scheme_response)
                 
     except httpx.TimeoutException as e:
         logger.error(f"Scheme API request timed out: {str(e)}")
@@ -362,3 +341,4 @@ async def get_scheme_info(ctx: RunContext[FarmerContext], scheme_code: str) -> s
     except Exception as e:
         logger.error(f"Error getting scheme data: {e}")
         raise ModelRetry(f"Unexpected error in scheme request. {str(e)}") 
+
