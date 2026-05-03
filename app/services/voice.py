@@ -940,17 +940,24 @@ async def stream_voice_message(
             else:
                 history_user_text = query
 
-            # ── Low-confidence pretranslation filter ─────────────────────
-            # When the pretranslation model reports low confidence, the
-            # input was likely garbled noise. Ask the farmer to repeat
-            # instead of routing a hallucinated translation to the agent.
+            # ── Empty-pretranslation guard ───────────────────────────────
+            # The model's own `confidence: low` verdict was previously a
+            # gate here, but it was over-rejecting clear short follow-ups
+            # ("where do I apply online?", "any medicine for this?") because
+            # the pretranslation prompt instructs the model to flag low
+            # whenever any key noun is missing — which is normal for
+            # pronominal turns in a multi-turn conversation. We now only
+            # short-circuit when pretranslation produced no usable text at
+            # all (i.e. both primary and fallback failed). True noise still
+            # routes to the agent, which is better at asking for
+            # clarification in context than a canned global retry.
             if (
                 requested_source_lang not in {"en", "english"}
-                and pretranslation_confidence == "low"
+                and not (processing_query or "").strip()
             ):
                 logger.info(
-                    "Pretranslation confidence=low; asking to repeat - session_id=%s process_id=%s query=%r translated=%r",
-                    session_id, process_id, query, processing_query,
+                    "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
+                    session_id, process_id, query,
                 )
                 low_conf_resp_for_history = _FRAGMENT_RESPONSES["en"]
                 low_conf_resp_for_caller = await _render_text_for_caller(low_conf_resp_for_history, requested_target_lang)
@@ -1013,7 +1020,7 @@ async def stream_voice_message(
             trimmed_history = trim_history(
                 history,
                 max_tokens=80_000,
-                include_system_prompts=True,
+                include_system_prompts=False,
                 include_tool_calls=True,
             )
             logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
