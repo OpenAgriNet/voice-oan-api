@@ -113,6 +113,8 @@ class TestForbiddenReplacements:
         ("ગર્ભચારો", "ગાભણ પશુ માટેનું દાણ"),
         ("ગર્ભ માટેનો ચારો", "ગાભણ પશુ માટેનો ચારો"),
         ("સામાન્ય જાળવણી ચારો", "રોજિંદો ઘાસચારો"),
+        ("કણું", "દાણ"),
+        ("ડિજેશન", "ડાઈજેશન"),
     ])
     def test_forbidden_replaced(self, forbidden, expected):
         """Each forbidden term in output must be replaced with the correct term."""
@@ -199,6 +201,18 @@ class TestForbiddenInContext:
         result = normalize_gu(text)
         assert "રોજિંદો ઘાસચારો" in result
         assert "સામાન્ય જાળવણી ચારો" not in result
+
+    def test_digestion_problem_transliteration_is_normalized(self):
+        text = "જેને આપણે અપચો ડિજેશન પ્રોબ્લેમ કહી શકીએ."
+        result = normalize_gu(text)
+        assert "અપચો ડાઈજેશન પ્રોબ્લેમ" in result
+        assert "ડિજેશન" not in result
+
+    def test_kanoo_feed_word_is_normalized(self):
+        text = "ગાયને કણું ઓછું આપો."
+        result = normalize_gu(text)
+        assert "દાણ ઓછું આપો" in result
+        assert "કણું" not in result
 
     def test_body_term_replacement(self):
         """Use શરીર/પીઠ-style vocabulary, not બૈડા."""
