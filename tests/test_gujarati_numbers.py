@@ -6,6 +6,7 @@ from helpers.gujarati_numbers import (
     number_to_gujarati,
     tag_to_gujarati,
     normalize_numbers_for_tts,
+    mask_tag_identifier,
     _int_to_gujarati,
 )
 
@@ -95,7 +96,19 @@ class TestDecimalConversion:
         (3.56, "ત્રણ પોઈન્ટ પાંચ છ"),
         (4.34, "ચાર પોઈન્ટ ત્રણ ચાર"),
         (54.25, "ચોપન પોઈન્ટ બે પાંચ"),
+        (100.05, "એકસો પોઈન્ટ શૂન્ય પાંચ"),
         (0.5, "શૂન્ય પોઈન્ટ પાંચ"),
+        (0.05, "શૂન્ય પોઈન્ટ શૂન્ય પાંચ"),
+        (0.125, "શૂન્ય પોઈન્ટ એક બે પાંચ"),
+        (0.425, "શૂન્ય પોઈન્ટ ચાર બે પાંચ"),
+        (0.625, "શૂન્ય પોઈન્ટ છ બે પાંચ"),
+        (0.875, "શૂન્ય પોઈન્ટ આઠ સાત પાંચ"),
+        (1.01, "એક પોઈન્ટ શૂન્ય એક"),
+        (1.1, "એક પોઈન્ટ એક"),
+        (2.75, "બે પોઈન્ટ સાત પાંચ"),
+        (10.01, "દસ પોઈન્ટ શૂન્ય એક"),
+        (20.2, "વીસ પોઈન્ટ બે"),
+        (99.99, "નવ્વાણું પોઈન્ટ નવ નવ"),
     ])
     def test_decimal_values(self, value, expected):
         assert number_to_gujarati(value) == expected
@@ -106,6 +119,11 @@ class TestDecimalConversion:
 # ---------------------------------------------------------------------------
 
 class TestTagConversion:
+    def test_mask_tag_identifier_uses_last_four_digits(self):
+        assert mask_tag_identifier("106285318721") == "eight seven two one"
+
+    def test_mask_tag_identifier_ignores_non_digits(self):
+        assert mask_tag_identifier("tag-10/62") == "one zero six two"
 
     def test_standard_12_digit_tag(self):
         result = tag_to_gujarati("106285318721")
@@ -167,6 +185,16 @@ class TestTextNormalization:
         assert "નવ નવ સાત નવ" in result
         assert "9979138134" not in result
 
+    def test_phone_number_sentence_matches_voice_expectation(self):
+        text = "તમારો રજિસ્ટર્ડ મોબાઇલ નંબર 9265991405 છે."
+        result = normalize_numbers_for_tts(text)
+        assert result == "તમારો રજિસ્ટર્ડ મોબાઇલ નંબર નવ બે છ પાંચ નવ નવ એક ચાર શૂન્ય પાંચ છે."
+
+    def test_spaced_digits_read_digit_by_digit(self):
+        text = "પશુ 1 7 5 4 માટે તપાસ કરો"
+        result = normalize_numbers_for_tts(text)
+        assert result == "પશુ એક સાત પાંચ ચાર માટે તપાસ કરો"
+
     def test_preserves_surrounding_text(self):
         text = "કુલ 4 પશુ છે"
         result = normalize_numbers_for_tts(text)
@@ -193,6 +221,12 @@ class TestTextNormalization:
         text = "20–25 દિવસ"
         result = normalize_numbers_for_tts(text)
         assert result == "વીસ થી પચ્ચીસ દિવસ"
+
+    def test_plain_four_digit_number_stays_quantitative(self):
+        text = "વજન 1754 કિલો છે"
+        result = normalize_numbers_for_tts(text)
+        assert "એક હજાર" in result
+        assert "એક સાત પાંચ ચાર" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -231,3 +265,31 @@ class TestFeedbackCases:
 
     def test_snf_8_point_86(self):
         assert number_to_gujarati(8.86) == "આઠ પોઈન્ટ આઠ છ"
+
+
+class TestExpandedIntegerCoverage:
+    """Extra coverage for awkward but common quantitative values."""
+
+    @pytest.mark.parametrize("n, expected", [
+        (101, "એકસો એક"),
+        (110, "એકસો દસ"),
+        (115, "એકસો પંદર"),
+        (198, "એકસો અઠ્ઠાણું"),
+        (205, "બસો પાંચ"),
+        (250, "બસો પચાસ"),
+        (300, "ત્રણસો"),
+        (398, "ત્રણસો અઠ્ઠાણું"),
+        (400, "ચારસો"),
+        (505, "પાંચસો પાંચ"),
+        (808, "આઠસો આઠ"),
+        (909, "નવસો નવ"),
+        (1001, "એક હજાર એક"),
+        (1010, "એક હજાર દસ"),
+        (1100, "એક હજાર એકસો"),
+        (1111, "એક હજાર એકસો અગિયાર"),
+        (2000, "બે હજાર"),
+        (200000, "બે લાખ"),
+        (999999, "નવ લાખ નવ્વાણું હજાર નવસો નવ્વાણું"),
+    ])
+    def test_integer_values(self, n, expected):
+        assert number_to_gujarati(n) == expected
