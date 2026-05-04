@@ -30,7 +30,7 @@ if langfuse_public_key and langfuse_secret_key:
             os.getenv("LANGFUSE_TRACING_ENVIRONMENT")
             or settings.langfuse_environment
             or settings.environment
-            or "production"
+            or "voice-development"
         )
         # SDK v3 uses LANGFUSE_HOST env var, but we also support LANGFUSE_BASE_URL
         host = (
