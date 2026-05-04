@@ -24,19 +24,24 @@ async def create_ai_call(
     union_code: str,
     society_code: str,
     farmer_code: str,
+    user_id: str,
     species: AISpecies,
 ) -> str:
     """
     Book an artificial insemination (beech daan / બીજ દાન) call for a farmer.
-    Extract union_code, society_code, and farmer_code from the farmer context in the system prompt.
+    Extract union_code, society_code, farmer_code, and the selected AI technician user_id
+    from the farmer context in the system prompt.
     If these details are not available, tell the farmer their details are not available right now.
     Ask the farmer whether the booking is for a cow (ગાય) or buffalo (ભેંસ) before calling this tool.
+    Never ask the farmer to speak an internal technician ID. Use the selected technician option
+    already present in farmer context.
 
     Args:
         ctx: The run context (automatically provided).
         union_code: Union code for the farmer from farmer context.
         society_code: Society code for the farmer from farmer context.
         farmer_code: Farmer code for the farmer from farmer context.
+        user_id: Selected AI technician user ID mapped from farmer context.
         species: Species to book the AI call for. Use `cow` or `buffalo`.
 
     Returns:
@@ -45,8 +50,8 @@ async def create_ai_call(
     """
     session_id = ctx.deps.session_id
     logger.info(
-        "AI call tool invoked: session=%s union=%s society=%s farmer=%s species=%s",
-        session_id, union_code, society_code, farmer_code, species.value,
+        "AI call tool invoked: session=%s union=%s society=%s farmer=%s user_id=%s species=%s",
+        session_id, union_code, society_code, farmer_code, user_id, species.value,
     )
 
     # Session-based cooldown: one booking per session per 30 minutes
@@ -72,6 +77,7 @@ async def create_ai_call(
         unionCode=union_code,
         societyCode=society_code,
         farmerCode=farmer_code,
+        userId=user_id,
         species=species,
     )
     response = await create_ai_call_api(request, token)

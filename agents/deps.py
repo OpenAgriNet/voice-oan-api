@@ -10,6 +10,7 @@ class FarmerContext(BaseModel):
         lang_code: The language code of the user's question.
         target_lang: The target language for the response.
         farmer_info: Pre-built markdown string with farmer profile, animals, vet visits.
+        ai_technician_info: Pre-built internal AI technician context for booking.
         provider: The provider for the voice service.
         session_id: The session ID for the user.
         process_id: The process ID for tracking and hold messages.
@@ -21,6 +22,7 @@ class FarmerContext(BaseModel):
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
     farmer_info: str = Field(default="", description="Pre-built markdown farmer context string.")
+    ai_technician_info: str = Field(default="", description="Pre-built internal AI technician context string.")
     signed_in: bool = Field(default=False, description="Whether the session is signed in/authenticated for farmer-specific tools.")
     mobile: Optional[str] = Field(default=None, description="Normalized mobile number when available.")
 
@@ -49,6 +51,10 @@ class FarmerContext(BaseModel):
         if self.farmer_info:
             lines.append("- Farmer context summary:")
             lines.append(self.farmer_info)
+        if self.ai_technician_info:
+            lines.append("- Internal AI technician context for booking:")
+            lines.append("The caller does not know which AI technicians are available unless you tell them by name.")
+            lines.append(self.ai_technician_info)
         return "\n".join(lines)
 
     def get_user_message(self):
