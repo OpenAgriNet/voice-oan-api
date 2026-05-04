@@ -8,6 +8,7 @@ from pydantic_ai import Tool
 from agents.tools.terms import search_terms
 from agents.tools.search import search_documents
 from agents.tools.ai_call import create_ai_call
+from agents.tools.health_call import create_health_call
 from agents.tools.conversation_state import signal_conversation_state
 from agents.tools.farmer_cached import get_farmer_profile, get_herd_summary, list_animal_tags
 from agents.tools.common import fire_tool_call_nudge
@@ -41,6 +42,12 @@ BASE_TOOLS = [
     ),
     Tool(
         _with_nudge_signal(create_ai_call),
+        takes_ctx=True,
+        docstring_format='auto',
+        require_parameter_descriptions=True,
+    ),
+    Tool(
+        _with_nudge_signal(create_health_call),
         takes_ctx=True,
         docstring_format='auto',
         require_parameter_descriptions=True,

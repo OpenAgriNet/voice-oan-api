@@ -44,6 +44,7 @@ from app.services.voice import (
 )
 from agents.deps import FarmerContext
 from agents.models.ai_call import AICallRequestModel, AISpecies
+from agents.models.health_call import HealthCallRequestModel, HealthCaseType
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 
 
@@ -317,7 +318,7 @@ class TestHelperCoverage:
     def test_signed_in_agent_has_farmer_tools(self):
         base_tool_names = set(voice_agent._function_tools.keys())
         signed_in_tool_names = set(voice_agent_signed_in._function_tools.keys())
-        assert {"search_terms", "search_documents", "create_ai_call"}.issubset(base_tool_names)
+        assert {"search_terms", "search_documents", "create_ai_call", "create_health_call"}.issubset(base_tool_names)
         assert {"get_farmer_profile", "get_herd_summary", "list_animal_tags"}.issubset(signed_in_tool_names)
         assert "get_farmer_profile" not in base_tool_names
 
