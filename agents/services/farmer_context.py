@@ -16,6 +16,7 @@ from agents.tools.farmer_animal_backends import (
     merge_animal_data,
     normalize_phone,
 )
+from helpers.gujarati_numbers import mask_tag_identifier
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -90,12 +91,13 @@ def _format_farmer(lines: list, farmer: Dict[str, Any], index: int) -> None:
 
 
 def _format_animal(lines: list, tag: str, animal: Optional[Dict[str, Any]]) -> None:
+    masked_tag = mask_tag_identifier(tag)
     lines.append("")
-    lines.append(f"### Animal {tag}")
+    lines.append(f"### Animal {masked_tag or tag}")
     if not animal:
         lines.append("- No animal data found for this tag.")
         return
-    _add_field(lines, "Tag number", animal.get("tagNumber"))
+    _add_field(lines, "Tag number", mask_tag_identifier(animal.get("tagNumber") or ""))
     _add_field(lines, "Animal type", animal.get("animalType"))
     _add_field(lines, "Breed", animal.get("breed"))
     _add_field(lines, "Milking stage", animal.get("milkingStage"))
@@ -179,13 +181,18 @@ async def get_farmer_full_context_string(mobile_number: str) -> str:
         _format_farmer(lines, farmer, index)
 
         tags = _get_tags(farmer)
+        masked_tags = []
+        for tag in tags:
+            masked = mask_tag_identifier(tag)
+            if masked:
+                masked_tags.append(masked)
         lines.append("")
         lines.append("### Animal tags")
-        if not tags:
+        if not masked_tags:
             lines.append("- No animal tags found for this farmer.")
             continue
 
-        lines.append(f"- **Animal tags:** {', '.join(tags)}")
+        lines.append(f"- **Animal tags:** {', '.join(masked_tags)}")
 
         # Fetch animal details in parallel
         animal_tasks = [_fetch_animal_details(tag, token1 or "", token3) for tag in tags]

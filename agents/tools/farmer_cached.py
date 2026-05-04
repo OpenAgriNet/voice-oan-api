@@ -8,6 +8,7 @@ from pydantic_ai import RunContext
 
 from agents.deps import FarmerContext
 from agents.services.farmer_cache import get_or_fetch_farmer_data
+from helpers.gujarati_numbers import mask_tag_identifier
 
 
 async def _get_envelope(ctx: RunContext[FarmerContext]):
@@ -75,9 +76,9 @@ async def list_animal_tags(ctx: RunContext[FarmerContext]) -> str:
     for farmer in envelope.farmers:
         raw = farmer.tagNumbers or farmer.tagNo or ""
         for tag in str(raw).split(","):
-            cleaned = tag.strip()
-            if cleaned and cleaned not in tags:
-                tags.append(cleaned)
+            masked = mask_tag_identifier(tag.strip())
+            if masked and masked not in tags:
+                tags.append(masked)
 
     return json.dumps(
         {

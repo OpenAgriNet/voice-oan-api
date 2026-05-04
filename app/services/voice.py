@@ -27,6 +27,7 @@ from agents.tools.common import (
 )
 from agents.tools.conversation_state import set_conversation_closing_flag
 from agents.tools.terms import get_ambiguity_hints_for_query
+from helpers.gujarati_numbers import mask_tag_identifier
 from helpers.utils import get_logger, clean_output_by_language, get_today_date_str
 from app.config import settings
 from app.utils import (
@@ -172,6 +173,21 @@ def _batch_starts_new_line_or_list(text: str) -> bool:
     if stripped.startswith("*") and (len(stripped) == 1 or stripped[1:2].isspace() or stripped[1:2] == "."):
         return True
     return bool(re.match(r"^\d+\.\s", stripped))
+
+
+def _prepare_text_for_voice_translation(text: str) -> str:
+    """Make English text more translation-safe for voice rendering."""
+    if not text:
+        return text
+
+    out = text
+    # Flatten markdown list structure into spoken separators before translation.
+    out = re.sub(r"\s*\n\s*[-*•]\s*", ", ", out)
+    out = re.sub(r"\s*\n+\s*", " ", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    out = re.sub(r"\s+,", ",", out)
+    out = re.sub(r":,\s*", ": ", out)
+    return out.strip()
 
 
 # ── Greeting short-circuit helpers ─────────────────────────────────────
@@ -507,8 +523,9 @@ def _extract_farmer_tags(records: list[FarmerRecord]) -> list[str]:
             continue
         for tag in str(raw).split(","):
             cleaned = tag.strip()
-            if cleaned and cleaned not in tags:
-                tags.append(cleaned)
+            masked = mask_tag_identifier(cleaned)
+            if masked and masked not in tags:
+                tags.append(masked)
     return tags
 
 
@@ -1007,8 +1024,11 @@ async def stream_voice_message(
             if (
                 requested_source_lang not in {"en", "english"}
                 and not (processing_query or "").strip()
+                and not (processing_query or "").strip()
             ):
                 logger.info(
+                    "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
+                    session_id, process_id, query,
                     "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
                 )
