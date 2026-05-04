@@ -11,6 +11,7 @@ from agents.tools.ai_call import create_ai_call
 from agents.tools.conversation_state import signal_conversation_state
 from agents.tools.farmer_cached import get_farmer_profile, get_herd_summary, list_animal_tags
 from agents.tools.common import fire_tool_call_nudge
+from agents.tools.union_schemes import get_union_scheme_data
 
 
 def _with_nudge_signal(func):
@@ -66,6 +67,12 @@ SIGNED_IN_FARMER_TOOLS = [
     ),
     Tool(
         _with_nudge_signal(list_animal_tags),
+        takes_ctx=True,
+        docstring_format='auto',
+        require_parameter_descriptions=False,
+    ),
+    Tool(
+        _with_nudge_signal(get_union_scheme_data),
         takes_ctx=True,
         docstring_format='auto',
         require_parameter_descriptions=False,

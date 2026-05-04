@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     redis_host: str = os.getenv("REDIS_HOST", "localhost")
     redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
     redis_db: int = 0
+    redis_password: Optional[str] = os.getenv("REDIS_PASSWORD")
     redis_key_prefix: str = "sva-cache-"
     redis_socket_connect_timeout: int = 10
     redis_socket_timeout: int = 10

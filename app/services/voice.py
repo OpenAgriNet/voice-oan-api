@@ -19,6 +19,12 @@ from agents.services.farmer_cache import (
     refresh_farmer_data,
     should_refresh_farmer_data,
 )
+from app.models.union import UnionName
+from app.services.scheme_ingestion import (
+    SchemeCacheError,
+    SchemeDependencyError,
+    get_cached_scheme_records_for_union,
+)
 from agents.tools.common import (
     get_timeout_nudge_message,
     get_tool_nudge_message,
@@ -584,6 +590,74 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
     return "\n".join(lines)
 
 
+SUPPORTED_SCHEME_CONTEXT_UNIONS = {
+    UnionName.BANAS.value,
+    UnionName.KUTCH.value,
+}
+
+
+def _collect_farmer_unions(envelope: Optional[FarmerDataEnvelope]) -> list[str]:
+    if envelope is None:
+        return []
+
+    seen: set[str] = set()
+    unions: list[str] = []
+    for farmer in envelope.farmers:
+        record = farmer.model_dump()
+        raw_union = record.get("unionName") or record.get("union_name")
+        normalized_union = str(raw_union or "").strip().lower()
+        if not normalized_union or normalized_union in seen:
+            continue
+        seen.add(normalized_union)
+        unions.append(normalized_union)
+    return unions
+
+
+async def _build_union_scheme_summary(farmer_unions: list[str]) -> str:
+    scheme_unions = [union_name for union_name in farmer_unions if union_name in SUPPORTED_SCHEME_CONTEXT_UNIONS]
+    if not scheme_unions:
+        return ""
+
+    lines = [
+        "",
+        "## Union schemes available",
+        "- The following scheme titles are available from the union scheme cache. Use these titles and links for scheme-related questions. Retrieve full cached scheme details when the user asks about a specific scheme.",
+    ]
+    for union_name in scheme_unions:
+        try:
+            records = await get_cached_scheme_records_for_union(union_name)
+        except SchemeDependencyError:
+            logger.warning("Union scheme summary skipped because Redis dependency is unavailable union=%s", union_name)
+            lines.append(f"- **{union_name.title()}**: Scheme cache dependency is unavailable.")
+            continue
+        except SchemeCacheError:
+            logger.warning("Union scheme summary skipped because scheme cache could not be read union=%s", union_name)
+            lines.append(f"- **{union_name.title()}**: Scheme cache could not be read.")
+            continue
+        except Exception as exc:
+            logger.warning("Union scheme summary skipped because of unexpected error union=%s error=%s", union_name, exc)
+            lines.append(f"- **{union_name.title()}**: Scheme list is temporarily unavailable.")
+            continue
+
+        if not records:
+            lines.append(f"- **{union_name.title()}**: No cached scheme list is available yet.")
+            continue
+
+        lines.append(f"- **{union_name.title()} union schemes:**")
+        seen_links: set[tuple[str, str]] = set()
+        for record in records:
+            title = record.get("scheme_title")
+            link = record.get("scheme_url")
+            if not title or not link:
+                continue
+            dedupe_key = (str(title).casefold(), str(link))
+            if dedupe_key in seen_links:
+                continue
+            seen_links.add(dedupe_key)
+            lines.append(f"  - {title}: {link}")
+    return "\n".join(lines)
+
+
 def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
     if envelope is None:
         return ""
@@ -957,6 +1031,7 @@ async def stream_voice_message(
             mobile = normalize_phone_to_mobile(user_id)
             signed_in = _is_signed_in_session(user_info, user_id)
             farmer_info = ""
+            farmer_unions: list[str] = []
             ai_technician_info = ""
             farmer_cache_task = (
                 asyncio.create_task(get_or_fetch_farmer_data(mobile))
@@ -1108,12 +1183,17 @@ async def stream_voice_message(
                 try:
                     envelope = await farmer_cache_task
                     farmer_info = _build_compact_farmer_summary(envelope)
+                    farmer_unions = _collect_farmer_unions(envelope)
+                    scheme_summary = await _build_union_scheme_summary(farmer_unions)
+                    if scheme_summary:
+                        farmer_info = f"{farmer_info}\n{scheme_summary}" if farmer_info else scheme_summary
                     ai_technician_info = _build_ai_technician_summary(envelope)
                     logger.info(
-                        "Farmer summary loaded from cache for mobile %s source=%s stale=%s summary_chars=%s technician_chars=%s",
+                        "Farmer summary loaded from cache for mobile %s source=%s stale=%s unions=%s summary_chars=%s technician_chars=%s",
                         mobile,
                         getattr(envelope, "source", None) if envelope else None,
                         getattr(envelope, "stale", None) if envelope else None,
+                        farmer_unions,
                         len(farmer_info),
                         len(ai_technician_info),
                     )
@@ -1137,6 +1217,7 @@ async def stream_voice_message(
                 session_id=session_id,
                 process_id=process_id,
                 farmer_info=farmer_info,
+                farmer_unions=farmer_unions,
                 ai_technician_info=ai_technician_info,
                 signed_in=signed_in,
                 mobile=mobile,

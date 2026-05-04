@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from contextlib import asynccontextmanager
+from app.tasks.scheme_scheduler import start_scheme_scheduler, stop_scheme_scheduler
 
 load_dotenv()
 
@@ -23,8 +24,10 @@ async def lifespan(app: FastAPI):
     # Load prompt templates into memory (no disk I/O at request time)
     from helpers.utils import load_prompt_templates
     load_prompt_templates(settings.base_dir / "assets" / "prompts")
+    await start_scheme_scheduler()
     yield
     # Shutdown
+    await stop_scheme_scheduler()
     print(f"🛑 {settings.app_name} shutting down...")
 
 # Create FastAPI app with settings
@@ -58,4 +61,4 @@ async def root():
 # Include all routers with API prefix from settings
 
 app.include_router(voice.router, prefix=settings.api_prefix)
-app.include_router(health.router, prefix=settings.api_prefix) 
+app.include_router(health.router, prefix=settings.api_prefix)
