@@ -25,10 +25,9 @@ class TestGetAITechniciansBySociety:
             return [
                 AITechnicianBySocietyRecord.model_validate(
                     {
-                        "aitName": "Ramesh Patel",
-                        "aitMobileNo": "9876543210",
-                        "unionCode": "2021",
-                        "societyCode": "1066",
+                        "userId": "tech-1",
+                        "fullName": "Ramesh Patel",
+                        "mobileNumber": "9876543210",
                     }
                 )
             ]

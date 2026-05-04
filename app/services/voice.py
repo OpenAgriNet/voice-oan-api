@@ -581,11 +581,22 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
             f"farmer_code={farmer_code}, union_code={union_code}, society_code={society_code}"
         )
 
+    return "\n".join(lines)
+
+
+def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
+    if envelope is None:
+        return ""
+
     technician_groups = envelope.aiTechnicians or []
+    lines: list[str] = []
     if technician_groups:
-        lines.append("- AI technician options for booking are grouped by farmer and society in this farmer context.")
-        lines.append("- Each technician option only has these fields: full_name, phone, internal_user_id.")
+        lines.append("- AI technician options for booking are internal context, not user-provided information.")
+        lines.append("- The caller does not know which AI technicians are available unless you tell them by technician name.")
+        lines.append("- AI technician options for booking are grouped by farmer and society.")
+        lines.append("- Each technician option only has these fields: id, full_name, mobile_number.")
         lines.append("- When asking the farmer to choose a technician, use the technician full name in natural spoken form.")
+        lines.append("- Do not ask by technician position, number, option index, or ordinal words such as first, second, or third.")
         lines.append("- Mention phone only if a disambiguating mobile number is needed.")
         for group in technician_groups[:5]:
             farmer_name = group.get("farmerName") or "Unknown farmer"
@@ -601,19 +612,19 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
                 lines.append("- AI technician option: none available for this farmer group.")
                 continue
             for technician in technicians[:5]:
-                name = technician.get("aitName")
-                mobile = technician.get("aitMobileNo")
+                name = technician.get("fullName")
+                mobile = technician.get("mobileNumber")
                 user_id = technician.get("userId")
                 option = "- AI technician option:"
+                if user_id:
+                    option += f" id={user_id}"
                 if name:
                     option += f" full_name={name}"
                 if mobile:
-                    option += f", phone={mobile}"
-                if user_id:
-                    option += f", internal_user_id={user_id}"
+                    option += f", mobile_number={mobile}"
                 lines.append(option)
     else:
-        lines.append("- AI technician options for booking are not available in the current farmer context.")
+        lines.append("- AI technician options for booking are not available in the current signed-in context.")
     return "\n".join(lines)
 
 
@@ -946,6 +957,7 @@ async def stream_voice_message(
             mobile = normalize_phone_to_mobile(user_id)
             signed_in = _is_signed_in_session(user_info, user_id)
             farmer_info = ""
+            ai_technician_info = ""
             farmer_cache_task = (
                 asyncio.create_task(get_or_fetch_farmer_data(mobile))
                 if mobile
@@ -1096,12 +1108,14 @@ async def stream_voice_message(
                 try:
                     envelope = await farmer_cache_task
                     farmer_info = _build_compact_farmer_summary(envelope)
+                    ai_technician_info = _build_ai_technician_summary(envelope)
                     logger.info(
-                        "Farmer summary loaded from cache for mobile %s source=%s stale=%s summary_chars=%s",
+                        "Farmer summary loaded from cache for mobile %s source=%s stale=%s summary_chars=%s technician_chars=%s",
                         mobile,
                         getattr(envelope, "source", None) if envelope else None,
                         getattr(envelope, "stale", None) if envelope else None,
                         len(farmer_info),
+                        len(ai_technician_info),
                     )
                     if mobile and should_refresh_farmer_data(envelope):
                         asyncio.create_task(refresh_farmer_data(mobile))
@@ -1123,6 +1137,7 @@ async def stream_voice_message(
                 session_id=session_id,
                 process_id=process_id,
                 farmer_info=farmer_info,
+                ai_technician_info=ai_technician_info,
                 signed_in=signed_in,
                 mobile=mobile,
             )

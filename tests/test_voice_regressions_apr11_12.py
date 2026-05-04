@@ -29,6 +29,7 @@ from app.services.translation import (
 )
 from app.services.voice import (
     TELEPHONY_TERMINATE_CALL_TOKEN,
+    _build_ai_technician_summary,
     _build_compact_farmer_summary,
     _build_runtime_context_request,
     _prepare_text_for_voice_translation,
@@ -400,6 +401,7 @@ class TestHelperCoverage:
         deps = FarmerContext(
             query="What is your name?",
             farmer_info="# Farmer Context\n\n- **Matched farmer records:** 1",
+            ai_technician_info="- AI technician option: id=tech-1 full_name=Ramesh Patel, mobile_number=9876543210",
             signed_in=True,
             mobile="9723293369",
         )
@@ -409,6 +411,9 @@ class TestHelperCoverage:
         assert "Signed-in session: yes" in content
         assert "Normalized mobile: 9723293369" in content
         assert "Farmer context summary:" in content
+        assert "Internal AI technician context for booking:" in content
+        assert "The caller does not know which AI technicians are available unless you tell them by name." in content
+        assert "id=tech-1 full_name=Ramesh Patel, mobile_number=9876543210" in content
 
     def test_runtime_context_adds_compact_comparison_mode(self):
         deps = FarmerContext(query="What is the difference between A2 milk and normal milk?")
@@ -475,8 +480,8 @@ class TestHelperCoverage:
                     "unionCode": "2021",
                     "technicians": [
                         {
-                            "aitName": "Ramesh Patel",
-                            "aitMobileNo": "9876543210",
+                            "fullName": "Ramesh Patel",
+                            "mobileNumber": "9876543210",
                             "userId": "tech-1",
                         }
                     ],
@@ -489,8 +494,8 @@ class TestHelperCoverage:
                     "unionCode": "2021",
                     "technicians": [
                         {
-                            "aitName": "Suresh Patel",
-                            "aitMobileNo": "9988776655",
+                            "fullName": "Suresh Patel",
+                            "mobileNumber": "9988776655",
                             "userId": "tech-2",
                         }
                     ],
@@ -512,10 +517,8 @@ class TestHelperCoverage:
         assert "Known animal tags: 1001, 1002, 1003" in summary
         assert "Farmer option 1: name=Rameshbhai, society_name=Anand Dairy Society, farmer_code=F123" in summary
         assert "Farmer option 2: name=Sureshbhai, society_name=Vidya Dairy Society, farmer_code=F456" in summary
-        assert "AI technician options for booking are grouped by farmer and society" in summary
-        assert "Each technician option only has these fields: full_name, phone, internal_user_id." in summary
-        assert "Technician group: farmer_name=Rameshbhai, society_name=Anand Dairy Society, union_code=2021, society_code=1066" in summary
-        assert "full_name=Ramesh Patel, phone=9876543210, internal_user_id=tech-1" in summary
+        assert "AI technician option" not in summary
+        assert "internal_user_id" not in summary
         assert "##" not in summary
 
     def test_ai_call_request_model_includes_user_id_in_query_params(self):
@@ -534,6 +537,48 @@ class TestHelperCoverage:
         assert params["farmerCode"] == "F123"
         assert params["userId"] == "tech-1"
         assert params["speciesId"] == AISpecies.COW.encrypted_species_id
+
+    def test_ai_technician_summary_is_separate_internal_context(self):
+        envelope = FarmerDataEnvelope(
+            farmers=[
+                FarmerRecord(
+                    farmerName="Rameshbhai",
+                    societyName="Anand Dairy Society",
+                    farmerCode="F123",
+                ),
+            ],
+            aiTechnicians=[
+                {
+                    "farmerName": "Rameshbhai",
+                    "farmerCode": "F123",
+                    "societyName": "Anand Dairy Society",
+                    "societyCode": "1066",
+                    "unionCode": "2021",
+                    "technicians": [
+                        {
+                            "fullName": "Ramesh Patel",
+                            "mobileNumber": "9876543210",
+                            "userId": "tech-1",
+                        },
+                        {
+                            "fullName": "Suresh Patel",
+                            "mobileNumber": "9988776655",
+                            "userId": "tech-2",
+                        },
+                    ],
+                },
+            ],
+            source="cache",
+        )
+
+        summary = _build_ai_technician_summary(envelope)
+
+        assert "AI technician options for booking are internal context, not user-provided information." in summary
+        assert "The caller does not know which AI technicians are available unless you tell them by technician name." in summary
+        assert "When asking the farmer to choose a technician, use the technician full name in natural spoken form." in summary
+        assert "Do not ask by technician position, number, option index, or ordinal words such as first, second, or third." in summary
+        assert "id=tech-1 full_name=Ramesh Patel, mobile_number=9876543210" in summary
+        assert "id=tech-2 full_name=Suresh Patel, mobile_number=9988776655" in summary
 
     def test_extract_translation_units_force_splits_oversized_buffer(self):
         text = (
@@ -589,6 +634,10 @@ class TestHelperCoverage:
         assert "Assistant: `Please repeat that feed name once. I did not understand it clearly.`" in prompt_text
         assert "User: `Book beech daan for my cow`" in prompt_text
         assert "Assistant: `Which technician should I book with? I can book with Ramesh Patel or Suresh Patel.`" in prompt_text
+        assert "Bad technician prompt: `Which technician should I book with? I can book with the first, second, or third technician.`" in prompt_text
+        assert "Good technician prompt: `Which technician should I book with? I can book with Ramesh Patel, Suresh Patel, or Mahesh Parmar.`" in prompt_text
+        assert "Bad Gujarati technician prompt: `મારે કયા ટેકનિશિયન સાથે એપોઇન્ટમેન્ટ બુક કરવી જોઈએ? હું પહેલા બીજા અથવા ત્રીજા ટેકનિશિયન સાથે એપોઇન્ટમેન્ટ બુક કરાવી શકું છું.`" in prompt_text
+        assert "Good Gujarati technician prompt: `હું રાકેશ પટેલ અથવા સુરેશ પટેલ સાથે બુક કરી શકું છું. કયા ટેકનિશિયન સાથે બુક કરું?`" in prompt_text
         assert "User: `Book beech daan`" in prompt_text
         assert "Assistant: `Which farmer name should I use for the booking? I found Rameshbhai and Sureshbhai.`" in prompt_text
         assert "User: `No, that is all`" in prompt_text
@@ -599,12 +648,21 @@ class TestHelperCoverage:
         prompt_text = prompt_path.read_text(encoding="utf-8")
         assert "If the runtime Farmer Context shows more than one farmer record for the mobile number" in prompt_text
         assert "Which farmer name should I use for the booking? I found Rameshbhai and Sureshbhai." in prompt_text
-        assert "Each technician option only has these fields: technician full name, phone number, and internal `internal_user_id`." in prompt_text
+        assert "separate internal AI technician context grouped by farmer and society" in prompt_text
+        assert "the farmer does not know which technicians are available unless you tell them by name" in prompt_text
+        assert "Each technician option only has these fields: `id`, `full_name`, and `mobile_number`." in prompt_text
         assert "Never ask the farmer for a technician ID or internal user ID." in prompt_text
         assert "If more than one technician option is available for the selected farmer, ask the farmer which technician they want." in prompt_text
         assert "If exactly one technician option is available for the selected farmer, use that technician directly." in prompt_text
-        assert "Use the technician full name formatted properly in natural spoken form." in prompt_text
+        assert "Name every available technician in natural spoken form." in prompt_text
+        assert "Use phone number only if two names could be confused." in prompt_text
+        assert "Never ask the farmer to choose a technician by position, number, option index, or ordinal words." in prompt_text
+        assert "Do not say first technician, second technician, third technician, option one, option two, પહેલા, બીજા, ત્રીજા, or similar translated equivalents." in prompt_text
         assert "Which technician should I book with? I can book with Ramesh Patel or Suresh Patel." in prompt_text
+        assert "I can book with the first, second, or third technician." not in prompt_text.replace(
+            "Bad technician prompt: `Which technician should I book with? I can book with the first, second, or third technician.`",
+            "",
+        )
         assert "selected farmer's technician group" in prompt_text
 
     @pytest.mark.parametrize("text, expected", [

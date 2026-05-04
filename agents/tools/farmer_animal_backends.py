@@ -39,10 +39,8 @@ class AITechnicianBySocietyRecord(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     userId: Optional[str] = None
-    aitName: Optional[str] = None
-    aitMobileNo: Optional[str] = None
-    societyCode: Optional[str] = None
-    unionCode: Optional[str] = None
+    fullName: Optional[str] = None
+    mobileNumber: Optional[str] = None
 
 
 def normalize_phone(mobile: str) -> str:
