@@ -52,6 +52,7 @@ class FarmerSummary(BaseModel):
 class FarmerDataEnvelope(BaseModel):
     """Consistent wrapper used by both chat and voice backends."""
     farmers: List[FarmerRecord] = []
+    aiTechnicians: List[dict] = []
     fetchedAt: Optional[str] = None
     source: Optional[str] = None  # "cache" | "api"
     stale: bool = False

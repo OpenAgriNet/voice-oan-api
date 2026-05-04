@@ -38,6 +38,7 @@ class GetAITechniciansBySocietyQueryParams(BaseModel):
 class AITechnicianBySocietyRecord(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    userId: Optional[str] = None
     aitName: Optional[str] = None
     aitMobileNo: Optional[str] = None
     societyCode: Optional[str] = None
@@ -279,7 +280,7 @@ async def get_ai_technicians_by_society_api(
     token: str,
 ) -> list[AITechnicianBySocietyRecord] | None:
     """Fetch AI technicians mapped to a union and society."""
-    api_url = f"{BASE_AMULPASHUDHAN}/GetAITechniciansBySociety"
+    api_url = f"{BASE_AMULPASHUDHAN}/GetAITUserDetailsBySocietyCode"
     try:
         with start_observation(
             "get_ai_technicians_by_society_api",
