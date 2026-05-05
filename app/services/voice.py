@@ -5,6 +5,10 @@ from agents.voice import voice_agent
 from helpers.utils import get_logger
 from app.langfuse_client import get_langfuse, traced_voice_request
 from app.config import settings
+from pydantic_ai.messages import (  # type: ignore
+    PartDeltaEvent,
+    TextPartDelta,
+)
 from app.utils import (
     update_message_history, 
     trim_history, 
@@ -157,7 +161,10 @@ async def stream_voice_message(
         trimmed_history = _trim_voice_history(history)
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
-        streamed_parts: list[str] = []
+        # We buffer streamed text and only emit once at the end.
+        # This avoids premature "please wait" drafts being sent to the client while tools run,
+        # and stays compatible across pydantic_ai versions/providers where delta events vary.
+        final_text: str = ""
         lf_client = get_langfuse()
         if lf_obs is not None and lf_client is not None:
             # Create a dedicated generation observation so Langfuse can compute usage/cost.
@@ -172,16 +179,21 @@ async def stream_voice_message(
                     message_history=trimmed_history,
                     deps=deps,
                 ) as response_stream:
-                    async for chunk in response_stream.stream_text(delta=True):
-                        streamed_parts.append(chunk)
-                        yield chunk
+                    # Use non-delta stream so we always get the latest full text.
+                    # We intentionally do NOT yield intermediate chunks.
+                    async for chunk in response_stream.stream_text(delta=False):
+                        if chunk:
+                            final_text = chunk
 
                     logger.info(f"Streaming complete for session {session_id}")
                     # Capture the data we need while response_stream is still available
                     new_messages = response_stream.new_messages()
 
+                    if final_text:
+                        yield final_text
+
                     lf_gen.update(
-                        output="".join(streamed_parts),
+                        output=final_text,
                         usage_details=_langfuse_usage_details(response_stream),
                     )
         else:
@@ -190,13 +202,16 @@ async def stream_voice_message(
                 message_history=trimmed_history,
                 deps=deps,
             ) as response_stream:
-                async for chunk in response_stream.stream_text(delta=True):
-                    streamed_parts.append(chunk)
-                    yield chunk
+                async for chunk in response_stream.stream_text(delta=False):
+                    if chunk:
+                        final_text = chunk
 
                 logger.info(f"Streaming complete for session {session_id}")
                 # Capture the data we need while response_stream is still available
                 new_messages = response_stream.new_messages()
+
+                if final_text:
+                    yield final_text
 
         # Post-processing happens AFTER streaming is complete
         messages = [
@@ -208,7 +223,7 @@ async def stream_voice_message(
         await update_message_history(session_id, messages)
 
         if lf_obs is not None:
-            lf_obs.update(output="".join(streamed_parts))
+            lf_obs.update(output=final_text)
 
 
 async def get_voice_message_with_translation(
