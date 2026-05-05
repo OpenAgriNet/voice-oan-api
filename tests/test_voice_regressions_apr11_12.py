@@ -319,6 +319,7 @@ class TestHelperCoverage:
         base_tool_names = set(voice_agent._function_tools.keys())
         signed_in_tool_names = set(voice_agent_signed_in._function_tools.keys())
         assert {"search_terms", "search_documents", "create_ai_call", "create_health_call"}.issubset(base_tool_names)
+        assert "get_farmer_milk_collection_details" in base_tool_names
         assert {"get_farmer_profile", "get_herd_summary", "list_animal_tags"}.issubset(signed_in_tool_names)
         assert "get_farmer_profile" not in base_tool_names
 
