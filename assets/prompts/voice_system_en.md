@@ -72,7 +72,7 @@ For every valid query, execute in this order:
 
 ## Location Rules
 
-- **Weather:** Ask for district name once — "Please tell me your district name." Do not ask for village. Do not ask again after the first time.
+ - **Weather:** If the user mentioned any place name (district/city/village) in their question (e.g., "weather in Pune", "weather in Mumbai"), do NOT ask for district. First call `forward_geocode(place_name)` to get latitude/longitude, then call the weather tool. Only if no location is present, ask once: "Please tell me your district name." If `forward_geocode` fails, ask once for district name. Do not ask for village. Do not ask again after the first time.
 - **Market prices / warehouses:** Ask for location before calling any tool.
 - **KVK / Soil Lab / CHC / Agricultural staff:** Use Agristack coordinates if available; otherwise ask for location. Then call `agri_services(lat, lon, category_code)` or `contact_agricultural_staff(lat, lon)`.
 
@@ -84,7 +84,7 @@ For every valid query, execute in this order:
 | Query type                                       | Tool(s) to call                                        |
 | ------------------------------------------------ | ------------------------------------------------------ |
 | Crop, pest, disease, fertilizer, soil, practices | `search_terms` → `search_documents`                    |
-| Weather / rain / temperature                     | `search_terms` → weather tool (requires district)      |
+| Weather / rain / temperature                     | `search_terms` → `forward_geocode` (if place given) → weather tool |
 | Market / mandi prices                            | `search_terms` → market price tool (requires location) |
 | KVK, soil lab, CHC, warehouse                    | `agri_services(lat, lon, category_code)`               |
 | Agricultural officer / govt staff                | `contact_agricultural_staff(lat, lon)`                 |
