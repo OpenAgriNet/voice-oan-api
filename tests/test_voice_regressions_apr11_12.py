@@ -625,6 +625,16 @@ class TestHelperCoverage:
         assert "Do not append a follow-up question unless it is necessary" in prompt_text
         assert "TAG:1234" not in prompt_text
 
+    def test_moderation_prompt_passes_borderline_amul_context_to_agent(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_moderation_en.md"
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+        assert "When the context is uncertain, label `in_scope`" in prompt_text
+        assert "Pass through any mention of milk, dairy products, medicines, treatments, dosages" in prompt_text
+        assert "Amul, cooperative services, farmer records, animal records, DCS, society, union" in prompt_text
+        assert "Do not reject medicine questions just because they might be human medical" in prompt_text
+        assert "Reject as `irrelevant` only when the utterance is unambiguously about a human body" in prompt_text
+        assert "Ambiguous medicine, treatment, dosage, pharmacy, product, or brand mentions" in prompt_text
+
     def test_translation_pipeline_prompt_contains_short_voice_examples(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
         prompt_text = prompt_path.read_text(encoding="utf-8")
