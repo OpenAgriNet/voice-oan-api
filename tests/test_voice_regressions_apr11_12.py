@@ -634,6 +634,11 @@ class TestHelperCoverage:
         assert "Do not reject medicine questions just because they might be human medical" in prompt_text
         assert "Reject as `irrelevant` only when the utterance is unambiguously about a human body" in prompt_text
         assert "Ambiguous medicine, treatment, dosage, pharmacy, product, or brand mentions" in prompt_text
+        assert "camel milk questions" in prompt_text
+        assert "Cattle, buffalo, camels, goats, sheep, poultry care" in prompt_text
+        assert "homeopathic/homepatheic, ayurvedic/aurvedic, Amul medicine" in prompt_text
+        assert "camel-related care" in prompt_text
+        assert "Amul medicines" in prompt_text
 
     def test_translation_pipeline_prompt_contains_short_voice_examples(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
