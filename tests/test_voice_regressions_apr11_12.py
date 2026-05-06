@@ -44,6 +44,7 @@ from app.services.voice import (
 )
 from agents.deps import FarmerContext
 from agents.models.ai_call import AICallRequestModel, AISpecies
+from agents.models.health_call import HealthCallRequestModel, HealthCaseType
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 
 
@@ -317,7 +318,7 @@ class TestHelperCoverage:
     def test_signed_in_agent_has_farmer_tools(self):
         base_tool_names = set(voice_agent._function_tools.keys())
         signed_in_tool_names = set(voice_agent_signed_in._function_tools.keys())
-        assert {"search_terms", "search_documents", "create_ai_call"}.issubset(base_tool_names)
+        assert {"search_terms", "search_documents", "create_ai_call", "create_health_call"}.issubset(base_tool_names)
         assert {"get_farmer_profile", "get_herd_summary", "list_animal_tags"}.issubset(signed_in_tool_names)
         assert "get_farmer_profile" not in base_tool_names
 
@@ -623,6 +624,21 @@ class TestHelperCoverage:
         assert "For comparison questions, give only the main difference first" in prompt_text
         assert "Do not append a follow-up question unless it is necessary" in prompt_text
         assert "TAG:1234" not in prompt_text
+
+    def test_moderation_prompt_passes_borderline_amul_context_to_agent(self):
+        prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_moderation_en.md"
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+        assert "When the context is uncertain, label `in_scope`" in prompt_text
+        assert "Pass through any mention of milk, dairy products, medicines, treatments, dosages" in prompt_text
+        assert "Amul, cooperative services, farmer records, animal records, DCS, society, union" in prompt_text
+        assert "Do not reject medicine questions just because they might be human medical" in prompt_text
+        assert "Reject as `irrelevant` only when the utterance is unambiguously about a human body" in prompt_text
+        assert "Ambiguous medicine, treatment, dosage, pharmacy, product, or brand mentions" in prompt_text
+        assert "camel milk questions" in prompt_text
+        assert "Cattle, buffalo, camels, goats, sheep, poultry care" in prompt_text
+        assert "homeopathic/homepatheic, ayurvedic/aurvedic, Amul medicine" in prompt_text
+        assert "camel-related care" in prompt_text
+        assert "Amul medicines" in prompt_text
 
     def test_translation_pipeline_prompt_contains_short_voice_examples(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"

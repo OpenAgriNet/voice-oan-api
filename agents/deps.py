@@ -22,6 +22,7 @@ class FarmerContext(BaseModel):
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
     farmer_info: str = Field(default="", description="Pre-built markdown farmer context string.")
+    farmer_unions: list[str] = Field(default_factory=list, description="Normalized union names derived from the farmer context.")
     ai_technician_info: str = Field(default="", description="Pre-built internal AI technician context string.")
     signed_in: bool = Field(default=False, description="Whether the session is signed in/authenticated for farmer-specific tools.")
     mobile: Optional[str] = Field(default=None, description="Normalized mobile number when available.")
@@ -34,6 +35,10 @@ class FarmerContext(BaseModel):
         """Return the pre-built farmer context markdown string."""
         return self.farmer_info if self.farmer_info else None
 
+    def get_preferred_union_name(self) -> Optional[str]:
+        """Get the primary farmer union name when available."""
+        return self.farmer_unions[0] if self.farmer_unions else None
+
     def get_runtime_context_message(self) -> str:
         """Compact runtime context that stays outside the static system prompt."""
         lines = [
@@ -43,6 +48,8 @@ class FarmerContext(BaseModel):
         ]
         if self.mobile:
             lines.append(f"- Normalized mobile: {self.mobile}")
+        if self.farmer_unions:
+            lines.append(f"- Farmer unions: {', '.join(self.farmer_unions)}")
         lines.append("- Core loop language: English")
         if self.signed_in:
             lines.append("- Farmer-data tools may be available for this turn.")
