@@ -1,11 +1,16 @@
 from typing import List
+
 from app.core.cache import cache  # Import cache instance from core
-from helpers.utils import get_logger, count_tokens_for_part
 from copy import deepcopy
+from helpers.utils import get_logger, count_tokens_for_part, get_prompt, get_today_date_str
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelMessage,
+    ModelRequest,
+    ModelResponse,
     SystemPromptPart,
+    TextPart,
+    UserPromptPart,
 )
 from pydantic_core import to_jsonable_python
 
@@ -45,15 +50,89 @@ async def set_cache(key: str, value, ttl: int = DEFAULT_CACHE_TTL):
     return True
 
 
-async def _get_message_history(session_id: str) -> List[ModelMessage]:
-    """Get or initialize message history."""
+def _normalize_voice_system_lang(target_lang: str | None) -> str:
+    lang = (target_lang or "mr").lower()
+    if lang in ("en", "hi", "mr"):
+        return lang
+    return "mr"
+
+
+def _get_system_prompt_content(target_lang: str = "mr") -> str:
+    lang = _normalize_voice_system_lang(target_lang)
+    return get_prompt(f"voice_system_{lang}", context={"today_date": get_today_date_str()})
+
+
+# Identity / "name and age?" scripted reply — keep in sync with assets/prompts/voice_system_{en,hi,mr}.md
+_WELCOME_ASSISTANT_TEXT: dict[str, str] = {
+    "en": (
+        "My name is Vasudha. I am a digital assistant built to help farmers with farming "
+        "information. How can I help you?"
+    ),
+    "hi": (
+        "मेरा नाम वसुधा है। मैं एक डिजिटल सहायक हूँ, जो किसानों को कृषि संबंधी जानकारी और प्रश्नों में "
+        "मदद करने के लिए बनाई गई हूँ। कृपया बताइए, मैं आपकी किस तरह मदद कर सकती हूँ?"
+    ),
+    "mr": (
+        "माझं नाव वसुधा आहे. मी एक डिजिटल सहाय्यक आहे, शेतकऱ्यांना शेतीविषयक माहिती देण्यासाठी तयार. "
+        "कृपया सांगा, मी तुम्हाला कशात मदत करू?"
+    ),
+}
+
+
+def _welcome_assistant_message(target_lang: str) -> str:
+    lang = _normalize_voice_system_lang(target_lang)
+    return _WELCOME_ASSISTANT_TEXT.get(lang, _WELCOME_ASSISTANT_TEXT["mr"])
+
+
+def _default_user_greeting(target_lang: str) -> str:
+    lang = _normalize_voice_system_lang(target_lang)
+    return {"en": "Hello", "hi": "नमस्ते", "mr": "नमस्कार"}.get(lang, "नमस्कार")
+
+
+def _create_welcome_messages(
+    user_message: str,
+    assistant_message: str,
+    *,
+    system_prompt: str | None = None,
+) -> List[ModelMessage]:
+    messages: List[ModelMessage] = []
+    if system_prompt:
+        messages.append(ModelRequest(parts=[SystemPromptPart(content=system_prompt)]))
+    messages.extend(
+        [
+            ModelRequest(parts=[UserPromptPart(content=user_message)]),
+            ModelResponse(parts=[TextPart(content=assistant_message)]),
+        ]
+    )
+    return messages
+
+
+async def _get_message_history(
+    session_id: str,
+    target_lang: str = "mr",
+) -> List[ModelMessage]:
+    """Load cached history or seed a new session with system prompt and one welcome turn."""
     message_history = await get_cache(f"{session_id}_{HISTORY_SUFFIX}")
     if message_history:
         return ModelMessagesTypeAdapter.validate_python(message_history)
-    return []
+
+    system_prompt_content = _get_system_prompt_content(target_lang)
+    assistant_opening = _welcome_assistant_message(target_lang)
+    welcome_pair = _create_welcome_messages(
+        _default_user_greeting(target_lang),
+        assistant_opening,
+        system_prompt=system_prompt_content,
+    )
+    await set_cache(
+        f"{session_id}_{HISTORY_SUFFIX}",
+        to_jsonable_python(welcome_pair),
+        ttl=DEFAULT_CACHE_TTL,
+    )
+    return welcome_pair
+
 
 async def update_message_history(session_id: str, all_messages: List[ModelMessage]):
-    """Update message history."""
+    """Persist the full message list for a session."""
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(all_messages), ttl=DEFAULT_CACHE_TTL)
 
 def filter_out_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:

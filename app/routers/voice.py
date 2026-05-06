@@ -27,7 +27,7 @@ async def voice_endpoint(
         f"provider: {request.provider}, process_id: {request.process_id}, query: {request.query}"
     )
     
-    history = await _get_message_history(session_id)
+    history = await _get_message_history(session_id, target_lang=request.target_lang)
     logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
         
     return StreamingResponse(

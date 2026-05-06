@@ -25,7 +25,7 @@ async def voice_bhili_endpoint(
         f"Voice-bhili request received - session_id: {session_id}, query: {query}"
     )
     
-    history = await _get_message_history(session_id)
+    history = await _get_message_history(session_id, target_lang="en")
     logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
     
     response = await get_voice_message_with_translation(
