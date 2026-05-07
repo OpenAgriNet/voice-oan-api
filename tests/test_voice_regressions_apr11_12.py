@@ -1058,6 +1058,42 @@ class TestMultiTurnFlows:
         assert len(nudges) == 1
         assert "wait" in nudges[0].lower()
 
+    def test_voice_nudges_can_be_disabled_by_config(self, monkeypatch):
+        from app.services import voice as voice_module
+
+        nudges: list[str] = []
+        tool_event_box: dict = {}
+
+        async def _trigger_tool_event():
+            await asyncio.sleep(0)
+            event = tool_event_box.get("event")
+            if event is not None:
+                event.set()
+
+        response_stream = _FakeResponseStream(
+            chunks=["I will check and tell you."],
+            delay=0.03,
+            on_enter=_trigger_tool_event,
+        )
+        monkeypatch.setattr(voice_module.settings, "enable_voice_nudges", False, raising=False)
+
+        output, _ = asyncio.run(
+            _collect_stream(
+                query="What should I do for my cow?",
+                session_id="multiturn-nudge-disabled",
+                history=[],
+                monkeypatch=monkeypatch,
+                response_stream=response_stream,
+                source_lang="en",
+                target_lang="en",
+                nudges=nudges,
+                tool_event_box=tool_event_box,
+            )
+        )
+
+        assert "I will check" in output
+        assert nudges == []
+
     def test_closing_turn_does_not_append_feedback_across_turns(self, monkeypatch):
         first_output, history = asyncio.run(
             _collect_stream(

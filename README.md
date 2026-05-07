@@ -124,6 +124,7 @@ When `ENABLE_TRANSLATION_PIPELINE=true`:
 Relevant tuning env vars:
 - `OPENAI_PRETRANSLATION_MODEL` default: `gpt-5-mini`
 - `OPENAI_PRETRANSLATION_TIMEOUT_SECONDS` default: `4.0`
+- `ENABLE_VOICE_NUDGES` default: `true`; controls timeout/tool-call hold nudges for voice requests. Set to `false` to temporarily disable nudges.
 - `NUDGE_TIMEOUT_SECONDS` default: `3.0`
 - `SESSION_OWNER_TTL_SECONDS` default: `120`
 - `SESSION_OWNER_REFRESH_INTERVAL_SECONDS` default: `15`

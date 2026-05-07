@@ -957,70 +957,78 @@ async def stream_voice_message(
             #   (a) the configured timer expires, OR
             #   (b) the LLM invokes a tool (signalled via tool_call_event).
             # Cancelled if first text/translated chunk reaches the client first.
-            nudge_sent = False
-            tool_call_event = asyncio.Event()
-            set_tool_call_nudge_event(tool_call_event)
+            nudge_task = None
+            if settings.enable_voice_nudges:
+                nudge_sent = False
+                tool_call_event = asyncio.Event()
+                set_tool_call_nudge_event(tool_call_event)
 
-            async def send_nudge_on_trigger() -> None:
-                nonlocal nudge_sent
-                try:
-                    elapsed = max(0.0, time.monotonic() - request_started_at)
-                    remaining = max(0.0, float(settings.nudge_timeout_seconds) - elapsed)
-                    logger.info(
-                        "Nudge armed; session_id=%s process_id=%s elapsed=%.3fs remaining=%.3fs timeout=%.3fs",
-                        session_id,
-                        process_id,
-                        elapsed,
-                        remaining,
-                        settings.nudge_timeout_seconds,
-                    )
+                async def send_nudge_on_trigger() -> None:
+                    nonlocal nudge_sent
+                    try:
+                        elapsed = max(0.0, time.monotonic() - request_started_at)
+                        remaining = max(0.0, float(settings.nudge_timeout_seconds) - elapsed)
+                        logger.info(
+                            "Nudge armed; session_id=%s process_id=%s elapsed=%.3fs remaining=%.3fs timeout=%.3fs",
+                            session_id,
+                            process_id,
+                            elapsed,
+                            remaining,
+                            settings.nudge_timeout_seconds,
+                        )
 
-                    # Wait for EITHER the timer OR a tool-call signal
-                    timer_task = asyncio.create_task(asyncio.sleep(remaining))
-                    event_task = asyncio.create_task(tool_call_event.wait())
-                    done, pending = await asyncio.wait(
-                        {timer_task, event_task},
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    for t in pending:
-                        t.cancel()
+                        # Wait for EITHER the timer OR a tool-call signal
+                        timer_task = asyncio.create_task(asyncio.sleep(remaining))
+                        event_task = asyncio.create_task(tool_call_event.wait())
+                        done, pending = await asyncio.wait(
+                            {timer_task, event_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        for t in pending:
+                            t.cancel()
 
-                    trigger_reason = "tool_call" if event_task in done else "timeout"
-                    if await _request_is_stale("before_nudge_send"):
-                        return
-                    if nudge_sent:
-                        return
-                    nudge_sent = True
-                    nudge_msg = (
-                        get_tool_nudge_message(nudge_lang)
-                        if trigger_reason == "tool_call"
-                        else get_timeout_nudge_message(nudge_lang)
-                    )
-                    await send_nudge_message_raya(nudge_msg, session_id, process_id)
-                    elapsed = max(0.0, time.monotonic() - request_started_at)
-                    logger.info(
-                        "Nudge sent (%s); session_id=%s process_id=%s total_elapsed=%.3fs",
-                        trigger_reason,
-                        session_id,
-                        process_id,
-                        elapsed,
-                    )
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    logger.warning(
-                        "Nudge task failed; session_id=%s process_id=%s error=%s",
-                        session_id,
-                        process_id,
-                        e,
-                    )
+                        trigger_reason = "tool_call" if event_task in done else "timeout"
+                        if await _request_is_stale("before_nudge_send"):
+                            return
+                        if nudge_sent:
+                            return
+                        nudge_sent = True
+                        nudge_msg = (
+                            get_tool_nudge_message(nudge_lang)
+                            if trigger_reason == "tool_call"
+                            else get_timeout_nudge_message(nudge_lang)
+                        )
+                        await send_nudge_message_raya(nudge_msg, session_id, process_id)
+                        elapsed = max(0.0, time.monotonic() - request_started_at)
+                        logger.info(
+                            "Nudge sent (%s); session_id=%s process_id=%s total_elapsed=%.3fs",
+                            trigger_reason,
+                            session_id,
+                            process_id,
+                            elapsed,
+                        )
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Nudge task failed; session_id=%s process_id=%s error=%s",
+                            session_id,
+                            process_id,
+                            e,
+                        )
 
-            nudge_task = asyncio.create_task(send_nudge_on_trigger())
-            logger.info(
-                "Nudge initiated; session_id=%s process_id=%s",
-                session_id,
-                process_id,
-            )
+                nudge_task = asyncio.create_task(send_nudge_on_trigger())
+                logger.info(
+                    "Nudge initiated; session_id=%s process_id=%s",
+                    session_id,
+                    process_id,
+                )
+            else:
+                logger.info(
+                    "Voice nudges disabled by config; session_id=%s process_id=%s",
+                    session_id,
+                    process_id,
+                )
             # ── End nudge setup ─────────────────────────────────────────────
 
             processing_query = query
@@ -1316,17 +1324,18 @@ async def stream_voice_message(
                                     and chunk.strip()
                                 ):
                                     first_text_chunk_received = True
-                                    if nudge_task: nudge_task.cancel()
-                                    logger.info(
-                                        "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
-                                        session_id,
-                                        process_id,
-                                        chunk[:50] if len(chunk) > 50 else chunk,
-                                    )
-                                    try:
-                                        await nudge_task
-                                    except asyncio.CancelledError:
-                                        pass
+                                    if nudge_task:
+                                        nudge_task.cancel()
+                                        logger.info(
+                                            "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
+                                            session_id,
+                                            process_id,
+                                            chunk[:50] if len(chunk) > 50 else chunk,
+                                        )
+                                        try:
+                                            await nudge_task
+                                        except asyncio.CancelledError:
+                                            pass
 
                                 cleaned_chunk = (
                                     _prepare_voice_output(chunk, requested_target_lang)
@@ -1368,16 +1377,17 @@ async def stream_voice_message(
                                                     and translated_chunk.strip()
                                                 ):
                                                     first_text_chunk_received = True
-                                                    if nudge_task: nudge_task.cancel()
-                                                    logger.info(
-                                                        "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
-                                                        session_id,
-                                                        process_id,
-                                                    )
-                                                    try:
-                                                        await nudge_task
-                                                    except asyncio.CancelledError:
-                                                        pass
+                                                    if nudge_task:
+                                                        nudge_task.cancel()
+                                                        logger.info(
+                                                            "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
+                                                            session_id,
+                                                            process_id,
+                                                        )
+                                                        try:
+                                                            await nudge_task
+                                                        except asyncio.CancelledError:
+                                                            pass
                                                 if await _request_is_stale("before_translated_yield"):
                                                     break
                                                 yield _prepare_translated_emit(translated_chunk)
