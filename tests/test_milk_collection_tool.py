@@ -19,14 +19,14 @@ class TestMilkCollectionTool:
                 "unionCode": "0201",
                 "societyCode": "001066",
                 "farmerCode": "000123",
-                "fromdate": "01-04-2026",
-                "todate": "01-04-2026",
+                "fromdate": "2026-04-01",
+                "todate": "2026-04-01",
             }
             return FarmerMilkCollectionResponseModel.model_validate(
                 {
                     "result": "success",
-                    "milk": [{"date": "01-04-2026", "qty": 10, "fat": 6, "snf": 9, "amount": 500}],
-                    "deduction": [{"date": "01-04-2026", "accountname": "Feed", "amount": 100}],
+                    "milk": [{"date": "2026-04-01", "qty": 10, "fat": 6, "snf": 9, "amount": 500}],
+                    "deduction": [{"date": "2026-04-01", "accountname": "Feed", "amount": 100}],
                 }
             )
 
@@ -40,8 +40,8 @@ class TestMilkCollectionTool:
                 "0201",
                 "001066",
                 "000123",
-                "01-04-2026",
-                "01-04-2026",
+                "2026-04-01",
+                "2026-04-01",
             )
         )
 
@@ -65,8 +65,8 @@ class TestMilkCollectionTool:
                 "2021",
                 "1066",
                 "123",
-                "01-04-2026",
-                "01-04-2026",
+                "2026-04-01",
+                "2026-04-01",
             )
         )
 
@@ -88,13 +88,13 @@ class TestMilkCollectionTool:
                 "2021",
                 "1066",
                 "123",
-                "2026-04-01",
                 "01-04-2026",
+                "2026-04-01",
             )
         )
 
         assert result.startswith("Milk collection lookup failed.")
-        assert "DD-MM-YYYY" in result
+        assert "YYYY-MM-DD" in result
 
     def test_backend_none_returns_temporary_failure(self, monkeypatch):
         monkeypatch.setenv("PASHUGPT_TOKEN", "test-token")
@@ -112,8 +112,8 @@ class TestMilkCollectionTool:
                 "2021",
                 "1066",
                 "123",
-                "01-04-2026",
-                "01-04-2026",
+                "2026-04-01",
+                "2026-04-01",
             )
         )
 

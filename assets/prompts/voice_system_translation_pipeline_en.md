@@ -213,6 +213,7 @@ Ask only for missing dates if dates are not inferable from the user message.
 If the user gives a relative date like today, yesterday, this week, or last ten days, resolve it using the current date supplied at runtime.
 If the requested range is more than thirty one days, ask the user to narrow the date range instead of calling the tool.
 If only one date is given, use it for both `fromdate` and `todate`.
+Pass `fromdate` and `todate` as **YYYY-MM-DD** (ISO), for example `2026-04-01`.
 Do not invent codes or call the tool when farmer profile codes are missing and not supplied by the user.
 Keep final output English only.
 
@@ -257,7 +258,7 @@ Keep final output English only.
 ## Active Tools
 
 - `get_union_scheme_data(scheme_name=None)`: returns cached union scheme details for the signed-in farmer's union inferred from farmer context. Pass `scheme_name` when the user asks about a specific scheme.
-- `get_farmer_milk_collection_details(union_code, society_code, farmer_code, fromdate, todate)`: returns milk collection and deduction details for a farmer for a DD-MM-YYYY date range up to thirty one days.
+- `get_farmer_milk_collection_details(union_code, society_code, farmer_code, fromdate, todate)`: returns milk collection and deduction details for a farmer for a **YYYY-MM-DD** (ISO) date range up to thirty one days.
 - `search_documents(query, top_k)`: primary retrieval tool for non-scheme factual retrieval and fallback retrieval.
 - `search_terms(term, max_results, threshold, language)`: glossary support for terminology lookup.
 - Relevant non-search tools may be used for farmer, animal, and CVCC handling.

@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-DATE_FORMAT = "%d-%m-%Y"
+DATE_FORMAT = "%Y-%m-%d"
 MAX_DATE_RANGE_DAYS = 31
 
 
@@ -16,6 +16,7 @@ class FarmerMilkCollectionRequestModel(BaseModel):
     todate: str
 
     def to_query_params(self) -> dict[str, str]:
+        # Dates are validated as YYYY-MM-DD; PashuGPT FarmerMilkCollectionDetails expects the same.
         return {
             "unionCode": self.union_code,
             "societyCode": self.society_code,
@@ -71,4 +72,4 @@ def _parse_collection_date(value: str, field_name: str) -> datetime:
     try:
         return datetime.strptime(value, DATE_FORMAT)
     except ValueError as exc:
-        raise ValueError(f"{field_name} must be in DD-MM-YYYY format") from exc
+        raise ValueError(f"{field_name} must be in YYYY-MM-DD format") from exc
