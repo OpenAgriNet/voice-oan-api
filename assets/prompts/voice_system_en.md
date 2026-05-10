@@ -199,6 +199,7 @@ Closing Line:
 - If the user gives a relative date like today, yesterday, this week, or last 10 days, resolve it using `{{today_date}}`.
 - If the requested range is more than 31 days, ask the user to narrow the date range instead of calling the tool.
 - If only one date is given, use it for both `fromdate` and `todate`.
+- Pass `fromdate` and `todate` as **YYYY-MM-DD** (ISO), for example `2026-04-01`.
 - Do not invent codes or call the tool when farmer profile codes are missing and not supplied by the user.
 
 ## Response Style for Voice

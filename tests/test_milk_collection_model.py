@@ -19,16 +19,16 @@ class TestMilkCollectionModel:
             unionCode="0201",
             societyCode="001066",
             farmerCode="000123",
-            fromdate="01-04-2026",
-            todate="10-04-2026",
+            fromdate="2026-04-01",
+            todate="2026-04-10",
         )
 
         assert request.to_query_params() == {
             "unionCode": "0201",
             "societyCode": "001066",
             "farmerCode": "000123",
-            "fromdate": "01-04-2026",
-            "todate": "10-04-2026",
+            "fromdate": "2026-04-01",
+            "todate": "2026-04-10",
         }
 
     def test_milk_collection_request_rejects_invalid_date_format(self):
@@ -38,7 +38,7 @@ class TestMilkCollectionModel:
                 societyCode="1066",
                 farmerCode="123",
                 fromdate="2026-04-01",
-                todate="10-04-2026",
+                todate="01-04-2026",
             )
 
     def test_milk_collection_request_rejects_reversed_date_range(self):
@@ -46,8 +46,8 @@ class TestMilkCollectionModel:
             unionCode="2021",
             societyCode="1066",
             farmerCode="123",
-            fromdate="10-04-2026",
-            todate="01-04-2026",
+            fromdate="2026-04-10",
+            todate="2026-04-01",
         )
 
         with pytest.raises(ValueError, match="todate must be on or after fromdate"):
@@ -58,8 +58,8 @@ class TestMilkCollectionModel:
             unionCode="2021",
             societyCode="1066",
             farmerCode="123",
-            fromdate="01-04-2026",
-            todate="03-05-2026",
+            fromdate="2026-04-01",
+            todate="2026-05-03",
         )
 
         with pytest.raises(ValueError, match="date range cannot exceed 31 days"):
@@ -71,7 +71,7 @@ class TestMilkCollectionModel:
                 "result": "success",
                 "milk": [
                     {
-                        "date": "01-04-2026",
+                        "date": "2026-04-01",
                         "shift": "M",
                         "qty": 10.5,
                         "fat": 6.1,
@@ -81,7 +81,7 @@ class TestMilkCollectionModel:
                 ],
                 "deduction": [
                     {
-                        "date": "01-04-2026",
+                        "date": "2026-04-01",
                         "accountname": "Cattle feed",
                         "amount": 100,
                     }

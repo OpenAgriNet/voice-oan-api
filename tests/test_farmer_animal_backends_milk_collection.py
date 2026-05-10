@@ -36,8 +36,8 @@ class TestFarmerAnimalBackendsMilkCollection:
             200,
             json={
                 "result": "success",
-                "milk": [{"date": "01-04-2026", "qty": 5}],
-                "deduction": [{"date": "01-04-2026", "accountname": "Feed", "amount": 25}],
+                "milk": [{"date": "2026-04-01", "qty": 5}],
+                "deduction": [{"date": "2026-04-01", "accountname": "Feed", "amount": 25}],
             },
             request=httpx.Request("GET", "https://example.test"),
         )
@@ -47,8 +47,8 @@ class TestFarmerAnimalBackendsMilkCollection:
             unionCode="0201",
             societyCode="001066",
             farmerCode="000123",
-            fromdate="01-04-2026",
-            todate="01-04-2026",
+            fromdate="2026-04-01",
+            todate="2026-04-01",
         )
 
     def test_sends_expected_endpoint_query_params_and_auth_header(self, monkeypatch):
@@ -65,8 +65,8 @@ class TestFarmerAnimalBackendsMilkCollection:
                     "unionCode": "0201",
                     "societyCode": "001066",
                     "farmerCode": "000123",
-                    "fromdate": "01-04-2026",
-                    "todate": "01-04-2026",
+                    "fromdate": "2026-04-01",
+                    "todate": "2026-04-01",
                 },
                 "headers": {"Authorization": "Bearer test-token"},
                 "timeout": 30.0,
