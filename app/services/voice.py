@@ -1270,12 +1270,58 @@ async def stream_voice_message(
                 process_id=process_id,
                 user_query=processing_query,
             ):
-                async with active_agent.run_stream(
+                # pydantic-ai 0.2.4's run_stream + stream_text(delta=True) does not
+                # drive the agent loop past a tool-call-only first response — Gemma 4
+                # frequently emits tool_calls without text, after which the streamed
+                # iterator yields zero chunks and the run never completes. Switching
+                # to the non-streaming `run()` forces the full tool-call/response loop
+                # and reliably returns the final en text; we then stream the en→gu
+                # translation downstream via translate_text_stream_fast so the
+                # external response contract (gu chunks to the caller) is preserved.
+                agent_result = await active_agent.run(
                     user_prompt=user_message,
                     message_history=model_input_history,
                     deps=deps,
                     usage_limits=usage_limits,
-                ) as response_stream:
+                )
+                _agent_output = (
+                    getattr(agent_result, "output", None)
+                    or getattr(agent_result, "data", None)
+                    or ""
+                )
+                if not isinstance(_agent_output, str):
+                    _agent_output = str(_agent_output)
+                _agent_output = _agent_output.strip()
+
+                class _AgentRunResultStreamShim:
+                    """Adapter so the downstream batching/translation logic keeps
+                    working unchanged: yields the full en text as a single chunk
+                    and exposes the same `new_messages()` accessor."""
+
+                    def __init__(self, result, text: str) -> None:
+                        self._result = result
+                        self._text = text
+
+                    def stream_text(self, *, delta: bool = True):  # noqa: ARG002
+                        text = self._text
+                        async def _gen():
+                            if text:
+                                yield text
+                        return _gen()
+
+                    def new_messages(self):
+                        return self._result.new_messages()
+
+                response_stream = _AgentRunResultStreamShim(agent_result, _agent_output)
+                # Run the rest of the original flow within a no-op async context so
+                # the indentation and finally-clauses below stay structurally intact.
+                from contextlib import asynccontextmanager as _asynccontextmanager
+
+                @_asynccontextmanager
+                async def _noop_async():
+                    yield response_stream
+
+                async with _noop_async() as response_stream:
                     stream_iter = response_stream.stream_text(delta=True)
                     first_text_chunk_received = False
                     sentence_buffer = ""
