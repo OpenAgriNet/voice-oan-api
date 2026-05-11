@@ -29,9 +29,19 @@ load_dotenv()
 logger = get_logger(__name__)
 
 
+# Pretranslation provider — follows main LLM_PROVIDER by default.
+# Override with PRETRANSLATION_PROVIDER if you want a different provider for pretranslation.
+# Supported: "openai" | "vllm" (OpenAI-compatible endpoint, e.g. local Gemma 4 via vLLM).
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
+PRETRANSLATION_PROVIDER = os.getenv("PRETRANSLATION_PROVIDER", LLM_PROVIDER).lower()
+if PRETRANSLATION_PROVIDER == "vllm":
+    _PRETRANSLATION_MODEL_DEFAULT = os.getenv("LLM_MODEL_NAME", "gemma-4-31b-it")
+else:
+    _PRETRANSLATION_MODEL_DEFAULT = "gpt-5.1"
+# OPENAI_PRETRANSLATION_MODEL kept as legacy alias; PRETRANSLATION_MODEL takes precedence.
 OPENAI_PRETRANSLATION_MODEL = os.getenv(
-    "OPENAI_PRETRANSLATION_MODEL",
-    "gpt-5.1",
+    "PRETRANSLATION_MODEL",
+    os.getenv("OPENAI_PRETRANSLATION_MODEL", _PRETRANSLATION_MODEL_DEFAULT),
 )
 _openai_client: Optional[AsyncOpenAI] = None
 
@@ -468,12 +478,27 @@ async def translate_text(
 
 
 def _get_openai_client() -> AsyncOpenAI:
+    """Return an OpenAI-compatible async client.
+
+    When PRETRANSLATION_PROVIDER=vllm, point the OpenAI client at the local
+    vLLM `INFERENCE_ENDPOINT_URL` (e.g. http://10.185.25.198:8020/v1) so the
+    same chat-completions call path serves an OSS model like Gemma 4 31B IT.
+    """
     global _openai_client
     if _openai_client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY is required for OpenAI pretranslation")
-        _openai_client = AsyncOpenAI(api_key=api_key)
+        if PRETRANSLATION_PROVIDER == "vllm":
+            base_url = os.getenv("INFERENCE_ENDPOINT_URL", "").rstrip("/")
+            if not base_url:
+                raise ValueError(
+                    "INFERENCE_ENDPOINT_URL is required when PRETRANSLATION_PROVIDER=vllm"
+                )
+            api_key = os.getenv("INFERENCE_API_KEY") or "dummy"
+            _openai_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        else:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY is required for OpenAI pretranslation")
+            _openai_client = AsyncOpenAI(api_key=api_key)
     return _openai_client
 
 
@@ -758,7 +783,7 @@ async def translate_to_english_with_gpt5_mini(
             },
             model=OPENAI_PRETRANSLATION_MODEL,
             metadata={
-                "translation_provider": "openai",
+                "translation_provider": PRETRANSLATION_PROVIDER,
                 "pipeline_stage": "query_pretranslation",
             },
         ) as observation:
