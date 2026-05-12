@@ -89,95 +89,86 @@
   },
   {
     "gu_terms": [
-      "ફેટ",
-      "fat",
-      "fet",
-      "ફેટ ઓછ",
-      "fat ochi"
+      "ઇતરડી",
+      "ઈતરડી",
+      "itardi",
+      "itarli",
+      "itardee",
+      "itarli na",
+      "ઇતરડી નિયંત્રણ",
+      "ઈતરડી નિયંત્રણ"
     ],
     "type": "hardcode",
-    "rule": "'ફેટ' in dairy context means milk fat content or percentage, NOT પેટ (stomach). When a farmer says 'ફેટ ઓછી' or 'fat is low', they mean their milk fat percentage is below expected — answer about milk fat improvement (feed quality, bypass fat, mineral mixture), NOT stomach or digestive issues."
+    "rule": "ઇતરડી / ઈતરડી / itardi means tick (ectoparasite that attaches to livestock skin). When translating to English, always render as 'tick' or 'cattle tick'. NEVER translate as foot rot, diarrhea, termite, or any other condition. Tick control is an ectoparasite control topic — search for cattle tick control acaricide treatment."
   },
   {
     "gu_terms": [
-      "સમુદ્રી દાણ",
-      "સમુદ્રી",
-      "samudri",
-      "samudri dan"
+      "ખરવા-મોવાસા",
+      "ખરવા મોવાસા",
+      "ખરવામોવાસા",
+      "ખરવામોંવાસો",
+      "ખરવા-મોવાસો",
+      "ખરવા મોવાસો",
+      "kharva movasa",
+      "kharva movaso",
+      "khurpa muvada",
+      "khurpa-muvada",
+      "ખરપા-મુવાડા",
+      "ખુરપાણ"
     ],
     "type": "hardcode",
-    "rule": "If ASR or translation yields 'સમુદ્રી' / samudri in a feed question about cows or buffaloes, do not drift into marine feed or seaweed advice by default. If the intended feed term is uncertain, ask the caller to repeat or clarify the word instead of assuming a brand or product."
+    "rule": "ખરવા-મોવાસા / ખરવામોંવાસો / khurpa-muvada means Foot-and-Mouth Disease (FMD), a viral disease causing blisters on the hooves (ખરી) and mouth (મોં). When translating to English, always render as 'Foot and Mouth Disease' or 'FMD'. NEVER translate as mastitis (which is આઉનો/બાવલાનો સોજો), Lumpy Skin Disease, or Hemorrhagic Septicemia. Vaccinate with the FMD-specific bivalent or trivalent vaccine, typically twice a year before summer and before monsoon."
   },
   {
     "gu_terms": [
-      "માટી ન ખસવી",
-      "મેલી ન પડવી",
+      "ગાંઠિયા તાવ",
+      "ganthiya tav",
+      "ganthia tav",
+      "ganthiya taav",
+      "gathiya tav",
+      "lumpy skin",
+      "lsd",
+      "ગાંઠ વાળો રોગ"
+    ],
+    "type": "hardcode",
+    "rule": "ગાંઠિયા તાવ / ganthiya tav is Lumpy Skin Disease (LSD), a viral skin disease in cattle/buffalo characterised by raised nodules (ગાંઠ) on the skin, fever, and reduced milk yield. When translating to English, always render as 'Lumpy Skin Disease' or 'LSD'. NEVER translate as Foot-and-Mouth Disease (FMD) or Hemorrhagic Septicemia (HS) — these are different diseases with different vaccines. Vaccinate with the LSD-specific (e.g. goat-pox-based) vaccine, before the monsoon vector season."
+  },
+  {
+    "gu_terms": [
+      "થાયલેરિયા",
+      "thailaria",
+      "theileriosis",
+      "thaileria",
+      "ટિક ફીવર",
+      "tick fever",
+      "બેબેસિયા"
+    ],
+    "type": "hardcode",
+    "rule": "થાયલેરિયા / theileriosis is a tick-borne parasitic blood disease (Theileria spp.), especially fatal in crossbred / exotic cows. Symptoms: fever, anaemia, pale mucous membranes, weakness. When translating to English, always render as 'Theileriosis' or 'tick fever'. NEVER translate as malaria, foot rot, or a generic infection. Treatment is parasiticidal (e.g. Buparvaquone) under veterinary supervision; prevention is tick control."
+  },
+  {
+    "gu_terms": [
+      "ઘોડરવા",
+      "ghodarva",
+      "ઘોડેરવા",
+      "ઘોડરવો",
+      "ખુરલ અને ઘોડરવા"
+    ],
+    "type": "hardcode",
+    "rule": "ઘોડરવા / ghodarva refers to the pasterns/fetlocks of cattle and buffalo (the lower-limb joint area above the hoof). It is body anatomy of bovines, NOT donkeys, horses, or mules — the surface similarity to 'ઘોડા' (horse) is misleading. When translating to English, render as 'pasterns', 'fetlocks', or 'lower-limb joints'. Treat questions about applying medicine to ઘોડરવા as cattle/buffalo hoof and joint care, not equine care."
+  },
+  {
+    "gu_terms": [
+      "કથીરી",
+      "kathiri",
       "મેલી",
+      "મેલી પડવી",
       "જર",
-      "meli",
-      "jar",
-      "mati na khasvi",
-      "afterbirth"
+      "જર પડવી",
+      "retained placenta",
+      "afterbirth retention"
     ],
     "type": "hardcode",
-    "rule": "'માટી ન ખસવી' or 'મેલી ન પડવી' means retained placenta (afterbirth not expelled after calving). This is NOT the same as anestrus (not coming in heat) or prolapse (uterus coming out). Answer about retained placenta treatment: gentle traction, oxytocin injection by vet, antibiotics, calcium supplementation."
-  },
-  {
-    "gu_terms": [
-      "કરમોડી",
-      "karmodi",
-      "karamodi"
-    ],
-    "type": "hardcode",
-    "rule": "'કરમોડી' is horn cancer — a squamous cell carcinoma affecting cattle horns. It is NOT a skin disease, lumpy skin disease, or general infection. Treatment requires surgical removal of the affected horn by a veterinarian."
-  },
-  {
-    "gu_terms": [
-      "વાડો",
-      "vado",
-      "vaado"
-    ],
-    "type": "hardcode",
-    "rule": "'વાડો' means cattle shed or animal enclosure, NOT પાડો (male buffalo calf). When a farmer asks about 'વાડો', they are asking about housing, shelter, or shed management — NOT about calves."
-  },
-  {
-    "gu_terms": [
-      "ભેંસ",
-      "ભેંસને",
-      "ભેંસો",
-      "ભેસ",
-      "ભેસને",
-      "ભેંશ",
-      "ભેંશને",
-      "ભૈંસ",
-      "ભૈંસને",
-      "ભૈસ",
-      "ભૈસને",
-      "ભેન્સ",
-      "ભેન્સને",
-      "ભેસ્ટ",
-      "ભેસ્ટને",
-      "ભંચ",
-      "ભંચને",
-      "ભેંચ",
-      "ભેંચને",
-      "ભેન્ચ",
-      "ભેન્ચને"
-    ],
-    "type": "hardcode",
-    "rule": "'ભેંસ' and ASR/spelling variants such as 'ભેસ્ટ', 'ભંચ', and 'ભેંચને' mean buffalo in Gujarati dairy context, NOT sheep or goat. Translate these as Buffalo. The suffix '-ને' is only the Gujarati object marker, not part of the animal name."
-  },
-  {
-    "gu_terms": [
-      "ગરમી",
-      "ગરમીમાં",
-      "ગરમીમાં આવવું",
-      "ગરમી નથી આવતી",
-      "heat",
-      "garmi",
-      "not coming in heat"
-    ],
-    "type": "hardcode",
-    "rule": "CRITICAL DOMAIN DISTINCTION — ગરમી (heat/estrus) and ગાભણ (pregnancy) are COMPLETELY DIFFERENT concepts. ગરમી means the animal is in heat (estrus cycle, ready for mating). ગાભણ means the animal is pregnant (carrying a calf). When a farmer says 'ગરમી નથી આવતી' or 'not coming in heat', they mean the animal is NOT showing estrus signs — do NOT use the word ગાભણ (pregnant) in your response. Say 'ગરમીમાં ન આવવું' NOT 'ગાભણ ન આવવું'. Say 'છેલ્લે ગરમીમાં ક્યારે આવ્યું?' NOT 'છેલ્લે ક્યારે ગાભણ આવ્યું?'. Anestrus (not coming in heat) is about missing estrus cycles. Pregnancy is about carrying offspring. Never confuse these."
+    "rule": "કથીરી / kathiri / મેલી / જર refers to retained placenta (afterbirth retention) — the placenta failing to expel within 8-12 hours after calving, risking uterine infection (metritis). When translating to English, always render as 'retained placenta' or 'afterbirth retention'. NEVER translate as Coccidiosis, parasitic infection, or any unrelated condition. Treat as a postpartum reproductive issue requiring veterinary intervention."
   }
 ]
