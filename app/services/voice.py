@@ -1251,8 +1251,14 @@ async def stream_voice_message(
                 include_tool_calls=True,
             )
             logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
-            system_request = ModelRequest(parts=[SystemPromptPart(content=STATIC_VOICE_SYSTEM_PROMPT)])
-            model_input_history = [system_request, runtime_context_request, *trimmed_history]
+            # pydantic-ai's Agent(instructions=STATIC_VOICE_SYSTEM_PROMPT) already
+            # emits the system prompt on every run. Prepending another
+            # SystemPromptPart here produced two identical role=system messages
+            # (~33 KB each) per turn, which both inflates context and dilutes
+            # attention to the actual runtime context. Keep only the runtime
+            # context request, which carries the per-turn deps (today's date,
+            # farmer profile, ambiguity hints, voice answer mode).
+            model_input_history = [runtime_context_request, *trimmed_history]
             active_agent = voice_agent_signed_in if (signed_in and mobile) else voice_agent
             usage_limits = UsageLimits(request_limit=6 if (signed_in and mobile) else 4)
 
