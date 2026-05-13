@@ -5,6 +5,7 @@ import functools
 import inspect
 
 from pydantic_ai import Tool
+from agents.tools.milk_collection import get_farmer_milk_collection_details
 from agents.tools.terms import search_terms
 from agents.tools.search import search_documents
 from agents.tools.ai_call import create_ai_call
@@ -43,6 +44,12 @@ BASE_TOOLS = [
     Tool(
         _with_nudge_signal(create_ai_call),
         takes_ctx=True,
+        docstring_format='auto',
+        require_parameter_descriptions=True,
+    ),
+    Tool(
+        _with_nudge_signal(get_farmer_milk_collection_details),
+        takes_ctx=False,
         docstring_format='auto',
         require_parameter_descriptions=True,
     ),
