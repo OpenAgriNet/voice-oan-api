@@ -567,7 +567,10 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
     )
 
     # -- Ambiguity hints from ambiguity_terms.json ---------------------
-    ambiguity_hints = get_ambiguity_hints_for_query(text)
+    # include_ask=False so "ask" type entries (clarifying-question rules
+    # meant for the answering agent) don't leak into the translator prompt
+    # and get echoed back as appended follow-up questions.
+    ambiguity_hints = get_ambiguity_hints_for_query(text, include_ask=False)
     if ambiguity_hints:
         domain_preamble += f"\nDomain-specific disambiguation rules for terms in this message:\n{ambiguity_hints}\n"
 
