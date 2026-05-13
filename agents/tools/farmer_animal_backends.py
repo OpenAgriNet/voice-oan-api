@@ -16,6 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from agents.models.farmer import FarmerRecord, AnimalRecord
 from agents.models.ai_call import AICallRequestModel, AICallResponseModel
 from agents.models.health_call import HealthCallRequestModel, HealthCallResponseModel
+from app.models.milk_collection import (
+    FarmerMilkCollectionRequestModel,
+    FarmerMilkCollectionResponseModel,
+)
 from app.observability import start_observation
 from helpers.utils import get_logger
 
@@ -378,6 +382,63 @@ async def get_ai_technicians_by_society_api(
             "[GetAITechniciansBySociety(%s,%s)] :: Error: %s",
             query.union_code,
             query.society_code,
+            e,
+        )
+    return None
+
+
+async def get_farmer_milk_collection_details_api(
+    request: FarmerMilkCollectionRequestModel,
+    token: str,
+) -> FarmerMilkCollectionResponseModel | None:
+    """Fetches farmer milk collection and deduction details from PashuGPT."""
+    api_url = f"{BASE_AMULPASHUDHAN}/FarmerMilkCollectionDetails"
+    try:
+        with start_observation(
+            "get_farmer_milk_collection_details_api",
+            input=request.to_query_params(),
+            metadata={"provider": "amulpashudhan", "url": api_url},
+        ) as observation:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    api_url,
+                    params=request.to_query_params(),
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                response.raise_for_status()
+            if observation is not None:
+                observation.update(
+                    output={"status_code": response.status_code},
+                    metadata={"provider": "amulpashudhan", "url": api_url},
+                )
+
+        if response.status_code == 204 or not (response.text or "").strip():
+            return None
+
+        response_json = response.json()
+        if not isinstance(response_json, dict):
+            raise ValueError("Expected dict response from FarmerMilkCollectionDetails")
+
+        return FarmerMilkCollectionResponseModel.model_validate(response_json)
+    except httpx.HTTPStatusError as e:
+        _logger.error(
+            "[FarmerMilkCollectionDetails(%s,%s,%s,%s,%s)] :: HTTP %s: %s",
+            request.union_code,
+            request.society_code,
+            request.farmer_code,
+            request.fromdate,
+            request.todate,
+            e.response.status_code,
+            e.response.text,
+        )
+    except Exception as e:
+        _logger.error(
+            "[FarmerMilkCollectionDetails(%s,%s,%s,%s,%s)] :: Error: %s",
+            request.union_code,
+            request.society_code,
+            request.farmer_code,
+            request.fromdate,
+            request.todate,
             e,
         )
     return None
