@@ -38,7 +38,7 @@ python-decouple
 openpyxl
 
 ### Pydantic AI (Updated to resolve conflicts)
-pydantic-ai==0.2.4
+pydantic-ai-slim[openai,anthropic,vertexai]==0.2.4
 asgiref
 
 # Web Server
