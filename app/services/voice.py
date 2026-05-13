@@ -61,6 +61,7 @@ from app.services.translation import (
     translate_to_english_with_gpt5_mini,
     translate_to_english_with_structured_fallback,
 )
+from app.services.voice_trace import VoiceTrace, create_voice_trace
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerContext
@@ -768,6 +769,7 @@ async def stream_voice_message(
     user_info: dict = None,
     owner: Optional[SessionRequestOwner] = None,
     http_request: Optional[Request] = None,
+    trace: Optional[VoiceTrace] = None,
 #    background_tasks: BackgroundTasks,
     
 ) -> AsyncGenerator[str, None]:
@@ -775,10 +777,20 @@ async def stream_voice_message(
     request_started_at = time.monotonic()
     last_owner_refresh_at = 0.0
     last_emitted_sig_char: str | None = None
+    trace = trace or create_voice_trace(
+        session_id=session_id,
+        user_id=user_id,
+        query=query,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        provider=provider,
+        process_id=process_id,
+    )
 
     async def _request_is_stale(reason: str) -> bool:
         nonlocal last_owner_refresh_at
         if http_request is not None and await http_request.is_disconnected():
+            trace.set_outcome("client_disconnected")
             logger.info(
                 "Stopping request due to client disconnect - session_id=%s process_id=%s reason=%s",
                 session_id,
@@ -795,6 +807,7 @@ async def stream_voice_message(
             refreshed = await refresh_session_request_ownership(owner)
             last_owner_refresh_at = now
             if not refreshed:
+                trace.set_outcome("stale_request")
                 logger.info(
                     "Stopping stale request after ownership lost during refresh - session_id=%s process_id=%s epoch=%s reason=%s",
                     session_id,
@@ -805,6 +818,7 @@ async def stream_voice_message(
                 return True
 
         if owner is not None and not await is_session_request_owner(owner):
+            trace.set_outcome("stale_request")
             logger.info(
                 "Stopping stale request because a newer request owns the session - session_id=%s process_id=%s epoch=%s reason=%s",
                 session_id,
@@ -847,10 +861,18 @@ async def stream_voice_message(
             last_emitted_sig_char = last_sig
         return text
 
+    def _emit(text: str, *, kind: str = "assistant") -> str:
+        trace.record_emit(text, kind=kind)
+        return text
+
     try:
-        with _langfuse_session_context(session_id, user_id, process_id):
+        # Keep the Langfuse root observation open for the full streaming
+        # generator so downstream model calls and pydantic-ai spans nest under
+        # this voice_request.
+        with trace.request_context():
             requested_source_lang = (source_lang or "gu").strip().lower()
             requested_target_lang = (target_lang or "gu").strip().lower()
+            trace.set_language(requested_source_lang, requested_target_lang)
             needs_output_translation = requested_target_lang in INDIAN_LANGUAGES and requested_target_lang not in {"en", "english"}
             nudge_lang = (requested_target_lang or "en").strip().lower()
             has_meaningful_history = _has_meaningful_history(history)
@@ -860,6 +882,7 @@ async def stream_voice_message(
             # generate a short contextual "please repeat" via GPT-5-mini.
             stt_signal = detect_stt_signal(query)
             if stt_signal is not None:
+                trace.set_route("stt_signal")
                 logger.info(
                     "STT signal detected; session_id=%s process_id=%s signal=%s",
                     session_id,
@@ -871,12 +894,13 @@ async def stream_voice_message(
                     return
                 prior_stt_failures = count_consecutive_stt_signals(history)
                 final_attempt = (prior_stt_failures + 1) >= max(1, settings.stt_signal_retry_ceiling)
-                stt_response = await generate_stt_signal_response(
-                    signal=stt_signal,
-                    target_lang=requested_target_lang,
-                    recent_history_text=recent_text,
-                    final_attempt=final_attempt,
-                )
+                with trace.stage("stt_signal_response", as_type="generation"):
+                    stt_response = await generate_stt_signal_response(
+                        signal=stt_signal,
+                        target_lang=requested_target_lang,
+                        recent_history_text=recent_text,
+                        final_attempt=final_attempt,
+                    )
                 history_signal = (
                     _canonical_history_user_text("stt_no_audio")
                     if stt_signal == "No audio/User is speaking softly"
@@ -884,8 +908,10 @@ async def stream_voice_message(
                 )
                 history_response = _FRAGMENT_RESPONSES["en"] if not final_attempt else "Sorry, I still could not hear you clearly. Please try again later."
                 stt_req, stt_resp = _history_pair(history_signal, history_response)
-                await update_message_history(session_id, [*history, stt_req, stt_resp])
-                yield _prepare_voice_output(stt_response, requested_target_lang)
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, stt_req, stt_resp])
+                trace.set_outcome("stt_signal")
+                yield _emit(_prepare_voice_output(stt_response, requested_target_lang))
                 return
 
             # ── Hold message short-circuit ────────────────────────────────
@@ -893,6 +919,7 @@ async def stream_voice_message(
             # STT and sent as user input, creating runaway loops of 20+ traces.
             # Respond with "goodbye" so the STT provider disconnects the call.
             if _is_hold_message(query):
+                trace.set_route("hold_message")
                 logger.info(
                     "Hold message detected; responding with goodbye to cut call - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query[:100],
@@ -901,7 +928,8 @@ async def stream_voice_message(
                     requested_target_lang,
                     TELEPHONY_TERMINATE_CALL_TOKEN["en"],
                 )
-                yield _prepare_voice_output(goodbye, requested_target_lang)
+                trace.set_outcome("hold_message")
+                yield _emit(_prepare_voice_output(goodbye, requested_target_lang))
                 return
 
             # ── Greeting short-circuit ────────────────────────────────────
@@ -910,15 +938,19 @@ async def stream_voice_message(
             # When translation pipeline is active, let greetings flow through
             # the normal agent pipeline so history stays in English.
             if _is_bare_greeting(query) and not has_meaningful_history:
+                trace.set_route("greeting_fast_path")
                 logger.info(
                     "Bare greeting detected; short-circuiting - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
                 )
                 greeting_history = _GREETING_RESPONSES["en"]
-                greeting_response = await _render_text_for_caller(greeting_history, requested_target_lang)
+                with trace.stage("greeting_fast_path"):
+                    greeting_response = await _render_text_for_caller(greeting_history, requested_target_lang)
                 greet_req, greet_resp = _history_pair(_canonical_history_user_text("greeting"), greeting_history)
-                await update_message_history(session_id, [*history, greet_req, greet_resp])
-                yield _prepare_voice_output(greeting_response, requested_target_lang)
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, greet_req, greet_resp])
+                trace.set_outcome("greeting_fast_path")
+                yield _emit(_prepare_voice_output(greeting_response, requested_target_lang))
                 return
 
             # ── Identity fast-path ────────────────────────────────────────
@@ -926,30 +958,38 @@ async def stream_voice_message(
             # should return the canonical Sarlaben identity line directly
             # without running the full agent pipeline.
             if _fast_path_kind_for_query(query) == "identity" and not has_meaningful_history:
+                trace.set_route("identity_fast_path")
                 logger.info(
                     "Identity fast-path triggered; session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
                 )
                 identity_resp_en = _IDENTITY_RESPONSE_EN
-                identity_resp_for_caller = await _render_text_for_caller(identity_resp_en, requested_target_lang)
+                with trace.stage("identity_fast_path"):
+                    identity_resp_for_caller = await _render_text_for_caller(identity_resp_en, requested_target_lang)
                 id_req, id_resp = _history_pair(_canonical_history_user_text("greeting"), identity_resp_en)
-                await update_message_history(session_id, [*history, id_req, id_resp])
-                yield _prepare_voice_output(identity_resp_for_caller, requested_target_lang)
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, id_req, id_resp])
+                trace.set_outcome("identity_fast_path")
+                yield _emit(_prepare_voice_output(identity_resp_for_caller, requested_target_lang))
                 return
 
             # ── Fragment short-circuit ────────────────────────────────────
             # Very short / garbled input (≤3 chars) that isn't a greeting or
             # STT signal — ask the farmer to repeat instead of routing to agent.
             if _is_fragment_query(query) and not has_meaningful_history:
+                trace.set_route("fragment_fast_path")
                 logger.info(
                     "Fragment query detected; short-circuiting - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
                 )
                 frag_response_for_history = _FRAGMENT_RESPONSES["en"]
-                frag_response_for_caller = await _render_text_for_caller(frag_response_for_history, requested_target_lang)
+                with trace.stage("fragment_fast_path"):
+                    frag_response_for_caller = await _render_text_for_caller(frag_response_for_history, requested_target_lang)
                 frag_req, frag_resp = _history_pair(_canonical_history_user_text("fragment"), frag_response_for_history)
-                await update_message_history(session_id, [*history, frag_req, frag_resp])
-                yield _prepare_voice_output(frag_response_for_caller, requested_target_lang)
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, frag_req, frag_resp])
+                trace.set_outcome("fragment_fast_path")
+                yield _emit(_prepare_voice_output(frag_response_for_caller, requested_target_lang))
                 return
 
             # ── Nudge: arm BEFORE any pre-processing ────────────────────────
@@ -959,6 +999,7 @@ async def stream_voice_message(
             # Cancelled if first text/translated chunk reaches the client first.
             nudge_task = None
             if settings.enable_voice_nudges:
+                trace.set_nudge(armed=True, sent=False)
                 nudge_sent = False
                 tool_call_event = asyncio.Event()
                 set_tool_call_nudge_event(tool_call_event)
@@ -993,6 +1034,11 @@ async def stream_voice_message(
                         if nudge_sent:
                             return
                         nudge_sent = True
+                        trace.set_nudge(
+                            sent=True,
+                            trigger=trigger_reason,
+                            sent_ms=round((time.monotonic() - request_started_at) * 1000.0, 2),
+                        )
                         nudge_msg = (
                             get_tool_nudge_message(nudge_lang)
                             if trigger_reason == "tool_call"
@@ -1024,6 +1070,7 @@ async def stream_voice_message(
                     process_id,
                 )
             else:
+                trace.set_nudge(armed=False, sent=False)
                 logger.info(
                     "Voice nudges disabled by config; session_id=%s process_id=%s",
                     session_id,
@@ -1050,6 +1097,7 @@ async def stream_voice_message(
             # Kick off content moderation in parallel with pretranslation.
             # Moderation receives the raw native-language text so it does
             # not need to wait for pretranslation to finish.
+            moderation_started_at = time.monotonic()
             moderation_task = asyncio.create_task(
                 check_moderation(
                     text=query,
@@ -1068,9 +1116,22 @@ async def stream_voice_message(
                     moderation_task.cancel()
                     return
                 try:
-                    processing_query, pretranslation_confidence = await translate_to_english_with_gpt5_mini(
-                        text=query,
-                        source_lang=requested_source_lang,
+                    with trace.stage(
+                        "pretranslation",
+                        as_type="generation",
+                        input=trace.metadata.get("query"),
+                        metadata={"provider": "openai", "source_lang": requested_source_lang},
+                        model=OPENAI_PRETRANSLATION_MODEL,
+                    ):
+                        processing_query, pretranslation_confidence = await translate_to_english_with_gpt5_mini(
+                            text=query,
+                            source_lang=requested_source_lang,
+                        )
+                    trace.set_pretranslation(
+                        text=processing_query,
+                        confidence=pretranslation_confidence,
+                        provider="openai",
+                        fallback_used=False,
                     )
                     history_user_text = processing_query or _canonical_history_user_text("low_confidence")
                 except Exception as e:
@@ -1083,9 +1144,21 @@ async def stream_voice_message(
                     )
                     try:
                         logger.info("Falling back to TranslateGemma pretranslation for session_id=%s", session_id)
-                        processing_query, pretranslation_confidence = await translate_to_english_with_structured_fallback(
-                            text=query,
-                            source_lang=requested_source_lang,
+                        with trace.stage(
+                            "pretranslation_fallback",
+                            as_type="generation",
+                            input=trace.metadata.get("query"),
+                            metadata={"provider": "translategemma", "source_lang": requested_source_lang},
+                        ):
+                            processing_query, pretranslation_confidence = await translate_to_english_with_structured_fallback(
+                                text=query,
+                                source_lang=requested_source_lang,
+                            )
+                        trace.set_pretranslation(
+                            text=processing_query,
+                            confidence=pretranslation_confidence,
+                            provider="translategemma",
+                            fallback_used=True,
                         )
                         history_user_text = processing_query or _canonical_history_user_text("low_confidence")
                     except Exception as fallback_error:
@@ -1096,10 +1169,22 @@ async def stream_voice_message(
                         )
                         processing_query = ""
                         pretranslation_confidence = "low"
+                        trace.set_pretranslation(
+                            text=processing_query,
+                            confidence=pretranslation_confidence,
+                            provider="failed",
+                            fallback_used=True,
+                        )
                         history_user_text = _canonical_history_user_text("pretranslation_failed")
 
             else:
                 history_user_text = query
+                trace.set_pretranslation(
+                    text=query,
+                    confidence="high",
+                    provider="none",
+                    fallback_used=False,
+                )
 
             # ── Content moderation gate ──────────────────────────────────
             # Await the moderation task that was started alongside
@@ -1109,15 +1194,27 @@ async def stream_voice_message(
             # drop a real farmer call.
             try:
                 moderation_verdict: ModerationVerdict = await moderation_task
+                trace.attach_stage_timing(
+                    "moderation",
+                    (time.monotonic() - moderation_started_at) * 1000.0,
+                    source_lang=requested_source_lang,
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as moderation_error:
+                trace.attach_stage_timing(
+                    "moderation",
+                    (time.monotonic() - moderation_started_at) * 1000.0,
+                    status="error",
+                    source_lang=requested_source_lang,
+                )
                 logger.error(
                     "Moderation task raised unexpectedly for session_id=%s error=%s",
                     session_id,
                     moderation_error,
                 )
                 moderation_verdict = None  # type: ignore[assignment]
+            trace.set_moderation(moderation_verdict)
 
             if moderation_verdict is not None:
                 logger.info(
@@ -1131,10 +1228,12 @@ async def stream_voice_message(
                 )
 
             if moderation_verdict is not None and moderation_verdict.rejected:
+                trace.set_route("moderation_rejected")
                 if await _request_is_stale("after_moderation_reject"):
                     return
                 if nudge_task and not nudge_task.done():
                     nudge_task.cancel()
+                    trace.set_nudge(cancel_reason="moderation_rejected")
                     logger.info(
                         "Nudge canceled (moderation rejected); session_id=%s process_id=%s",
                         session_id,
@@ -1151,8 +1250,10 @@ async def stream_voice_message(
                 decline_for_caller = await _render_text_for_caller(decline_en, requested_target_lang)
                 decline_user_text = _canonical_history_user_text("moderation_reject")
                 decl_req, decl_resp = _history_pair(decline_user_text, decline_en)
-                await update_message_history(session_id, [*history, decl_req, decl_resp])
-                yield _prepare_voice_output(decline_for_caller, requested_target_lang)
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, decl_req, decl_resp])
+                trace.set_outcome("moderation_rejected")
+                yield _emit(_prepare_voice_output(decline_for_caller, requested_target_lang))
                 return
 
             # ── Empty-pretranslation guard ───────────────────────────────
@@ -1171,6 +1272,7 @@ async def stream_voice_message(
                 and not (processing_query or "").strip()
                 and not (processing_query or "").strip()
             ):
+                trace.set_route("pretranslation_empty")
                 logger.info(
                     "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
@@ -1183,19 +1285,30 @@ async def stream_voice_message(
                     history_user_text or _canonical_history_user_text("low_confidence"),
                     low_conf_resp_for_history,
                 )
-                await update_message_history(session_id, [*history, low_conf_req, low_conf_rsp])
-                yield _prepare_voice_output(low_conf_resp_for_caller, requested_target_lang)
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, low_conf_req, low_conf_rsp])
+                trace.set_outcome("pretranslation_empty")
+                yield _emit(_prepare_voice_output(low_conf_resp_for_caller, requested_target_lang))
                 return
 
             if farmer_cache_task is not None:
                 try:
-                    envelope = await farmer_cache_task
+                    with trace.stage("farmer_context"):
+                        envelope = await farmer_cache_task
                     farmer_info = _build_compact_farmer_summary(envelope)
                     farmer_unions = _collect_farmer_unions(envelope)
-                    scheme_summary = await _build_union_scheme_summary(farmer_unions)
+                    with trace.stage("scheme_summary"):
+                        scheme_summary = await _build_union_scheme_summary(farmer_unions)
                     if scheme_summary:
                         farmer_info = f"{farmer_info}\n{scheme_summary}" if farmer_info else scheme_summary
                     ai_technician_info = _build_ai_technician_summary(envelope)
+                    trace.set_farmer_context(
+                        source=getattr(envelope, "source", None) if envelope else None,
+                        stale=getattr(envelope, "stale", None) if envelope else None,
+                        unions=farmer_unions,
+                        farmer_info_chars=len(farmer_info),
+                        technician_info_chars=len(ai_technician_info),
+                    )
                     logger.info(
                         "Farmer summary loaded from cache for mobile %s source=%s stale=%s unions=%s summary_chars=%s technician_chars=%s",
                         mobile,
@@ -1284,12 +1397,20 @@ async def stream_voice_message(
                 # and reliably returns the final en text; we then stream the en→gu
                 # translation downstream via translate_text_stream_fast so the
                 # external response contract (gu chunks to the caller) is preserved.
-                agent_result = await active_agent.run(
-                    user_prompt=user_message,
-                    message_history=model_input_history,
-                    deps=deps,
-                    usage_limits=usage_limits,
-                )
+                with trace.stage(
+                    "agent",
+                    as_type="agent",
+                    metadata={
+                        "signed_in": bool(signed_in and mobile),
+                        "request_limit": usage_limits.request_limit,
+                    },
+                ):
+                    agent_result = await active_agent.run(
+                        user_prompt=user_message,
+                        message_history=model_input_history,
+                        deps=deps,
+                        usage_limits=usage_limits,
+                    )
                 _agent_output = (
                     getattr(agent_result, "output", None)
                     or getattr(agent_result, "data", None)
@@ -1298,6 +1419,8 @@ async def stream_voice_message(
                 if not isinstance(_agent_output, str):
                     _agent_output = str(_agent_output)
                 _agent_output = _agent_output.strip()
+                if _agent_output:
+                    trace.mark("first_agent_text_ms")
 
                 class _AgentRunResultStreamShim:
                     """Adapter so the downstream batching/translation logic keeps
@@ -1338,20 +1461,29 @@ async def stream_voice_message(
                             return
                         text_to_translate = _guard_identity_drift(text_to_translate)
                         try:
-                            async for chunk in translate_text_stream_fast(
-                                text=text_to_translate,
-                                source_lang="english",
-                                target_lang=requested_target_lang,
+                            with trace.stage(
+                                "output_translation",
+                                as_type="generation",
+                                input={"chars": len(text_to_translate)},
+                                metadata={"target_lang": requested_target_lang},
                             ):
-                                if await _request_is_stale("during_output_translation"):
-                                    return
-                                cleaned = (
-                                    _prepare_voice_output(chunk, requested_target_lang)
-                                    if isinstance(chunk, str) and chunk
-                                    else chunk
-                                )
-                                yield cleaned
+                                async for chunk in translate_text_stream_fast(
+                                    text=text_to_translate,
+                                    source_lang="english",
+                                    target_lang=requested_target_lang,
+                                ):
+                                    if await _request_is_stale("during_output_translation"):
+                                        return
+                                    cleaned = (
+                                        _prepare_voice_output(chunk, requested_target_lang)
+                                        if isinstance(chunk, str) and chunk
+                                        else chunk
+                                    )
+                                    if isinstance(cleaned, str) and cleaned.strip():
+                                        trace.mark("first_translation_chunk_ms")
+                                    yield cleaned
                         except Exception as e:
+                            trace.increment("output_translation_errors")
                             logger.error(
                                 "Translation pipeline output translation failed for session_id=%s error=%s",
                                 session_id,
@@ -1388,6 +1520,7 @@ async def stream_voice_message(
                                             await nudge_task
                                         except asyncio.CancelledError:
                                             pass
+                                    trace.set_nudge(cancel_reason="first_text_chunk_received")
 
                                 cleaned_chunk = (
                                     _prepare_voice_output(chunk, requested_target_lang)
@@ -1396,7 +1529,7 @@ async def stream_voice_message(
                                 )
                                 if await _request_is_stale("before_direct_yield"):
                                     break
-                                yield cleaned_chunk
+                                yield _emit(cleaned_chunk)
                                 continue
 
                             sentence_buffer += chunk
@@ -1440,9 +1573,10 @@ async def stream_voice_message(
                                                             await nudge_task
                                                         except asyncio.CancelledError:
                                                             pass
+                                                    trace.set_nudge(cancel_reason="first_translated_chunk_received")
                                                 if await _request_is_stale("before_translated_yield"):
                                                     break
-                                                yield _prepare_translated_emit(translated_chunk)
+                                                yield _emit(_prepare_translated_emit(translated_chunk))
                                             translation_batch = []
                                             batch_word_count = 0
 
@@ -1470,9 +1604,10 @@ async def stream_voice_message(
                                                 await nudge_task
                                         except asyncio.CancelledError:
                                             pass
+                                        trace.set_nudge(cancel_reason="final_translated_batch")
                                     if await _request_is_stale("before_final_translated_yield"):
                                         break
-                                    yield _prepare_translated_emit(translated_chunk)
+                                    yield _emit(_prepare_translated_emit(translated_chunk))
 
                             if sentence_buffer.strip():
                                 async for translated_chunk in _yield_translated_text(sentence_buffer):
@@ -1494,9 +1629,10 @@ async def stream_voice_message(
                                                 await nudge_task
                                         except asyncio.CancelledError:
                                             pass
+                                        trace.set_nudge(cancel_reason="tail_translated_fragment")
                                     if await _request_is_stale("before_tail_translated_yield"):
                                         break
-                                    yield _prepare_translated_emit(translated_chunk)
+                                    yield _emit(_prepare_translated_emit(translated_chunk))
                     except StopAsyncIteration:
                         pass
                     except RuntimeError as e:
@@ -1515,6 +1651,7 @@ async def stream_voice_message(
                     finally:
                         if nudge_task and not nudge_task.done():
                             if nudge_task: nudge_task.cancel()
+                            trace.set_nudge(cancel_reason="stream_ended")
                             logger.info(
                                 "Nudge canceled (stream ended); session_id=%s process_id=%s",
                                 session_id,
@@ -1527,6 +1664,11 @@ async def stream_voice_message(
 
                     logger.info(f"Streaming complete for session {session_id}")
                     new_messages = response_stream.new_messages()
+                    trace.set_agent(
+                        signed_in=bool(signed_in and mobile),
+                        output=_agent_output,
+                        new_messages=new_messages,
+                    )
 
             # If the LLM called signal_conversation_state("conversation_closing"),
             # append the termination token so RAYA disconnects the call.
@@ -1548,16 +1690,28 @@ async def stream_voice_message(
                     "Appending goodbye after conversation_closing signal; session_id=%s process_id=%s",
                     session_id, process_id,
                 )
-                yield " " + goodbye
+                yield _emit(" " + goodbye)
 
             if await _request_is_stale("before_history_write"):
                 return
 
             messages = [*history, *new_messages]
             logger.info(f"Updating message history for session {session_id} with {len(messages)} messages")
-            await update_message_history(session_id, messages)
+            with trace.stage("history_write"):
+                await update_message_history(session_id, messages)
+            if trace.outcome is None:
+                trace.set_outcome("success")
+    except Exception as exc:
+        trace.finish(trace.outcome or "error", error=exc)
+        raise
     finally:
+        release_started_at = time.monotonic()
         released = await release_session_request_ownership(owner)
+        trace.attach_stage_timing(
+            "ownership_release",
+            (time.monotonic() - release_started_at) * 1000.0,
+            released=released,
+        )
         if owner is not None:
             logger.info(
                 "Session ownership released - session_id=%s process_id=%s epoch=%s released=%s",
@@ -1566,3 +1720,4 @@ async def stream_voice_message(
                 owner.epoch,
                 released,
             )
+        trace.finish(trace.outcome or "success")

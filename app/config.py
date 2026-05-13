@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     enable_voice_nudges: bool = _get_bool_env("ENABLE_VOICE_NUDGES", default=True)
     stt_signal_retry_ceiling: int = int(os.getenv("STT_SIGNAL_RETRY_CEILING", "3"))
     openai_pretranslation_timeout_seconds: float = float(os.getenv("OPENAI_PRETRANSLATION_TIMEOUT_SECONDS", "10.0"))
+    enable_voice_tracing: bool = _get_bool_env("ENABLE_VOICE_TRACING", default=True)
+    voice_trace_text_mode: str = os.getenv("VOICE_TRACE_TEXT_MODE", "preview_hash")
+    voice_trace_preview_chars: int = int(os.getenv("VOICE_TRACE_PREVIEW_CHARS", "120"))
+    voice_trace_log_summary: bool = _get_bool_env("VOICE_TRACE_LOG_SUMMARY", default=True)
 
     # Voice pipeline behavioral flags
     # RETRIEVAL_AUDIT_LOG: log intent/retrieval_called/query per turn for replay analysis

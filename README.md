@@ -129,6 +129,28 @@ Relevant tuning env vars:
 - `SESSION_OWNER_TTL_SECONDS` default: `120`
 - `SESSION_OWNER_REFRESH_INTERVAL_SECONDS` default: `15`
 
+## Voice Tracing
+
+Voice request tracing is enabled by default with `ENABLE_VOICE_TRACING=true`.
+When Langfuse is configured, each streamed voice request opens one root
+`voice_request` observation and nests moderation, translation, agent, and tool
+spans below it. The service also emits one structured `VOICE_TRACE_SUMMARY`
+log line per request when `VOICE_TRACE_LOG_SUMMARY=true`.
+
+Tracing env vars:
+- `ENABLE_VOICE_TRACING` default: `true`
+- `VOICE_TRACE_LOG_SUMMARY` default: `true`
+- `VOICE_TRACE_TEXT_MODE` default: `preview_hash`; supported values are `preview_hash`, `full`, and `none`
+- `VOICE_TRACE_PREVIEW_CHARS` default: `120`
+
+Latency definitions:
+- `ttft_ms`: time from backend request start to the first yielded response chunk
+- `ttfr_ms`: time from backend request start to the first non-nudge assistant text yielded to the client
+
+Default traces do not store full caller text. They store character counts,
+SHA-256 hashes, and short previews so production traces remain useful without
+persisting complete utterances.
+
 ## Testing
 
 Fast local regression suite:
