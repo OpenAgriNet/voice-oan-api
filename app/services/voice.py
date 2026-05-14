@@ -1,14 +1,10 @@
 import os
 from typing import AsyncGenerator, Optional, Literal
 # from fastapi import BackgroundTasks
-from agents.voice import voice_agent
+from agents.voice import agrinet_vllm_usage_limits, voice_agent
 from helpers.utils import get_logger
 from app.langfuse_client import get_langfuse, traced_voice_request
 from app.config import settings
-from pydantic_ai.messages import (  # type: ignore
-    PartDeltaEvent,
-    TextPartDelta,
-)
 from app.utils import (
     update_message_history, 
     trim_history, 
@@ -72,6 +68,14 @@ def _langfuse_kv_tags(**key_values: object) -> list[str]:
             continue
         tags.append(f"{key}:{value}")
     return tags
+
+
+def _sse_encode(text: str) -> str:
+    """Format a payload as one SSE event (see docs/VOICE_API_DOCUMENTATION.md)."""
+    lines = (text or "").splitlines()
+    if not lines:
+        return "data: \n\n"
+    return "".join(f"data: {line}\n" for line in lines) + "\n"
 
 
 # Default trim history configuration for voice endpoints
@@ -161,62 +165,62 @@ async def stream_voice_message(
         trimmed_history = _trim_voice_history(history)
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
-        # We buffer streamed text and only emit once at the end.
-        # This avoids premature "please wait" drafts being sent to the client while tools run,
-        # and stays compatible across pydantic_ai versions/providers where delta events vary.
-        final_text: str = ""
+        # One-shot SSE: clients expect `data: ...\n\n` (not raw text). Use `run()` so tool loops
+        # finish reliably on OpenAI-compatible vLLM; `run_stream`/`get_output` can omit text there.
+        final_text = ""
+        new_messages: list = []
         lf_client = get_langfuse()
-        if lf_obs is not None and lf_client is not None:
-            # Create a dedicated generation observation so Langfuse can compute usage/cost.
-            with lf_client.start_as_current_observation(
-                as_type="generation",
-                name=_langfuse_llm_model() or "llm",
-                model=_langfuse_llm_model(),
-                input={"user_prompt": user_message},
-            ) as lf_gen:
-                async with voice_agent.run_stream(
+        try:
+            if lf_obs is not None and lf_client is not None:
+                with lf_client.start_as_current_observation(
+                    as_type="generation",
+                    name=_langfuse_llm_model() or "llm",
+                    model=_langfuse_llm_model(),
+                    input={"user_prompt": user_message},
+                ) as lf_gen:
+                    response = await voice_agent.run(
+                        user_prompt=user_message,
+                        message_history=trimmed_history,
+                        deps=deps,
+                        usage_limits=agrinet_vllm_usage_limits,
+                    )
+                    raw_out = getattr(response, "output", None)
+                    final_text = "" if raw_out is None else str(raw_out)
+                    new_messages = (
+                        response.new_messages() if hasattr(response, "new_messages") else []
+                    )
+                    lf_gen.update(
+                        output=final_text,
+                        usage_details=_langfuse_usage_details(response),
+                    )
+            else:
+                response = await voice_agent.run(
                     user_prompt=user_message,
                     message_history=trimmed_history,
                     deps=deps,
-                ) as response_stream:
-                    # Use non-delta stream so we always get the latest full text.
-                    # We intentionally do NOT yield intermediate chunks.
-                    async for chunk in response_stream.stream_text(delta=False):
-                        if chunk:
-                            final_text = chunk
+                    usage_limits=agrinet_vllm_usage_limits,
+                )
+                raw_out = getattr(response, "output", None)
+                final_text = "" if raw_out is None else str(raw_out)
+                new_messages = (
+                    response.new_messages() if hasattr(response, "new_messages") else []
+                )
 
-                    logger.info(f"Streaming complete for session {session_id}")
-                    # Capture the data we need while response_stream is still available
-                    new_messages = response_stream.new_messages()
+            logger.info(
+                "Voice agent finished for session %s, output_len=%s",
+                session_id,
+                len(final_text),
+            )
+            yield _sse_encode(final_text)
+        except Exception:
+            logger.exception("Voice agent run failed for session %s", session_id)
+            yield _sse_encode(
+                "क्षमा करा, प्रतिसाद तयार करता आला नाही. कृपया पुन्हा प्रयत्न करा."
+            )
 
-                    if final_text:
-                        yield final_text
-
-                    lf_gen.update(
-                        output=final_text,
-                        usage_details=_langfuse_usage_details(response_stream),
-                    )
-        else:
-            async with voice_agent.run_stream(
-                user_prompt=user_message,
-                message_history=trimmed_history,
-                deps=deps,
-            ) as response_stream:
-                async for chunk in response_stream.stream_text(delta=False):
-                    if chunk:
-                        final_text = chunk
-
-                logger.info(f"Streaming complete for session {session_id}")
-                # Capture the data we need while response_stream is still available
-                new_messages = response_stream.new_messages()
-
-                if final_text:
-                    yield final_text
-
-        # Post-processing happens AFTER streaming is complete
         messages = [
             *history,
-            *new_messages
+            *new_messages,
         ]
 
         logger.info(f"Updating message history for session {session_id} with {len(messages)} messages")
@@ -251,19 +255,19 @@ async def get_voice_message_with_translation(
         observation_name="voice-bhili-agent",
         trace_input=query,
     ) as lf_obs:
-        logger.info(f"Translating query from `bhb` to `en` (Bhashini)")
+        logger.info(f"Translating query from `bhb` to `mr` (Bhashini)")
         translated_query = await translation_service.translate_text(
             text=query,
             source_lang='bhb',
-            target_lang='en'
+            target_lang='mr'
         )
         logger.info(f"Translated query: {translated_query}")
 
-        # Use English as the source_lang for the agent since we translated the query
+        # Use Marathi for the agent since we translated the query to `mr`
         deps = FarmerContext(
             query=translated_query,
-            lang_code='en',
-            target_lang='en',
+            lang_code='mr',
+            target_lang='mr',
             provider=provider,
             session_id=session_id,
             process_id=process_id
@@ -302,6 +306,7 @@ async def get_voice_message_with_translation(
                     user_prompt=user_message,
                     message_history=trimmed_history,
                     deps=deps,
+                    usage_limits=agrinet_vllm_usage_limits,
                 )
                 lf_gen.update(
                     output=getattr(response, "output", None),
@@ -312,6 +317,7 @@ async def get_voice_message_with_translation(
                 user_prompt=user_message,
                 message_history=trimmed_history,
                 deps=deps,
+                usage_limits=agrinet_vllm_usage_limits,
             )
         # `pydantic_ai` run results include the messages generated for this run.
         new_messages = response.new_messages() if hasattr(response, "new_messages") else []
@@ -331,10 +337,10 @@ async def get_voice_message_with_translation(
         if response.output:
             # Always translate back to source_lang, even if source_lang is 'mr'
             # (translation service will handle no-op case)
-            logger.info(f"Translating response from `en` (English) to `bhb` (Bhashini)")
+            logger.info(f"Translating response from `mr` (Marathi) to `bhb` (Bhashini)")
             translated_response = await translation_service.translate_text(
                 text=text_response,
-                source_lang='en',
+                source_lang='mr',
                 target_lang='bhb'
             )
             logger.info(f"Successfully translated response to `bhb`. Length: {len(translated_response)} chars")
@@ -345,8 +351,8 @@ async def get_voice_message_with_translation(
                     output={
                         "query_bhb": query,
                         "response_bhb": translated_response,
-                        "agent_response_en": text_response,
-                        "query_en": translated_query,
+                        "agent_response_mr": text_response,
+                        "query_mr": translated_query,
                     }
                 )
             return translated_response

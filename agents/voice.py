@@ -1,4 +1,7 @@
+from dataclasses import fields
+
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.usage import UsageLimits
 from helpers.utils import get_prompt, get_today_date_str, get_logger
 from dotenv import load_dotenv
 from agents.models import LLM_MODEL
@@ -11,21 +14,42 @@ logger = get_logger(__name__)
 
 load_dotenv()
 
+agrinet_vllm_settings = ModelSettings(
+    temperature=1.0,
+    top_p=0.95,
+    presence_penalty=1.5,
+    parallel_tool_calls=True,
+    timeout=60,
+    extra_body={
+        "top_k": 20,
+        "min_p": 0.0,
+        "repetition_penalty": 1.0,
+        "chat_template_kwargs": {"enable_thinking": False},
+    },
+)
+
+def _agrinet_vllm_usage_limits() -> UsageLimits:
+    """Build limits compatible with pydantic-ai 0.2.x (no tool_calls_limit) and 1.x."""
+    names = {f.name for f in fields(UsageLimits)}
+    kw: dict = {"request_limit": 10, "total_tokens_limit": 100_000}
+    if "tool_calls_limit" in names:
+        kw["tool_calls_limit"] = 15
+    return UsageLimits(**kw)
+
+
+agrinet_vllm_usage_limits = _agrinet_vllm_usage_limits()
+
 voice_agent = Agent(
     model=LLM_MODEL,
     name="Voice Agent",
     instrument=False,
     output_type=str,
-    deps=FarmerContext,
+    deps_type=FarmerContext,
     retries=3,
     tools=TOOLS,
-    #system_prompt=get_prompt('voice_system', context={'today_date': get_today_date_str()}),
-    end_strategy='exhaustive',
+    end_strategy="exhaustive",
     event_stream_handler=langfuse_event_stream_handler,
-    model_settings=ModelSettings(
-        max_tokens=8192,
-        parallel_tool_calls=True,
-   )
+    model_settings=agrinet_vllm_settings,
 )
 
 @voice_agent.system_prompt(dynamic=True)
