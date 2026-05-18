@@ -62,11 +62,33 @@ from app.services.translation import (
 
 
 VALID_CONFIDENCE = {"high", "low", "unknown"}
+MATCH_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "about",
+    "for",
+    "from",
+    "in",
+    "into",
+    "of",
+    "on",
+    "the",
+    "to",
+    "with",
+}
 
 COMMON_EXPECTED_ALIASES = {
     "abcess": ["abscess"],
-    "agalctia": ["agalactia"],
-    "allopacia": ["alopecia"],
+    "agalctia": [
+        "agalactia",
+        "drop in milk production",
+        "decrease in milk production",
+        "reduced milk production",
+    ],
+    "agalactia": ["drop in milk production", "decrease in milk production", "reduced milk production"],
+    "allopacia": ["alopecia", "hair loss"],
+    "alopecia": ["hair loss"],
     "anti inflammatory": ["anti-inflammatory"],
     "anti pyretic": ["antipyretic", "anti-pyretic"],
     "artificial insemination": ["insemination"],
@@ -76,19 +98,27 @@ COMMON_EXPECTED_ALIASES = {
     "dairy farming": ["animal husbandry"],
     "dystocia": ["calving difficulty"],
     "eczema": ["itching"],
+    "epistaxis": ["blood coming from nose", "blood coming from the nose", "bleeding from nose"],
     "female male calf": ["heifer calf", "heifer", "calf"],
     "fetus": ["pregnancy"],
+    "first milk streams fore stripping from teat": ["fore-stripping", "fore stripping"],
     "fmd": ["foot and mouth disease"],
+    "hypocalcemia": ["calcium deficiency"],
     "johne s disease": ["JD"],
     "livestock": ["animal", "animals"],
     "livestock health": ["animal health"],
+    "mehsani buffalo breed": ["Mehsani"],
+    "metritis": ["swelling of uterine wall", "swelling of the uterine wall", "uterine wall swelling"],
     "mummified fetus": ["dead fetus"],
+    "murrah buffalo breed": ["Murrah"],
     "oestrus": ["estrus", "heat"],
     "optimal ai time": ["optimal time for artificial insemination", "optimal artificial insemination time"],
     "parity calving number lactation round": ["lactation cycle"],
     "placenta expulsion": ["afterbirth expulsion", "expulsion of placenta", "afterbirth"],
     "pregnant": ["pregnancy"],
+    "pregnancy diagnosis pregnancy check in livestock": ["pregnancy check", "pregnancy diagnosis"],
     "quarantine": ["keeping the animal away from other animals", "away from other animals"],
+    "rathi cattle breed": ["Rathi"],
     "reproduction": ["breeding"],
     "retention of placenta afterbirth retained placenta not expelled": [
         "retained placenta",
@@ -163,7 +193,11 @@ def _normalize_english(text: str) -> str:
 
 
 def _tokens(text: str) -> list[str]:
-    return [token for token in _normalize_english(text).split() if token]
+    return [
+        token
+        for token in _normalize_english(text).split()
+        if token and token not in MATCH_STOPWORDS
+    ]
 
 
 def _token_forms(token: str) -> set[str]:
@@ -224,7 +258,12 @@ def _add_alias(aliases: list[str], alias: str) -> None:
     normalized = _normalize_english(alias)
     if len(normalized) < 3:
         return
-    if normalized not in {_normalize_english(item) for item in aliases}:
+    _add_alias_unchecked(aliases, alias)
+
+
+def _add_alias_unchecked(aliases: list[str], alias: str) -> None:
+    normalized = _normalize_english(alias)
+    if normalized and normalized not in {_normalize_english(item) for item in aliases}:
         aliases.append(alias.strip())
 
 
@@ -244,7 +283,7 @@ def _accepted_aliases_for_english_term(english_term: str) -> tuple[str, ...]:
     for alias in ALLOWED_ALIASES_BY_EN.get(normalized_base, []):
         _add_alias(aliases, alias)
     for alias in COMMON_EXPECTED_ALIASES.get(normalized_base, []):
-        _add_alias(aliases, alias)
+        _add_alias_unchecked(aliases, alias)
 
     return tuple(aliases)
 
