@@ -242,6 +242,25 @@
   },
   {
     "gu_terms": [
+      "ફાટેલા ખુરવાળા પશુઓ",
+      "ફાટેલા ખુર વાળા પશુઓ",
+      "fatela khurvala pashuo",
+      "cloven-hoofed animals"
+    ],
+    "type": "hardcode",
+    "rule": "ફાટેલા ખુરવાળા પશુઓ means **cloven-hoofed animals**: animals with split hooves such as cattle, buffalo, sheep, or goats. It is NOT an injury phrase about cracked or broken hooves. Translate as 'cloven-hoofed animals' or 'split-hoofed animals'."
+  },
+  {
+    "gu_terms": [
+      "પેશાબ પર સોજો",
+      "peshab par sojo",
+      "swollen vulva"
+    ],
+    "type": "hardcode",
+    "rule": "પેશાબ પર સોજો is a local Gujarati livestock phrase for **swollen vulva**. It is NOT a generic swelling on urine, urination, or the urinary area. Translate as 'swollen vulva' unless broader context clearly says otherwise."
+  },
+  {
+    "gu_terms": [
       "બાવળામાં આરહો",
       "બાવલામાં આરહો",
       "આરહો",

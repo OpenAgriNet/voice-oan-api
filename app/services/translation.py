@@ -577,7 +577,12 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
     # -- Glossary hints (top matching gu→en terms) ---------------------
     glossary_hints = _get_glossary_hints_for_gu_query(text, max_results=7)
     if glossary_hints:
-        domain_preamble += f"\nGlossary (Gujarati → English) for terms likely in this message:\n{glossary_hints}\n"
+        domain_preamble += (
+            f"\nGlossary (Gujarati → English) for terms likely in this message:\n{glossary_hints}\n"
+            "Glossary usage rule: If the user's term clearly matches a glossary line above, use the right-hand English label "
+            "from that line instead of transliterating the Gujarati token. Domain-specific disambiguation rules above "
+            "override glossary lines if they conflict.\n"
+        )
 
     system_content = (
         f"{domain_preamble}\n"
