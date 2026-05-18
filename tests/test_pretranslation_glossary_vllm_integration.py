@@ -62,6 +62,7 @@ from app.services.translation import (
 
 
 VALID_CONFIDENCE = {"high", "low", "unknown"}
+MATCHER_VERSION = "semantic-alias-v2"
 MATCH_STOPWORDS = {
     "a",
     "an",
@@ -173,6 +174,7 @@ class PretranslationRegressionResult(BaseModel):
 class GlossaryFailureLedgerEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    matcher_version: str = Field(min_length=1)
     case_id: str = Field(min_length=1)
     source_text: str = Field(min_length=1)
     glossary_en: str = Field(min_length=1)
@@ -303,6 +305,7 @@ def _failure_ledger(
     confidence: str,
 ) -> str:
     entry = GlossaryFailureLedgerEntry(
+        matcher_version=MATCHER_VERSION,
         case_id=case.case_id,
         source_text=case.source_text,
         glossary_en=case.glossary_en,
