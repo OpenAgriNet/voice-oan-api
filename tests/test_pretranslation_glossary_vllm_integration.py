@@ -348,12 +348,39 @@ def _build_glossary_cases() -> list[GlossaryRegressionCase]:
 GLOSSARY_CASES = _build_glossary_cases()
 
 
+def _selected_glossary_cases() -> list[GlossaryRegressionCase]:
+    raw_filter = os.getenv("PRETRANSLATION_GLOSSARY_CASE_FILTER", "").strip()
+    if not raw_filter:
+        return GLOSSARY_CASES
+
+    tokens = [
+        token.strip().lower()
+        for token in re.split(r"[,\s]+", raw_filter)
+        if token.strip()
+    ]
+    selected = [
+        case
+        for case in GLOSSARY_CASES
+        if any(token in case.case_id.lower() for token in tokens)
+    ]
+    if not selected:
+        pytest.fail(
+            "PRETRANSLATION_GLOSSARY_CASE_FILTER did not match any glossary case IDs. "
+            f"filter={raw_filter!r}",
+            pytrace=False,
+        )
+    return selected
+
+
+SELECTED_GLOSSARY_CASES = _selected_glossary_cases()
+
+
 def test_pretranslation_glossary_cases_cover_all_active_terms():
     assert len(GLOSSARY_CASES) == len(TERM_PAIRS)
     assert GLOSSARY_CASES
 
 
-@pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+@pytest.mark.parametrize("case", SELECTED_GLOSSARY_CASES, ids=lambda case: case.case_id)
 def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
     hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
     assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
