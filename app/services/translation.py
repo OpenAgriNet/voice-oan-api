@@ -550,6 +550,43 @@ def _get_glossary_hints_for_gu_query(text: str, max_results: int = 7) -> str:
     return "\n".join(f"  {gu} = {en}" for gu, en, _ in top)
 
 
+def _whole_ascii_token_pattern(term: str) -> str:
+    escaped = re.escape(term.strip())
+    escaped = re.sub(r"\\\s+", r"\\s+", escaped)
+    return rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])"
+
+
+def _apply_exact_glossary_transliteration_replacements(source_text: str, translation: str) -> str:
+    """Replace model transliterations with glossary labels for exact Gujarati term hits."""
+    if not source_text or not translation:
+        return translation
+
+    source_lower = source_text.lower()
+    cleaned = translation
+
+    for tp in TERM_PAIRS:
+        gu_term = (tp.gu or "").strip()
+        transliteration = (tp.transliteration or "").strip()
+        english_label = (tp.en or "").strip()
+        if not gu_term or not transliteration or not english_label:
+            continue
+        if len(transliteration) < 3 or transliteration.lower() == english_label.lower():
+            continue
+        if gu_term.lower() not in source_lower:
+            continue
+        if re.search(_whole_ascii_token_pattern(english_label), cleaned, flags=re.IGNORECASE):
+            continue
+
+        cleaned = re.sub(
+            _whole_ascii_token_pattern(transliteration),
+            english_label,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+    return cleaned
+
+
 def _build_openai_pretranslation_messages(source_name: str, source_code: str, text: str) -> list[dict[str, str]]:
     # -- Domain context ------------------------------------------------
     domain_preamble = (
@@ -580,8 +617,9 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
         domain_preamble += (
             f"\nGlossary (Gujarati → English) for terms likely in this message:\n{glossary_hints}\n"
             "Glossary usage rule: If the user's term clearly matches a glossary line above, use the right-hand English label "
-            "from that line instead of transliterating the Gujarati token. Domain-specific disambiguation rules above "
-            "override glossary lines if they conflict.\n"
+            "from that line instead of transliterating the Gujarati token. Do not output the romanized/transliterated form "
+            "when a matching glossary English label is available. Domain-specific disambiguation rules above override "
+            "glossary lines if they conflict.\n"
         )
 
     system_content = (
@@ -731,6 +769,7 @@ async def translate_to_english_with_structured_fallback(
             raw_text = result["choices"][0]["text"].strip()
             translated_text, confidence = _extract_translation_from_raw(raw_text)
             translated_text = normalize_voice_output(translated_text, "english")
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             if not translated_text:
                 logger.warning(
                     "Structured fallback pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
@@ -779,6 +818,7 @@ async def translate_to_english_with_gpt5_mini(
                     source_lang, (text or "")[:100],
                 )
                 return text, "low"
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             return translated_text, confidence
 
         with langfuse.start_as_current_observation(
@@ -810,6 +850,7 @@ async def translate_to_english_with_gpt5_mini(
                 )
                 observation.update(output="__EMPTY__", metadata={"confidence": "low"})
                 return text, "low"
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             observation.update(output=translated_text)
             return translated_text, confidence
     except asyncio.TimeoutError as e:
