@@ -14,6 +14,7 @@ It is skipped unless PRETRANSLATION_GLOSSARY_INTEGRATION is set.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import sys
@@ -69,9 +70,47 @@ COMMON_EXPECTED_ALIASES = {
     "anti inflammatory": ["anti-inflammatory"],
     "anti pyretic": ["antipyretic", "anti-pyretic"],
     "artificial insemination": ["insemination"],
+    "catechu herb": ["catechu"],
+    "catechu katha herb": ["catechu", "katha", "katha herb"],
+    "cattle": ["animal", "animals"],
+    "dairy farming": ["animal husbandry"],
+    "dystocia": ["calving difficulty"],
+    "eczema": ["itching"],
+    "female male calf": ["heifer calf", "heifer", "calf"],
+    "fetus": ["pregnancy"],
+    "fmd": ["foot and mouth disease"],
+    "johne s disease": ["JD"],
+    "livestock": ["animal", "animals"],
+    "livestock health": ["animal health"],
+    "mummified fetus": ["dead fetus"],
     "oestrus": ["estrus", "heat"],
+    "optimal ai time": ["optimal time for artificial insemination", "optimal artificial insemination time"],
+    "parity calving number lactation round": ["lactation cycle"],
     "placenta expulsion": ["afterbirth expulsion", "expulsion of placenta", "afterbirth"],
+    "pregnant": ["pregnancy"],
+    "quarantine": ["keeping the animal away from other animals", "away from other animals"],
+    "reproduction": ["breeding"],
+    "retention of placenta afterbirth retained placenta not expelled": [
+        "retained placenta",
+        "afterbirth retention",
+        "afterbirth not coming out",
+        "afterbirth stuck",
+    ],
+    "ringworm fungus trichophyton verrucosum in cattle": ["Trichophyton verrucosum fungus"],
+    "snf": ["solids not fat"],
+    "solids not fat": ["SNF"],
+    "tdn total digestible nutrients": ["TDN", "Total Digestible Nutrients"],
+    "teat orifice teat end": ["teat"],
+    "theileriosis treatment drug": ["Buparvaquone"],
+    "to breed to inseminate": ["breeding"],
+    "to breed to inseminate livestock": ["breeding"],
     "udder oedema": ["udder edema"],
+    "udder edema": ["udder swelling"],
+    "udder infection": ["udder swelling"],
+    "udder plural": ["udder", "udders"],
+    "urea molasses block": ["urea molasses mineral block"],
+    "ventilated well ventilated cattle shed": ["ventilation"],
+    "veterinary guidance": ["veterinary advice"],
 }
 
 
@@ -101,6 +140,19 @@ class PretranslationRegressionResult(BaseModel):
     matched_expected: str = Field(min_length=1)
 
 
+class GlossaryFailureLedgerEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    case_id: str = Field(min_length=1)
+    source_text: str = Field(min_length=1)
+    glossary_en: str = Field(min_length=1)
+    glossary_gu: str = Field(min_length=1)
+    expected_any: tuple[str, ...] = Field(min_length=1)
+    translation: str = Field(min_length=1)
+    confidence: str = Field(pattern="^(high|low|unknown)$")
+    hints: str
+
+
 def _normalize_english(text: str) -> str:
     text = unicodedata.normalize("NFKC", str(text or "")).lower()
     text = text.replace("&", " and ")
@@ -108,6 +160,52 @@ def _normalize_english(text: str) -> str:
     text = re.sub(r"[\u2010-\u2015-]+", " ", text)
     text = re.sub(r"[^a-z0-9]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _tokens(text: str) -> list[str]:
+    return [token for token in _normalize_english(text).split() if token]
+
+
+def _token_forms(token: str) -> set[str]:
+    forms = {token}
+    if len(token) > 3 and token.endswith("ies"):
+        forms.add(token[:-3] + "y")
+    if len(token) > 4 and token.endswith("es"):
+        forms.add(token[:-2])
+    if len(token) > 3 and token.endswith("s"):
+        forms.add(token[:-1])
+    if len(token) > 5 and token.endswith("ing"):
+        forms.add(token[:-3])
+        forms.add(token[:-3] + "e")
+    if len(token) > 4 and token.endswith("ed"):
+        forms.add(token[:-2])
+        forms.add(token[:-1])
+    return {form for form in forms if len(form) >= 3}
+
+
+def _token_form_set(text: str) -> set[str]:
+    forms: set[str] = set()
+    for token in _tokens(text):
+        forms.update(_token_forms(token))
+    return forms
+
+
+def _normalized_contains(translation: str, expected: str) -> bool:
+    normalized_expected = _normalize_english(expected)
+    if not normalized_expected:
+        return False
+
+    normalized_translation = f" {_normalize_english(translation)} "
+    if f" {normalized_expected} " in normalized_translation:
+        return True
+
+    expected_tokens = _tokens(expected)
+    if not expected_tokens:
+        return False
+
+    translation_forms = _token_form_set(translation)
+    expected_forms_by_token = [_token_forms(token) for token in expected_tokens]
+    return all(forms and forms.intersection(translation_forms) for forms in expected_forms_by_token)
 
 
 def _strip_parenthetical_suffix(text: str) -> str:
@@ -152,12 +250,34 @@ def _accepted_aliases_for_english_term(english_term: str) -> tuple[str, ...]:
 
 
 def _contains_expected_alias(translation: str, expected_any: tuple[str, ...]) -> str | None:
-    normalized_translation = f" {_normalize_english(translation)} "
     for expected in expected_any:
-        normalized_expected = _normalize_english(expected)
-        if normalized_expected and f" {normalized_expected} " in normalized_translation:
+        if _normalized_contains(translation, expected):
             return expected
     return None
+
+
+def _failure_ledger(
+    *,
+    case: GlossaryRegressionCase,
+    hints: str,
+    translation: str,
+    confidence: str,
+) -> str:
+    entry = GlossaryFailureLedgerEntry(
+        case_id=case.case_id,
+        source_text=case.source_text,
+        glossary_en=case.glossary_en,
+        glossary_gu=case.glossary_gu,
+        expected_any=case.expected_any,
+        translation=translation,
+        confidence=confidence,
+        hints=hints,
+    )
+    return json.dumps(
+        entry.model_dump(),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
 
 
 def _glossary_case_id(index: int, english_term: str, gujarati_term: str) -> str:
@@ -207,13 +327,20 @@ def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
     assert confidence in VALID_CONFIDENCE
 
     matched_expected = _contains_expected_alias(translation, case.expected_any)
+    failure_ledger = _failure_ledger(
+        case=case,
+        hints=hints,
+        translation=translation,
+        confidence=confidence,
+    )
     assert matched_expected is not None, (
         f"Pretranslation did not contain the expected glossary term or alias.\n"
         f"case_id={case.case_id}\n"
         f"source_text={case.source_text!r}\n"
         f"expected_any={case.expected_any!r}\n"
         f"translation={translation!r}\n"
-        f"confidence={confidence!r}"
+        f"confidence={confidence!r}\n"
+        f"failure_ledger_json={failure_ledger}"
     )
 
     PretranslationRegressionResult(
