@@ -167,6 +167,19 @@ For the real model-backed checks in that file, set the relevant endpoints/keys f
 - `OPENAI_API_KEY`
 - `TRANSLATEGEMMA_27B_BASE_ENDPOINT` or `TRANSLATEGEMMA_27B_BASE_ENDPOINTS`
 
+Live vLLM pretranslation glossary regressions across every active glossary row:
+```bash
+PRETRANSLATION_GLOSSARY_INTEGRATION=1 \
+PRETRANSLATION_PROVIDER=vllm \
+INFERENCE_ENDPOINT_URL=http://YOUR_VLLM_HOST/v1 \
+PRETRANSLATION_MODEL=YOUR_MODEL_NAME \
+pytest tests/test_pretranslation_glossary_vllm_integration.py -q -rs
+```
+
+This suite intentionally makes one real pretranslation model call per glossary
+entry and fails fast unless `PRETRANSLATION_PROVIDER=vllm` is set before test
+collection.
+
 ## Maintenance
 
 ### Clean Up Docker Volumes
