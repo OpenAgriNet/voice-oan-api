@@ -70,6 +70,7 @@ COMMON_EXPECTED_ALIASES = {
     "anti pyretic": ["antipyretic", "anti-pyretic"],
     "artificial insemination": ["insemination"],
     "oestrus": ["estrus", "heat"],
+    "placenta expulsion": ["afterbirth expulsion", "expulsion of placenta", "afterbirth"],
     "udder oedema": ["udder edema"],
 }
 
