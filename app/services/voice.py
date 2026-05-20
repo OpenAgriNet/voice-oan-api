@@ -56,16 +56,28 @@ from app.services.moderation import ModerationVerdict, check_moderation
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
+    OSS_PRETRANSLATION_MODEL,
     translate_text,
     translate_text_stream_fast,
     translate_to_english_with_gpt5_mini,
+    translate_to_english_with_oss_vllm,
     translate_to_english_with_structured_fallback,
 )
 from app.services.voice_trace import VoiceTrace, create_voice_trace
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerContext
+from agents.models import (
+    LLM_MODEL_NAME,
+    OSS_LLM_MODEL_NAME,
+    get_model_for_variant,
+    provider_for_variant,
+)
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
+try:  # Langfuse is optional at import time
+    from langfuse import get_client as _get_langfuse_client
+except ImportError:  # pragma: no cover
+    _get_langfuse_client = None
 
 logger = get_logger(__name__)
 
@@ -770,11 +782,19 @@ async def stream_voice_message(
     owner: Optional[SessionRequestOwner] = None,
     http_request: Optional[Request] = None,
     trace: Optional[VoiceTrace] = None,
+    pipeline_variant: str = "legacy",
 #    background_tasks: BackgroundTasks,
-    
+
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming chat messages."""
     request_started_at = time.monotonic()
+    # OSS sticky variant => run the dev OSS path (vLLM gemma agent + vLLM
+    # gemma pretranslation). 'legacy' keeps current prod behaviour byte-for-byte;
+    # with OSS_PIPELINE_PCT=0 (or OSS endpoint unset) every session is 'legacy'.
+    is_oss = pipeline_variant == "oss"
+    request_model = get_model_for_variant(pipeline_variant)
+    request_provider = provider_for_variant(pipeline_variant)
+    request_model_name = OSS_LLM_MODEL_NAME if is_oss else LLM_MODEL_NAME
     last_owner_refresh_at = 0.0
     last_emitted_sig_char: str | None = None
     trace = trace or create_voice_trace(
@@ -785,6 +805,37 @@ async def stream_voice_message(
         target_lang=target_lang,
         provider=provider,
         process_id=process_id,
+    )
+    # Tag the trace with the resolved pipeline variant so Langfuse dashboards
+    # can filter sessions by variant. The categorical score is emitted lazily
+    # (once a Langfuse trace context is active) below.
+    try:
+        trace.metadata["pipeline_variant"] = pipeline_variant
+        trace.metadata["request_model"] = request_model_name
+        trace.metadata["request_provider"] = request_provider
+    except Exception:  # pragma: no cover - never break the call
+        pass
+    if _get_langfuse_client is not None:
+        try:
+            _lf = _get_langfuse_client()
+            # Score the current trace once a trace context is active. The
+            # score_id is deterministic per session so subsequent turns in the
+            # same session upsert the same score (no duplicates).
+            _lf.score_current_trace(
+                name="pipeline_variant",
+                value=pipeline_variant,
+                data_type="CATEGORICAL",
+                score_id=f"voice-variant-{(session_id or '')[:180]}",
+                comment="Sticky pipeline variant for this voice session",
+            )
+        except Exception as e:  # pragma: no cover
+            logger.debug("Langfuse: voice pipeline_variant score failed: %s", e)
+    logger.info(
+        "voice request_variant session_id=%s variant=%s model=%s provider=%s",
+        session_id,
+        pipeline_variant,
+        request_model_name,
+        request_provider,
     )
 
     async def _request_is_stale(reason: str) -> bool:
@@ -1107,10 +1158,13 @@ async def stream_voice_message(
             )
 
             if requested_source_lang not in {"en", "english"}:
+                _pretrans_provider_label = "vllm" if is_oss else "openai"
+                _pretrans_model = OSS_PRETRANSLATION_MODEL if is_oss else OPENAI_PRETRANSLATION_MODEL
                 logger.info(
-                    "Translation pipeline enabled; pretranslating %s -> en with %s",
+                    "Translation pipeline enabled; pretranslating %s -> en with %s (variant=%s)",
                     requested_source_lang,
-                    OPENAI_PRETRANSLATION_MODEL,
+                    _pretrans_model,
+                    pipeline_variant,
                 )
                 if await _request_is_stale("before_query_pretranslation"):
                     moderation_task.cancel()
@@ -1120,17 +1174,27 @@ async def stream_voice_message(
                         "pretranslation",
                         as_type="generation",
                         input=trace.metadata.get("query"),
-                        metadata={"provider": "openai", "source_lang": requested_source_lang},
-                        model=OPENAI_PRETRANSLATION_MODEL,
+                        metadata={
+                            "provider": _pretrans_provider_label,
+                            "source_lang": requested_source_lang,
+                            "pipeline_variant": pipeline_variant,
+                        },
+                        model=_pretrans_model,
                     ):
-                        processing_query, pretranslation_confidence = await translate_to_english_with_gpt5_mini(
-                            text=query,
-                            source_lang=requested_source_lang,
-                        )
+                        if is_oss:
+                            processing_query, pretranslation_confidence = await translate_to_english_with_oss_vllm(
+                                text=query,
+                                source_lang=requested_source_lang,
+                            )
+                        else:
+                            processing_query, pretranslation_confidence = await translate_to_english_with_gpt5_mini(
+                                text=query,
+                                source_lang=requested_source_lang,
+                            )
                     trace.set_pretranslation(
                         text=processing_query,
                         confidence=pretranslation_confidence,
-                        provider="openai",
+                        provider=_pretrans_provider_label,
                         fallback_used=False,
                     )
                     history_user_text = processing_query or _canonical_history_user_text("low_confidence")
@@ -1403,6 +1467,9 @@ async def stream_voice_message(
                     metadata={
                         "signed_in": bool(signed_in and mobile),
                         "request_limit": usage_limits.request_limit,
+                        "pipeline_variant": pipeline_variant,
+                        "model": request_model_name,
+                        "provider": request_provider,
                     },
                 ):
                     agent_result = await active_agent.run(
@@ -1410,6 +1477,7 @@ async def stream_voice_message(
                         message_history=model_input_history,
                         deps=deps,
                         usage_limits=usage_limits,
+                        model=request_model,
                     )
                 _agent_output = (
                     getattr(agent_result, "output", None)
