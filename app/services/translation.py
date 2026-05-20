@@ -45,6 +45,30 @@ OPENAI_PRETRANSLATION_MODEL = os.getenv(
 )
 _openai_client: Optional[AsyncOpenAI] = None
 
+# OSS pretranslation (vLLM) — used per-request only for sticky 'oss' sessions,
+# independent of the startup PRETRANSLATION_PROVIDER so legacy sessions are
+# completely unaffected. Mirrors amul-oan-api's OSS pretranslation path.
+OSS_INFERENCE_ENDPOINT_URL = (os.getenv("OSS_INFERENCE_ENDPOINT_URL", "") or "").rstrip("/")
+OSS_INFERENCE_API_KEY = os.getenv("OSS_INFERENCE_API_KEY") or "dummy"
+OSS_PRETRANSLATION_MODEL = os.getenv(
+    "OSS_PRETRANSLATION_MODEL", os.getenv("OSS_LLM_MODEL_NAME", "gemma-4-31b-it")
+)
+_oss_pretrans_client: Optional[AsyncOpenAI] = None
+
+
+def _get_oss_pretranslation_client() -> AsyncOpenAI:
+    """OpenAI-compatible client pinned to the OSS vLLM endpoint."""
+    global _oss_pretrans_client
+    if _oss_pretrans_client is None:
+        if not OSS_INFERENCE_ENDPOINT_URL:
+            raise ValueError(
+                "OSS_INFERENCE_ENDPOINT_URL is required for OSS pretranslation"
+            )
+        _oss_pretrans_client = AsyncOpenAI(
+            api_key=OSS_INFERENCE_API_KEY, base_url=OSS_INFERENCE_ENDPOINT_URL
+        )
+    return _oss_pretrans_client
+
 
 GU_PREFERRED_TRANSLATION_RULES = [
     "Use farmer-preferred Gujarati livestock terms.",
@@ -860,6 +884,116 @@ async def translate_to_english_with_gpt5_mini(
             (text or "")[:160],
         )
         raise TimeoutError("OpenAI pretranslation timed out") from e
+
+
+async def _create_oss_pretranslation_response(
+    client: AsyncOpenAI,
+    *,
+    source_name: str,
+    source_code: str,
+    text: str,
+    max_tokens: int,
+):
+    """Mirror of _create_openai_pretranslation_response, pinned to the OSS vLLM endpoint."""
+    return await asyncio.wait_for(
+        client.chat.completions.create(
+            model=OSS_PRETRANSLATION_MODEL,
+            messages=_build_openai_pretranslation_messages(source_name, source_code, text),
+            max_completion_tokens=max_tokens,
+            response_format={"type": "json_object"},
+        ),
+        timeout=settings.openai_pretranslation_timeout_seconds,
+    )
+
+
+async def translate_to_english_with_oss_vllm(
+    text: str,
+    source_lang: str,
+    *,
+    max_tokens: int = 1024,
+) -> tuple[str, str]:
+    """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
+
+    Same return contract as translate_to_english_with_gpt5_mini:
+    (translated_text, confidence) where confidence is "high", "low", or "unknown".
+
+    Legacy sessions never hit this — the function is only called when the
+    sticky pipeline router returns variant='oss'.
+    """
+    if not text or not text.strip():
+        return text, "unknown"
+
+    if source_lang.lower() in {"english", "en"}:
+        return text, "high"
+
+    client = _get_oss_pretranslation_client()
+    source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
+    source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
+
+    langfuse = _get_langfuse()
+
+    try:
+        if not langfuse:
+            response = await _create_oss_pretranslation_response(
+                client,
+                source_name=source_name,
+                source_code=source_code,
+                text=text,
+                max_tokens=max_tokens,
+            )
+            translated_text, confidence = _extract_translation_from_response(response)
+            if not translated_text:
+                logger.warning(
+                    "OSS vLLM pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    source_lang, (text or "")[:100],
+                )
+                return text, "low"
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
+            return translated_text, confidence
+
+        with langfuse.start_as_current_observation(
+            name="query_pretranslation",
+            as_type="generation",
+            input={
+                "source_lang": source_lang,
+                "target_lang": "english",
+                "text": text,
+            },
+            model=OSS_PRETRANSLATION_MODEL,
+            metadata={
+                "translation_provider": "vllm",
+                "pipeline_stage": "query_pretranslation",
+                "pipeline_variant": "oss",
+            },
+        ) as observation:
+            response = await _create_oss_pretranslation_response(
+                client,
+                source_name=source_name,
+                source_code=source_code,
+                text=text,
+                max_tokens=max_tokens,
+            )
+            translated_text, confidence = _extract_translation_from_response(response)
+            if not translated_text:
+                logger.warning(
+                    "OSS vLLM pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    source_lang, (text or "")[:100],
+                )
+                observation.update(output="__EMPTY__", metadata={"confidence": "low"})
+                return text, "low"
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
+            observation.update(output=translated_text)
+            return translated_text, confidence
+    except asyncio.TimeoutError as e:
+        logger.error(
+            "OSS vLLM pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
+            source_lang,
+            OSS_PRETRANSLATION_MODEL,
+            settings.openai_pretranslation_timeout_seconds,
+            len(text or ""),
+            (text or "")[:160],
+        )
+        raise TimeoutError("OSS vLLM pretranslation timed out") from e
 
 
 async def translate_text_stream_fast(
