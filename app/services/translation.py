@@ -131,9 +131,8 @@ GU_POST_REPLACEMENTS = GU_POST_REPLACEMENTS_BASE + GU_POLICY_REPLACEMENTS
 
 # ── Gender-neutral caller-address guard ─────────────────────────────────────
 # Replace gendered address terms directed at the *caller* with neutral forms.
-# Patterns are boundary-aware: they must NOT match inside "સરલાબેન" or livestock
-# compound terms (e.g. "ભૂખ ભાઈ" is a common animal-behaviour phrase, but
-# "ભાઈ," at the start of a greeting is a caller address).
+# Patterns are boundary-aware (e.g. "ભૂખ ભાઈ" is a common animal-behaviour
+# phrase, but "ભાઈ," at the start of a greeting is a caller address).
 # Each tuple: (compiled pattern, replacement).
 GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
     # "ભાઈ" or "ભૈ" as caller address (preceded by start-of-string, comma, space, or period)
@@ -144,8 +143,6 @@ GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?<![^\s,।.!?])સ(?:ા)?હ(?:ે)?બ(?=\s*[,।!?]|\s|$)"), ""),
     # "મેડમ" / "મૅડમ" / "મૅડ" as caller address
     (re.compile(r"(?<![^\s,।.!?])મ(?:ે|ૅ|ૅ)ડ(?:મ|)(?=\s*[,।!?]|\s|$)"), ""),
-    # "સર" as standalone caller address (not part of "સરલાબેન")
-    (re.compile(r"(?<![^\s,।.!?])સર(?!લ)(?=\s*[,।!?]|\s|$)"), ""),
 ]
 
 GU_WORD_BOUNDARY_START = r"(?<![\u0A80-\u0AFF])"
