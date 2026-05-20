@@ -23,6 +23,7 @@ from agents.tools.farmer_cached import list_animal_tags
 from app.services.stt_signals import detect_stt_signal
 from app.services.translation import (
     GU_PREFERRED_TRANSLATION_RULES,
+    _apply_exact_glossary_transliteration_replacements,
     _build_openai_pretranslation_messages,
     _extract_translation_from_raw,
     _post_normalize_gu_translation,
@@ -363,6 +364,13 @@ class TestHelperCoverage:
         assert "NOT sheep" in prompt
         assert "Translate these as Buffalo" in prompt
 
+    def test_pretranslation_prompt_requires_glossary_labels_over_transliteration(self):
+        messages = _build_openai_pretranslation_messages("Gujarati", "gu", "મારે જિજ્ઞાસા વિશે પૂછવું છે")
+        prompt = messages[0]["content"]
+        assert "જિજ્ઞાસા = Curiosity" in prompt
+        assert "right-hand English label" in prompt
+        assert "Do not output the romanized/transliterated form" in prompt
+
     def test_gujarati_glossary_hints_skip_empty_transliteration_matches(self):
         from app.services.translation import _get_glossary_hints_for_gu_query
 
@@ -379,6 +387,20 @@ class TestHelperCoverage:
 
         hints = _get_glossary_hints_for_gu_query("ભંચ")
         assert "Buffalo" in hints
+
+    def test_pretranslation_replaces_exact_glossary_transliteration(self):
+        translated = _apply_exact_glossary_transliteration_replacements(
+            "મારે જિજ્ઞાસા વિશે પૂછવું છે",
+            "I want to ask about Jignasa",
+        )
+        assert translated == "I want to ask about Curiosity"
+
+    def test_pretranslation_glossary_transliteration_replacement_requires_source_term(self):
+        translated = _apply_exact_glossary_transliteration_replacements(
+            "મારે બીજા વિષય વિશે પૂછવું છે",
+            "I want to ask about Jignasa",
+        )
+        assert translated == "I want to ask about Jignasa"
 
     def test_core_prompt_requires_professional_detached_gender_neutral_tone(self):
         assert "professional, cordial, detached" in STATIC_VOICE_SYSTEM_PROMPT

@@ -155,7 +155,7 @@
     "transliteration": "Anaplasmosis"
   },
   {
-    "en": "Anaplasmosis",
+    "en": "Blood Parasite",
     "gu": "લોહીના પરોપજીવી",
     "transliteration": "lohi na paropjivi"
   },
@@ -170,7 +170,7 @@
     "transliteration": "Pashu"
   },
   {
-    "en": "ANIMAL ACCOMODATION",
+    "en": "Animal Accommodation",
     "gu": "ઢારિયું,",
     "transliteration": "dhariyu"
   },
@@ -265,7 +265,7 @@
     "transliteration": "pet me pani bharavu"
   },
   {
-    "en": "ASPERMIA",
+    "en": "Low Sperm Count",
     "gu": "ઓછા શુક્રાણુ",
     "transliteration": "ocha shukranu"
   },
@@ -280,7 +280,7 @@
     "transliteration": "Azolla"
   },
   {
-    "en": "AZOSPERMIA",
+    "en": "Low Sperm Count",
     "gu": "ઓછા શુક્રાણુ",
     "transliteration": "ocha shukranu"
   },
@@ -580,12 +580,12 @@
     "transliteration": "Bypass Protein"
   },
   {
-    "en": "c",
+    "en": "Prolapse",
     "gu": "માટી ખસવી",
     "transliteration": "mati khasavi"
   },
   {
-    "en": "CAESARIAN SECTION",
+    "en": "Caesarean Section",
     "gu": "ઉપરથી બાળક લેવું",
     "transliteration": "uparthi balak levu"
   },
@@ -945,7 +945,7 @@
     "transliteration": "Mitho Limdo"
   },
   {
-    "en": "CUTANIOUS FILARIASIS",
+    "en": "Cutaneous Filariasis",
     "gu": "હાથી પગો",
     "transliteration": "hadi pago"
   },
@@ -1315,7 +1315,7 @@
     "transliteration": "Prasar Karyakar"
   },
   {
-    "en": "EYEINJURY",
+    "en": "Eye Injury",
     "gu": "આંખમાં ઈજા થવી",
     "transliteration": "aankh ma ija thavi"
   },
@@ -1575,7 +1575,7 @@
     "transliteration": "Aadu no powder"
   },
   {
-    "en": "Gir Breed",
+    "en": "Gir offspring/progeny",
     "gu": "ગીર ઓલાદ",
     "transliteration": "Gir Olad"
   },
@@ -1645,7 +1645,7 @@
     "transliteration": "haemorrhagic septicaemia / Galasundo disease (spelling correction)"
   },
   {
-    "en": "HAEMORRHAGICSEPTICAEMIA",
+    "en": "Haemorrhagic Septicaemia",
     "gu": "ગળશૂંઢો",
     "transliteration": "galsundho"
   },
@@ -1800,7 +1800,7 @@
     "transliteration": "hegdu bhagvu / shengdu bhangvu"
   },
   {
-    "en": "HORNCANCER",
+    "en": "Horn Cancer",
     "gu": "કરમોડી, શીંગડાનું કેન્સર",
     "transliteration": "karmodi , shingda nu kensar"
   },
@@ -1955,7 +1955,7 @@
     "transliteration": "its detection (subclinical mastitis test context)"
   },
   {
-    "en": "Jaffrabadi Breed",
+    "en": "Jaffrabadi offspring/progeny",
     "gu": "જાફરાબાદી ઓલાદ",
     "transliteration": "Jaffrabadi Olad"
   },
@@ -2045,7 +2045,7 @@
     "transliteration": "khari no sojo"
   },
   {
-    "en": "LAMNESS",
+    "en": "Lameness",
     "gu": "ખોડંગાય ,લંગડાય",
     "transliteration": "khodangay / langday"
   },
@@ -2210,7 +2210,7 @@
     "transliteration": "Aushadhiya vanaspati no upyog"
   },
   {
-    "en": "Mehsani Breed",
+    "en": "Mehsani offspring/progeny",
     "gu": "મહેસાણી ઓલાદ",
     "transliteration": "Mehsani Olad"
   },
@@ -2420,7 +2420,7 @@
     "transliteration": "mrut balak / mrut bacchu"
   },
   {
-    "en": "Murrah Breed",
+    "en": "Murrah offspring/progeny",
     "gu": "મુરાહ ઓલાદ",
     "transliteration": "Murrah Olad"
   },
@@ -3380,7 +3380,7 @@
     "transliteration": "Surya na Kirno thi Rakshan"
   },
   {
-    "en": "Surti Breed",
+    "en": "Surti offspring/progeny",
     "gu": "સુરતી ઓલાદ",
     "transliteration": "Surti Olad"
   },
@@ -3540,7 +3540,7 @@
     "transliteration": "to breed / to inseminate (livestock)"
   },
   {
-    "en": "TORSIONOFUTERUS",
+    "en": "Torsion of Uterus",
     "gu": "ગર્ભાશય ની આંટી",
     "transliteration": "garbhashay ni aanti"
   },

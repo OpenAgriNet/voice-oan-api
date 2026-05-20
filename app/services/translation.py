@@ -45,6 +45,30 @@ OPENAI_PRETRANSLATION_MODEL = os.getenv(
 )
 _openai_client: Optional[AsyncOpenAI] = None
 
+# OSS pretranslation (vLLM) — used per-request only for sticky 'oss' sessions,
+# independent of the startup PRETRANSLATION_PROVIDER so legacy sessions are
+# completely unaffected. Mirrors amul-oan-api's OSS pretranslation path.
+OSS_INFERENCE_ENDPOINT_URL = (os.getenv("OSS_INFERENCE_ENDPOINT_URL", "") or "").rstrip("/")
+OSS_INFERENCE_API_KEY = os.getenv("OSS_INFERENCE_API_KEY") or "dummy"
+OSS_PRETRANSLATION_MODEL = os.getenv(
+    "OSS_PRETRANSLATION_MODEL", os.getenv("OSS_LLM_MODEL_NAME", "gemma-4-31b-it")
+)
+_oss_pretrans_client: Optional[AsyncOpenAI] = None
+
+
+def _get_oss_pretranslation_client() -> AsyncOpenAI:
+    """OpenAI-compatible client pinned to the OSS vLLM endpoint."""
+    global _oss_pretrans_client
+    if _oss_pretrans_client is None:
+        if not OSS_INFERENCE_ENDPOINT_URL:
+            raise ValueError(
+                "OSS_INFERENCE_ENDPOINT_URL is required for OSS pretranslation"
+            )
+        _oss_pretrans_client = AsyncOpenAI(
+            api_key=OSS_INFERENCE_API_KEY, base_url=OSS_INFERENCE_ENDPOINT_URL
+        )
+    return _oss_pretrans_client
+
 
 GU_PREFERRED_TRANSLATION_RULES = [
     "Use farmer-preferred Gujarati livestock terms.",
@@ -131,9 +155,8 @@ GU_POST_REPLACEMENTS = GU_POST_REPLACEMENTS_BASE + GU_POLICY_REPLACEMENTS
 
 # ── Gender-neutral caller-address guard ─────────────────────────────────────
 # Replace gendered address terms directed at the *caller* with neutral forms.
-# Patterns are boundary-aware: they must NOT match inside "સરલાબેન" or livestock
-# compound terms (e.g. "ભૂખ ભાઈ" is a common animal-behaviour phrase, but
-# "ભાઈ," at the start of a greeting is a caller address).
+# Patterns are boundary-aware (e.g. "ભૂખ ભાઈ" is a common animal-behaviour
+# phrase, but "ભાઈ," at the start of a greeting is a caller address).
 # Each tuple: (compiled pattern, replacement).
 GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
     # "ભાઈ" or "ભૈ" as caller address (preceded by start-of-string, comma, space, or period)
@@ -144,8 +167,6 @@ GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?<![^\s,।.!?])સ(?:ા)?હ(?:ે)?બ(?=\s*[,।!?]|\s|$)"), ""),
     # "મેડમ" / "મૅડમ" / "મૅડ" as caller address
     (re.compile(r"(?<![^\s,।.!?])મ(?:ે|ૅ|ૅ)ડ(?:મ|)(?=\s*[,।!?]|\s|$)"), ""),
-    # "સર" as standalone caller address (not part of "સરલાબેન")
-    (re.compile(r"(?<![^\s,।.!?])સર(?!લ)(?=\s*[,।!?]|\s|$)"), ""),
 ]
 
 GU_WORD_BOUNDARY_START = r"(?<![\u0A80-\u0AFF])"
@@ -550,6 +571,43 @@ def _get_glossary_hints_for_gu_query(text: str, max_results: int = 7) -> str:
     return "\n".join(f"  {gu} = {en}" for gu, en, _ in top)
 
 
+def _whole_ascii_token_pattern(term: str) -> str:
+    escaped = re.escape(term.strip())
+    escaped = re.sub(r"\\\s+", r"\\s+", escaped)
+    return rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])"
+
+
+def _apply_exact_glossary_transliteration_replacements(source_text: str, translation: str) -> str:
+    """Replace model transliterations with glossary labels for exact Gujarati term hits."""
+    if not source_text or not translation:
+        return translation
+
+    source_lower = source_text.lower()
+    cleaned = translation
+
+    for tp in TERM_PAIRS:
+        gu_term = (tp.gu or "").strip()
+        transliteration = (tp.transliteration or "").strip()
+        english_label = (tp.en or "").strip()
+        if not gu_term or not transliteration or not english_label:
+            continue
+        if len(transliteration) < 3 or transliteration.lower() == english_label.lower():
+            continue
+        if gu_term.lower() not in source_lower:
+            continue
+        if re.search(_whole_ascii_token_pattern(english_label), cleaned, flags=re.IGNORECASE):
+            continue
+
+        cleaned = re.sub(
+            _whole_ascii_token_pattern(transliteration),
+            english_label,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+    return cleaned
+
+
 def _build_openai_pretranslation_messages(source_name: str, source_code: str, text: str) -> list[dict[str, str]]:
     # -- Domain context ------------------------------------------------
     domain_preamble = (
@@ -567,14 +625,23 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
     )
 
     # -- Ambiguity hints from ambiguity_terms.json ---------------------
-    ambiguity_hints = get_ambiguity_hints_for_query(text)
+    # include_ask=False so "ask" type entries (clarifying-question rules
+    # meant for the answering agent) don't leak into the translator prompt
+    # and get echoed back as appended follow-up questions.
+    ambiguity_hints = get_ambiguity_hints_for_query(text, include_ask=False)
     if ambiguity_hints:
         domain_preamble += f"\nDomain-specific disambiguation rules for terms in this message:\n{ambiguity_hints}\n"
 
     # -- Glossary hints (top matching gu→en terms) ---------------------
     glossary_hints = _get_glossary_hints_for_gu_query(text, max_results=7)
     if glossary_hints:
-        domain_preamble += f"\nGlossary (Gujarati → English) for terms likely in this message:\n{glossary_hints}\n"
+        domain_preamble += (
+            f"\nGlossary (Gujarati → English) for terms likely in this message:\n{glossary_hints}\n"
+            "Glossary usage rule: If the user's term clearly matches a glossary line above, use the right-hand English label "
+            "from that line instead of transliterating the Gujarati token. Do not output the romanized/transliterated form "
+            "when a matching glossary English label is available. Domain-specific disambiguation rules above override "
+            "glossary lines if they conflict.\n"
+        )
 
     system_content = (
         f"{domain_preamble}\n"
@@ -723,6 +790,7 @@ async def translate_to_english_with_structured_fallback(
             raw_text = result["choices"][0]["text"].strip()
             translated_text, confidence = _extract_translation_from_raw(raw_text)
             translated_text = normalize_voice_output(translated_text, "english")
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             if not translated_text:
                 logger.warning(
                     "Structured fallback pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
@@ -771,6 +839,7 @@ async def translate_to_english_with_gpt5_mini(
                     source_lang, (text or "")[:100],
                 )
                 return text, "low"
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             return translated_text, confidence
 
         with langfuse.start_as_current_observation(
@@ -802,6 +871,7 @@ async def translate_to_english_with_gpt5_mini(
                 )
                 observation.update(output="__EMPTY__", metadata={"confidence": "low"})
                 return text, "low"
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             observation.update(output=translated_text)
             return translated_text, confidence
     except asyncio.TimeoutError as e:
@@ -814,6 +884,116 @@ async def translate_to_english_with_gpt5_mini(
             (text or "")[:160],
         )
         raise TimeoutError("OpenAI pretranslation timed out") from e
+
+
+async def _create_oss_pretranslation_response(
+    client: AsyncOpenAI,
+    *,
+    source_name: str,
+    source_code: str,
+    text: str,
+    max_tokens: int,
+):
+    """Mirror of _create_openai_pretranslation_response, pinned to the OSS vLLM endpoint."""
+    return await asyncio.wait_for(
+        client.chat.completions.create(
+            model=OSS_PRETRANSLATION_MODEL,
+            messages=_build_openai_pretranslation_messages(source_name, source_code, text),
+            max_completion_tokens=max_tokens,
+            response_format={"type": "json_object"},
+        ),
+        timeout=settings.openai_pretranslation_timeout_seconds,
+    )
+
+
+async def translate_to_english_with_oss_vllm(
+    text: str,
+    source_lang: str,
+    *,
+    max_tokens: int = 1024,
+) -> tuple[str, str]:
+    """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
+
+    Same return contract as translate_to_english_with_gpt5_mini:
+    (translated_text, confidence) where confidence is "high", "low", or "unknown".
+
+    Legacy sessions never hit this — the function is only called when the
+    sticky pipeline router returns variant='oss'.
+    """
+    if not text or not text.strip():
+        return text, "unknown"
+
+    if source_lang.lower() in {"english", "en"}:
+        return text, "high"
+
+    client = _get_oss_pretranslation_client()
+    source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
+    source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
+
+    langfuse = _get_langfuse()
+
+    try:
+        if not langfuse:
+            response = await _create_oss_pretranslation_response(
+                client,
+                source_name=source_name,
+                source_code=source_code,
+                text=text,
+                max_tokens=max_tokens,
+            )
+            translated_text, confidence = _extract_translation_from_response(response)
+            if not translated_text:
+                logger.warning(
+                    "OSS vLLM pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    source_lang, (text or "")[:100],
+                )
+                return text, "low"
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
+            return translated_text, confidence
+
+        with langfuse.start_as_current_observation(
+            name="query_pretranslation",
+            as_type="generation",
+            input={
+                "source_lang": source_lang,
+                "target_lang": "english",
+                "text": text,
+            },
+            model=OSS_PRETRANSLATION_MODEL,
+            metadata={
+                "translation_provider": "vllm",
+                "pipeline_stage": "query_pretranslation",
+                "pipeline_variant": "oss",
+            },
+        ) as observation:
+            response = await _create_oss_pretranslation_response(
+                client,
+                source_name=source_name,
+                source_code=source_code,
+                text=text,
+                max_tokens=max_tokens,
+            )
+            translated_text, confidence = _extract_translation_from_response(response)
+            if not translated_text:
+                logger.warning(
+                    "OSS vLLM pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    source_lang, (text or "")[:100],
+                )
+                observation.update(output="__EMPTY__", metadata={"confidence": "low"})
+                return text, "low"
+            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
+            observation.update(output=translated_text)
+            return translated_text, confidence
+    except asyncio.TimeoutError as e:
+        logger.error(
+            "OSS vLLM pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
+            source_lang,
+            OSS_PRETRANSLATION_MODEL,
+            settings.openai_pretranslation_timeout_seconds,
+            len(text or ""),
+            (text or "")[:160],
+        )
+        raise TimeoutError("OSS vLLM pretranslation timed out") from e
 
 
 async def translate_text_stream_fast(

@@ -1,0 +1,1210 @@
+...........F.....F.....F....F...FF....................F................. [  9%]
+...F.........................................F.......................... [ 18%]
+...........F................................F........................... [ 27%]
+.........................................F.............................F [ 36%]
+............................F........................................... [ 46%]
+.....F..........................F..F.................................... [ 55%]
+...........FF....F...................................FF................. [ 64%]
+....................................................F................... [ 73%]
+......F................................................................. [ 83%]
+.............................F....F..................................... [ 92%]
+............................................................             [100%]
+=================================== FAILURES ===================================
+_ test_vllm_pretranslation_uses_glossary_term[011-acorus-calamus-rhizome-\u0ab5\u0a9c] _
+
+case = GlossaryRegressionCase(case_id='011-acorus-calamus-rhizome-વજ', source_text='મારે વજ વિશે પૂછવું છે', glossary_en='Acorus calamus rhizome', glossary_gu='વજ', expected_any=('Acorus calamus rhizome',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=011-acorus-calamus-rhizome-વજ
+E         source_text='મારે વજ વિશે પૂછવું છે'
+E         expected_any=('Acorus calamus rhizome',)
+E         translation='I want to ask about Vaj'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "011-acorus-calamus-rhizome-વજ", "confidence": "high", "expected_any": ["Acorus calamus rhizome"], "glossary_en": "Acorus calamus rhizome", "glossary_gu": "વજ", "hints": "  વજ = Acorus calamus rhizome\n  મસા = Warts", "source_text": "મારે વજ વિશે પૂછવું છે", "translation": "I want to ask about Vaj"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[017-agalctia-\u0aa6\u0ac2\u0aa7-\u0a89\u0aa4\u0acd\u0aaa\u0abe\u0aa6\u0aa8\u0aae\u0abe\u0a82-\u0a98\u0a9f\u0abe\u0aa1\u0acb] _
+
+case = GlossaryRegressionCase(case_id='017-agalctia-દૂધ-ઉત્પાદનમાં-ઘટાડો', source_text='મારે દૂધ ઉત્પાદનમાં ઘટાડો વિશે પૂછવું છે', glossary_en='AGALCTIA', glossary_gu='દૂધ ઉત્પાદનમાં ઘટાડો', expected_any=('AGALCTIA', 'agalactia'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=017-agalctia-દૂધ-ઉત્પાદનમાં-ઘટાડો
+E         source_text='મારે દૂધ ઉત્પાદનમાં ઘટાડો વિશે પૂછવું છે'
+E         expected_any=('AGALCTIA', 'agalactia')
+E         translation='I want to ask about the drop in milk production'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "017-agalctia-દૂધ-ઉત્પાદનમાં-ઘટાડો", "confidence": "high", "expected_any": ["AGALCTIA", "agalactia"], "glossary_en": "AGALCTIA", "glossary_gu": "દૂધ ઉત્પાદનમાં ઘટાડો", "hints": "  દૂધ ઉત્પાદનમાં ઘટાડો = AGALCTIA\n  દૂધ ઉત્પાદન = Milk Production\n  ઉત્પાદનમાં ઘટાડો = Production Drop\n  દૂધમાં ઘટાડો = Drop in Milk\n  વજનમાં ઘટાડો = Weight Loss\n  મસા = Warts\n  ઉત્પાદકતા = Productivity\n  પાડો = Buffalo Bull\n  વાડો = Cattle Shed", "source_text": "મારે દૂધ ઉત્પાદનમાં ઘટાડો વિશે પૂછવું છે", "translation": "I want to ask about the drop in milk production"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[023-allopacia-\u0ab5\u0abe\u0ab3-\u0a96\u0ab0\u0ab5\u0abe] _
+
+case = GlossaryRegressionCase(case_id='023-allopacia-વાળ-ખરવા', source_text='મારે વાળ ખરવા વિશે પૂછવું છે', glossary_en='ALLOPACIA', glossary_gu='વાળ ખરવા', expected_any=('ALLOPACIA', 'alopecia'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=023-allopacia-વાળ-ખરવા
+E         source_text='મારે વાળ ખરવા વિશે પૂછવું છે'
+E         expected_any=('ALLOPACIA', 'alopecia')
+E         translation='I want to ask about hair loss'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "023-allopacia-વાળ-ખરવા", "confidence": "high", "expected_any": ["ALLOPACIA", "alopecia"], "glossary_en": "ALLOPACIA", "glossary_gu": "વાળ ખરવા", "hints": "  વાળ ખરવા = ALLOPACIA\n  મસા = Warts\n  ચમકદાર વાળ = Shiny Hair", "source_text": "મારે વાળ ખરવા વિશે પૂછવું છે", "translation": "I want to ask about hair loss"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[028-amputation-of-horn-\u0ab6\u0abf\u0a82\u0a97\u0aa1\u0abe\u0aa8\u0ac1\u0a82-\u0a95\u0abe\u0aaa\u0ab5\u0ac1\u0a82] _
+
+case = GlossaryRegressionCase(case_id='028-amputation-of-horn-શિંગડાનું-કાપવું', source_text='મારે શિંગડાનું કાપવું વિશે પૂછવું છે', glossary_en='AMPUTATION OF HORN', glossary_gu='શિંગડાનું કાપવું', expected_any=('AMPUTATION OF HORN',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=028-amputation-of-horn-શિંગડાનું-કાપવું
+E         source_text='મારે શિંગડાનું કાપવું વિશે પૂછવું છે'
+E         expected_any=('AMPUTATION OF HORN',)
+E         translation='I want to ask about the amputation of horns'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "028-amputation-of-horn-શિંગડાનું-કાપવું", "confidence": "high", "expected_any": ["AMPUTATION OF HORN"], "glossary_en": "AMPUTATION OF HORN", "glossary_gu": "શિંગડાનું કાપવું", "hints": "  શિંગડાનું કાપવું = AMPUTATION OF HORN\n  શિંગડા = Horns\n  મસા = Warts\n  પૂંછડીનું કાપવું = AMPUTATION OF TAIL\n  લંગડાવું = lameness / limping in cattle (spelling correction)", "source_text": "મારે શિંગડાનું કાપવું વિશે પૂછવું છે", "translation": "I want to ask about the amputation of horns"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[032-anaplasmosis-\u0ab2\u0acb\u0ab9\u0ac0\u0aa8\u0abe-\u0aaa\u0ab0\u0acb\u0aaa\u0a9c\u0ac0\u0ab5\u0ac0] _
+
+case = GlossaryRegressionCase(case_id='032-anaplasmosis-લોહીના-પરોપજીવી', source_text='મારે લોહીના પરોપજીવી વિશે પૂછવું છે', glossary_en='Anaplasmosis', glossary_gu='લોહીના પરોપજીવી', expected_any=('Anaplasmosis',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=032-anaplasmosis-લોહીના-પરોપજીવી
+E         source_text='મારે લોહીના પરોપજીવી વિશે પૂછવું છે'
+E         expected_any=('Anaplasmosis',)
+E         translation='I want to ask about blood parasites.'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "032-anaplasmosis-લોહીના-પરોપજીવી", "confidence": "high", "expected_any": ["Anaplasmosis"], "glossary_en": "Anaplasmosis", "glossary_gu": "લોહીના પરોપજીવી", "hints": "  લોહીના પરોપજીવી = Anaplasmosis\n  લોહીના પરોપજીવી = Blood Parasite\n  મસા = Warts", "source_text": "મારે લોહીના પરોપજીવી વિશે પૂછવું છે", "translation": "I want to ask about blood parasites."}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[033-anestrus-\u0ab5\u0abf\u0aaf\u0abe\u0aa3-\u0aaa\u0a9b\u0ac0-\u0a97\u0ab0\u0aae\u0ac0\u0aae\u0abe\u0a82-\u0aa8-\u0a86\u0ab5\u0ab5\u0ac1] _
+
+case = GlossaryRegressionCase(case_id='033-anestrus-વિયાણ-પછી-ગરમીમાં-ન-આવવુ', source_text='મારે વિયાણ પછી ગરમીમાં ન આવવું વિશે પૂછવું છે', glossary_en='Anestrus', glossary_gu='વિયાણ પછી ગરમીમાં ન આવવું', expected_any=('Anestrus',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=033-anestrus-વિયાણ-પછી-ગરમીમાં-ન-આવવુ
+E         source_text='મારે વિયાણ પછી ગરમીમાં ન આવવું વિશે પૂછવું છે'
+E         expected_any=('Anestrus',)
+E         translation='I want to ask about not coming into heat after calving.'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "033-anestrus-વિયાણ-પછી-ગરમીમાં-ન-આવવુ", "confidence": "high", "expected_any": ["Anestrus"], "glossary_en": "Anestrus", "glossary_gu": "વિયાણ પછી ગરમીમાં ન આવવું", "hints": "  વિયાણ પછી ગરમીમાં ન આવવું = Anestrus\n  વિયાણ = Calving\n  ગરમી = estrus / heat\n  વિયાણ પછી = post-calving\n  વિયાણ પછ = post-calving / after-calving care\n  મસા = Warts", "source_text": "મારે વિયાણ પછી ગરમીમાં ન આવવું વિશે પૂછવું છે", "translation": "I want to ask about not coming into heat after calving."}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[054-aspermia-\u0a93\u0a9b\u0abe-\u0ab6\u0ac1\u0a95\u0acd\u0ab0\u0abe\u0aa3\u0ac1] _
+
+case = GlossaryRegressionCase(case_id='054-aspermia-ઓછા-શુક્રાણુ', source_text='મારે ઓછા શુક્રાણુ વિશે પૂછવું છે', glossary_en='ASPERMIA', glossary_gu='ઓછા શુક્રાણુ', expected_any=('ASPERMIA',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=054-aspermia-ઓછા-શુક્રાણુ
+E         source_text='મારે ઓછા શુક્રાણુ વિશે પૂછવું છે'
+E         expected_any=('ASPERMIA',)
+E         translation='I want to ask about low sperm count'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "054-aspermia-ઓછા-શુક્રાણુ", "confidence": "high", "expected_any": ["ASPERMIA"], "glossary_en": "ASPERMIA", "glossary_gu": "ઓછા શુક્રાણુ", "hints": "  ઓછા શુક્રાણુ = ASPERMIA\n  ઓછા શુક્રાણુ = AZOSPERMIA\n  મસા = Warts", "source_text": "મારે ઓછા શુક્રાણુ વિશે પૂછવું છે", "translation": "I want to ask about low sperm count"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[075-black-pepper-\u0aae\u0ab0\u0ac0] _
+
+case = GlossaryRegressionCase(case_id='075-black-pepper-મરી', source_text='મારે મરી વિશે પૂછવું છે', glossary_en='Black Pepper', glossary_gu='મરી', expected_any=('Black Pepper',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=075-black-pepper-મરી
+E         source_text='મારે મરી વિશે પૂછવું છે'
+E         expected_any=('Black Pepper',)
+E         translation='I want to ask about Mari'
+E         confidence='low'
+E         failure_ledger_json={"case_id": "075-black-pepper-મરી", "confidence": "low", "expected_any": ["Black Pepper"], "glossary_en": "Black Pepper", "glossary_gu": "મરી", "hints": "  મરી = Black Pepper\n  મસા = Warts", "source_text": "મારે મરી વિશે પૂછવું છે", "translation": "I want to ask about Mari"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[117-placenta-expulsion-\u0aae\u0abe\u0a9f\u0ac0-\u0a96\u0ab8\u0ab5\u0ac0] _
+
+case = GlossaryRegressionCase(case_id='117-placenta-expulsion-માટી-ખસવી', source_text='મારે માટી ખસવી વિશે પૂછવું છે', glossa...ary_gu='માટી ખસવી', expected_any=('Placenta Expulsion', 'afterbirth expulsion', 'expulsion of placenta', 'afterbirth'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=117-placenta-expulsion-માટી-ખસવી
+E         source_text='મારે માટી ખસવી વિશે પૂછવું છે'
+E         expected_any=('Placenta Expulsion', 'afterbirth expulsion', 'expulsion of placenta', 'afterbirth')
+E         translation='I want to ask about prolapse'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "117-placenta-expulsion-માટી-ખસવી", "confidence": "high", "expected_any": ["Placenta Expulsion", "afterbirth expulsion", "expulsion of placenta", "afterbirth"], "glossary_en": "Placenta Expulsion", "glossary_gu": "માટી ખસવી", "hints": "  માટી ખસવી = Placenta Expulsion\n  માટી ન ખસવી = Retained placenta\n  મસા = Warts\n  માખી = Stable Fly", "source_text": "મારે માટી ખસવી વિશે પૂછવું છે", "translation": "I want to ask about prolapse"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[155-cloven-hoofed-animals-\u0aab\u0abe\u0a9f\u0ac7\u0ab2\u0abe-\u0a96\u0ac1\u0ab0\u0ab5\u0abe\u0ab3\u0abe-\u0aaa\u0ab6\u0ac1\u0a93] _
+
+case = GlossaryRegressionCase(case_id='155-cloven-hoofed-animals-ફાટેલા-ખુરવાળા-પશુઓ', source_text='મારે ફાટેલા ખુરવાળા પશુઓ ...ં છે', glossary_en='Cloven-hoofed Animals', glossary_gu='ફાટેલા ખુરવાળા પશુઓ', expected_any=('Cloven-hoofed Animals',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=155-cloven-hoofed-animals-ફાટેલા-ખુરવાળા-પશુઓ
+E         source_text='મારે ફાટેલા ખુરવાળા પશુઓ વિશે પૂછવું છે'
+E         expected_any=('Cloven-hoofed Animals',)
+E         translation='I want to ask about animals with cracked hooves'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "155-cloven-hoofed-animals-ફાટેલા-ખુરવાળા-પશુઓ", "confidence": "high", "expected_any": ["Cloven-hoofed Animals"], "glossary_en": "Cloven-hoofed Animals", "glossary_gu": "ફાટેલા ખુરવાળા પશુઓ", "hints": "  પશુ = Animal\n  પશુ = Cattle\n  ફાટેલા ખુરવાળા પશુઓ = Cloven-hoofed Animals\n  ખુર = hoof / cleft of cattle foot\n  પશુઓ = Livestock\n  મસા = Warts\n  વાળ ખરવા = ALLOPACIA", "source_text": "મારે ફાટેલા ખુરવાળા પશુઓ વિશે પૂછવું છે", "translation": "I want to ask about animals with cracked hooves"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[188-curiosity-\u0a9c\u0abf\u0a9c\u0acd\u0a9e\u0abe\u0ab8\u0abe] _
+
+case = GlossaryRegressionCase(case_id='188-curiosity-જિજ્ઞાસા', source_text='મારે જિજ્ઞાસા વિશે પૂછવું છે', glossary_en='Curiosity', glossary_gu='જિજ્ઞાસા', expected_any=('Curiosity',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=188-curiosity-જિજ્ઞાસા
+E         source_text='મારે જિજ્ઞાસા વિશે પૂછવું છે'
+E         expected_any=('Curiosity',)
+E         translation='I want to ask about Jignasa'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "188-curiosity-જિજ્ઞાસા", "confidence": "high", "expected_any": ["Curiosity"], "glossary_en": "Curiosity", "glossary_gu": "જિજ્ઞાસા", "hints": "  જિજ્ઞાસા = Curiosity\n  મસા = Warts", "source_text": "મારે જિજ્ઞાસા વિશે પૂછવું છે", "translation": "I want to ask about Jignasa"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[257-epistaxis-\u0aa8\u0abe\u0a95\u0aae\u0abe\u0a82\u0aa5\u0ac0-\u0ab2\u0acb\u0ab9\u0ac0-\u0a86\u0ab5\u0ab5\u0ac1\u0a82] _
+
+case = GlossaryRegressionCase(case_id='257-epistaxis-નાકમાંથી-લોહી-આવવું', source_text='મારે નાકમાંથી લોહી આવવું વિશે પૂછવું છે', glossary_en='EPISTAXIS', glossary_gu='નાકમાંથી લોહી આવવું', expected_any=('EPISTAXIS',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=257-epistaxis-નાકમાંથી-લોહી-આવવું
+E         source_text='મારે નાકમાંથી લોહી આવવું વિશે પૂછવું છે'
+E         expected_any=('EPISTAXIS',)
+E         translation='I want to ask about blood coming from the nose.'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "257-epistaxis-નાકમાંથી-લોહી-આવવું", "confidence": "high", "expected_any": ["EPISTAXIS"], "glossary_en": "EPISTAXIS", "glossary_gu": "નાકમાંથી લોહી આવવું", "hints": "  નાકમાંથી લોહી આવવું = EPISTAXIS\n  નાક = nose / nostril\n  મસા = Warts\n  ખીલો = Tethering Stake", "source_text": "મારે નાકમાંથી લોહી આવવું વિશે પૂછવું છે", "translation": "I want to ask about blood coming from the nose."}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[287-first-milk-streams-fore-stripping-from-teat-\u0aa7\u0abe\u0ab0] _
+
+case = GlossaryRegressionCase(case_id='287-first-milk-streams-fore-stripping-from-teat-ધાર', source_text='મારે ધાર વિશે પૂછવુ...ધાર', expected_any=('First milk streams / fore-stripping from teat', 'First milk streams', 'fore-stripping from teat'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=287-first-milk-streams-fore-stripping-from-teat-ધાર
+E         source_text='મારે ધાર વિશે પૂછવું છે'
+E         expected_any=('First milk streams / fore-stripping from teat', 'First milk streams', 'fore-stripping from teat')
+E         translation='I want to ask about fore-stripping.'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "287-first-milk-streams-fore-stripping-from-teat-ધાર", "confidence": "high", "expected_any": ["First milk streams / fore-stripping from teat", "First milk streams", "fore-stripping from teat"], "glossary_en": "First milk streams / fore-stripping from teat", "glossary_gu": "ધાર", "hints": "  ધાર = First milk streams / fore-stripping from teat\n  મસા = Warts", "source_text": "મારે ધાર વિશે પૂછવું છે", "translation": "I want to ask about fore-stripping."}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[316-gir-breed-\u0a97\u0ac0\u0ab0-\u0a93\u0ab2\u0abe\u0aa6] _
+
+case = GlossaryRegressionCase(case_id='316-gir-breed-ગીર-ઓલાદ', source_text='મારે ગીર ઓલાદ વિશે પૂછવું છે', glossary_en='Gir Breed', glossary_gu='ગીર ઓલાદ', expected_any=('Gir Breed',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=316-gir-breed-ગીર-ઓલાદ
+E         source_text='મારે ગીર ઓલાદ વિશે પૂછવું છે'
+E         expected_any=('Gir Breed',)
+E         translation='I want to ask about Gir offspring'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "316-gir-breed-ગીર-ઓલાદ", "confidence": "high", "expected_any": ["Gir Breed"], "glossary_en": "Gir Breed", "glossary_gu": "ગીર ઓલાદ", "hints": "  ગીર ઓલાદ = Gir Breed\n  મસા = Warts", "source_text": "મારે ગીર ઓલાદ વિશે પૂછવું છે", "translation": "I want to ask about Gir offspring"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[365-hypocalcemia-\u0a95\u0ac7\u0ab2\u0acd\u0ab6\u0abf\u0aaf\u0aae\u0aa8\u0ac0-\u0a89\u0aa3\u0aaa] _
+
+case = GlossaryRegressionCase(case_id='365-hypocalcemia-કેલ્શિયમની-ઉણપ', source_text='મારે કેલ્શિયમની ઉણપ વિશે પૂછવું છે', glossary_en='HYPOCALCEMIA', glossary_gu='કેલ્શિયમની ઉણપ', expected_any=('HYPOCALCEMIA',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=365-hypocalcemia-કેલ્શિયમની-ઉણપ
+E         source_text='મારે કેલ્શિયમની ઉણપ વિશે પૂછવું છે'
+E         expected_any=('HYPOCALCEMIA',)
+E         translation='I want to ask about calcium deficiency'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "365-hypocalcemia-કેલ્શિયમની-ઉણપ", "confidence": "high", "expected_any": ["HYPOCALCEMIA"], "glossary_en": "HYPOCALCEMIA", "glossary_gu": "કેલ્શિયમની ઉણપ", "hints": "  કેલ્શિયમ = Calcium\n  કેલ્શિયમની ઉણપ = HYPOCALCEMIA\n  નિયમન = Regulation\n  મસા = Warts", "source_text": "મારે કેલ્શિયમની ઉણપ વિશે પૂછવું છે", "translation": "I want to ask about calcium deficiency"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[392-jaffrabadi-breed-\u0a9c\u0abe\u0aab\u0ab0\u0abe\u0aac\u0abe\u0aa6\u0ac0-\u0a93\u0ab2\u0abe\u0aa6] _
+
+case = GlossaryRegressionCase(case_id='392-jaffrabadi-breed-જાફરાબાદી-ઓલાદ', source_text='મારે જાફરાબાદી ઓલાદ વિશે પૂછવું છે', glossary_en='Jaffrabadi Breed', glossary_gu='જાફરાબાદી ઓલાદ', expected_any=('Jaffrabadi Breed',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=392-jaffrabadi-breed-જાફરાબાદી-ઓલાદ
+E         source_text='મારે જાફરાબાદી ઓલાદ વિશે પૂછવું છે'
+E         expected_any=('Jaffrabadi Breed',)
+E         translation='I want to ask about Jaffrabadi offspring'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "392-jaffrabadi-breed-જાફરાબાદી-ઓલાદ", "confidence": "high", "expected_any": ["Jaffrabadi Breed"], "glossary_en": "Jaffrabadi Breed", "glossary_gu": "જાફરાબાદી ઓલાદ", "hints": "  જાફરાબાદી ઓલાદ = Jaffrabadi Breed\n  મસા = Warts\n  ગીર ઓલાદ = Gir Breed", "source_text": "મારે જાફરાબાદી ઓલાદ વિશે પૂછવું છે", "translation": "I want to ask about Jaffrabadi offspring"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[395-johne-s-disease-jd-\u0a9c\u0ac7\u0aa1\u0ac0] _
+
+case = GlossaryRegressionCase(case_id='395-johne-s-disease-jd-જેડી', source_text='મારે જેડી વિશે પૂછવું છે', glossary_en='Johne’s Disease (JD)', glossary_gu='જેડી', expected_any=('Johne’s Disease (JD)', 'Johne’s Disease'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=395-johne-s-disease-jd-જેડી
+E         source_text='મારે જેડી વિશે પૂછવું છે'
+E         expected_any=('Johne’s Disease (JD)', 'Johne’s Disease')
+E         translation='I want to ask about JD.'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "395-johne-s-disease-jd-જેડી", "confidence": "high", "expected_any": ["Johne’s Disease (JD)", "Johne’s Disease"], "glossary_en": "Johne’s Disease (JD)", "glossary_gu": "જેડી", "hints": "  જેડી = Johne’s Disease (JD)\n  મસા = Warts", "source_text": "મારે જેડી વિશે પૂછવું છે", "translation": "I want to ask about JD."}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[443-mehsani-breed-\u0aae\u0ab9\u0ac7\u0ab8\u0abe\u0aa3\u0ac0-\u0a93\u0ab2\u0abe\u0aa6] _
+
+case = GlossaryRegressionCase(case_id='443-mehsani-breed-મહેસાણી-ઓલાદ', source_text='મારે મહેસાણી ઓલાદ વિશે પૂછવું છે', glossary_en='Mehsani Breed', glossary_gu='મહેસાણી ઓલાદ', expected_any=('Mehsani Breed',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=443-mehsani-breed-મહેસાણી-ઓલાદ
+E         source_text='મારે મહેસાણી ઓલાદ વિશે પૂછવું છે'
+E         expected_any=('Mehsani Breed',)
+E         translation='I want to ask about Mehsani offspring'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "443-mehsani-breed-મહેસાણી-ઓલાદ", "confidence": "high", "expected_any": ["Mehsani Breed"], "glossary_en": "Mehsani Breed", "glossary_gu": "મહેસાણી ઓલાદ", "hints": "  મહેસાણી ઓલાદ = Mehsani Breed\n  મહેસાણી = Mehsani buffalo breed (spelling correction)\n  મસા = Warts\n  રેસા = Fiber\n  ગીર ઓલાદ = Gir Breed", "source_text": "મારે મહેસાણી ઓલાદ વિશે પૂછવું છે", "translation": "I want to ask about Mehsani offspring"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[444-mehsani-buffalo-breed-spelling-correction-\u0aae\u0ab9\u0ac7\u0ab8\u0abe\u0aa3\u0ac0] _
+
+case = GlossaryRegressionCase(case_id='444-mehsani-buffalo-breed-spelling-correction-મહેસાણી', source_text='મારે મહેસાણી વિશે...ection)', glossary_gu='મહેસાણી', expected_any=('Mehsani buffalo breed (spelling correction)', 'Mehsani buffalo breed'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=444-mehsani-buffalo-breed-spelling-correction-મહેસાણી
+E         source_text='મારે મહેસાણી વિશે પૂછવું છે'
+E         expected_any=('Mehsani buffalo breed (spelling correction)', 'Mehsani buffalo breed')
+E         translation='I want to ask about Mehsani'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "444-mehsani-buffalo-breed-spelling-correction-મહેસાણી", "confidence": "high", "expected_any": ["Mehsani buffalo breed (spelling correction)", "Mehsani buffalo breed"], "glossary_en": "Mehsani buffalo breed (spelling correction)", "glossary_gu": "મહેસાણી", "hints": "  મહેસાણી = Mehsani buffalo breed (spelling correction)\n  મસા = Warts\n  રેસા = Fiber", "source_text": "મારે મહેસાણી વિશે પૂછવું છે", "translation": "I want to ask about Mehsani"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[449-metritis-\u0a97\u0ab0\u0acd\u0aad\u0abe\u0ab6\u0aaf\u0aa8\u0ac0-\u0aa6\u0ac0\u0ab5\u0abe\u0ab2-\u0aa8\u0acb-\u0ab8\u0acb\u0a9c\u0acb] _
+
+case = GlossaryRegressionCase(case_id='449-metritis-ગર્ભાશયની-દીવાલ-નો-સોજો', source_text='મારે ગર્ભાશયની દીવાલ નો સોજો વિશે પૂછવું છે', glossary_en='METRITIS', glossary_gu='ગર્ભાશયની દીવાલ નો સોજો', expected_any=('METRITIS',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=449-metritis-ગર્ભાશયની-દીવાલ-નો-સોજો
+E         source_text='મારે ગર્ભાશયની દીવાલ નો સોજો વિશે પૂછવું છે'
+E         expected_any=('METRITIS',)
+E         translation='I want to ask about the swelling of the uterine wall'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "449-metritis-ગર્ભાશયની-દીવાલ-નો-સોજો", "confidence": "high", "expected_any": ["METRITIS"], "glossary_en": "METRITIS", "glossary_gu": "ગર્ભાશયની દીવાલ નો સોજો", "hints": "  ગર્ભ = Fetus\n  ગર્ભાશયની દીવાલ નો સોજો = METRITIS\n  ગર્ભ = Pregnancy\n  સોજો = Swelling/Edema\n  ગર્ભાશય = Uterus\n  મસા = Warts\n  ગર્ભાશયની તપાસ = uterine examination (not gynaecological — wrong human medical term)\n  આઉનો સોજો = Udder Edema\n  ગર્ભાધાન = Conception/Pregnancy", "source_text": "મારે ગર્ભાશયની દીવાલ નો સોજો વિશે પૂછવું છે", "translation": "I want to ask about the swelling of the uterine wall"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[485-murrah-breed-\u0aae\u0ac1\u0ab0\u0abe\u0ab9-\u0a93\u0ab2\u0abe\u0aa6] _
+
+case = GlossaryRegressionCase(case_id='485-murrah-breed-મુરાહ-ઓલાદ', source_text='મારે મુરાહ ઓલાદ વિશે પૂછવું છે', glossary_en='Murrah Breed', glossary_gu='મુરાહ ઓલાદ', expected_any=('Murrah Breed',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=485-murrah-breed-મુરાહ-ઓલાદ
+E         source_text='મારે મુરાહ ઓલાદ વિશે પૂછવું છે'
+E         expected_any=('Murrah Breed',)
+E         translation='I want to ask about Murrah offspring'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "485-murrah-breed-મુરાહ-ઓલાદ", "confidence": "high", "expected_any": ["Murrah Breed"], "glossary_en": "Murrah Breed", "glossary_gu": "મુરાહ ઓલાદ", "hints": "  મુરાહ ઓલાદ = Murrah Breed\n  મસા = Warts\n  ગીર ઓલાદ = Gir Breed", "source_text": "મારે મુરાહ ઓલાદ વિશે પૂછવું છે", "translation": "I want to ask about Murrah offspring"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[486-murrah-buffalo-breed-spelling-correction-\u0aae\u0ac1\u0ab0\u0acd\u0ab0\u0abe] _
+
+case = GlossaryRegressionCase(case_id='486-murrah-buffalo-breed-spelling-correction-મુર્રા', source_text='મારે મુર્રા વિશે પૂ...orrection)', glossary_gu='મુર્રા', expected_any=('Murrah buffalo breed (spelling correction)', 'Murrah buffalo breed'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=486-murrah-buffalo-breed-spelling-correction-મુર્રા
+E         source_text='મારે મુર્રા વિશે પૂછવું છે'
+E         expected_any=('Murrah buffalo breed (spelling correction)', 'Murrah buffalo breed')
+E         translation='I want to ask about Murrah'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "486-murrah-buffalo-breed-spelling-correction-મુર્રા", "confidence": "high", "expected_any": ["Murrah buffalo breed (spelling correction)", "Murrah buffalo breed"], "glossary_en": "Murrah buffalo breed (spelling correction)", "glossary_gu": "મુર્રા", "hints": "  મુર્રા = Murrah buffalo breed (spelling correction)\n  મસા = Warts", "source_text": "મારે મુર્રા વિશે પૂછવું છે", "translation": "I want to ask about Murrah"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[556-pregnancy-diagnosis-pregnancy-check-in-livestock-\u0a97\u0abe\u0aad-\u0aa4\u0aaa\u0abe\u0ab8] _
+
+case = GlossaryRegressionCase(case_id='556-pregnancy-diagnosis-pregnancy-check-in-livestock-ગાભ-તપાસ', source_text='મારે ગાભ ...cted_any=('pregnancy diagnosis / pregnancy check in livestock', 'pregnancy diagnosis', 'pregnancy check in livestock'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=556-pregnancy-diagnosis-pregnancy-check-in-livestock-ગાભ-તપાસ
+E         source_text='મારે ગાભ તપાસ વિશે પૂછવું છે'
+E         expected_any=('pregnancy diagnosis / pregnancy check in livestock', 'pregnancy diagnosis', 'pregnancy check in livestock')
+E         translation='I want to ask about pregnancy check'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "556-pregnancy-diagnosis-pregnancy-check-in-livestock-ગાભ-તપાસ", "confidence": "high", "expected_any": ["pregnancy diagnosis / pregnancy check in livestock", "pregnancy diagnosis", "pregnancy check in livestock"], "glossary_en": "pregnancy diagnosis / pregnancy check in livestock", "glossary_gu": "ગાભ તપાસ", "hints": "  ગાભ તપાસ = pregnancy diagnosis / pregnancy check in livestock\n  મસા = Warts\n  ગાભણ = Pregnant", "source_text": "મારે ગાભ તપાસ વિશે પૂછવું છે", "translation": "I want to ask about pregnancy check"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[582-rathi-cattle-breed-spelling-correction-\u0ab0\u0abe\u0aa0\u0ac0] _
+
+case = GlossaryRegressionCase(case_id='582-rathi-cattle-breed-spelling-correction-રાઠી', source_text='મારે રાઠી વિશે પૂછવું છ...ling correction)', glossary_gu='રાઠી', expected_any=('Rathi cattle breed (spelling correction)', 'Rathi cattle breed'))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=582-rathi-cattle-breed-spelling-correction-રાઠી
+E         source_text='મારે રાઠી વિશે પૂછવું છે'
+E         expected_any=('Rathi cattle breed (spelling correction)', 'Rathi cattle breed')
+E         translation='I want to ask about Rathi.'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "582-rathi-cattle-breed-spelling-correction-રાઠી", "confidence": "high", "expected_any": ["Rathi cattle breed (spelling correction)", "Rathi cattle breed"], "glossary_en": "Rathi cattle breed (spelling correction)", "glossary_gu": "રાઠી", "hints": "  રાઠી = Rathi cattle breed (spelling correction)\n  મસા = Warts", "source_text": "મારે રાઠી વિશે પૂછવું છે", "translation": "I want to ask about Rathi."}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[677-surti-breed-\u0ab8\u0ac1\u0ab0\u0aa4\u0ac0-\u0a93\u0ab2\u0abe\u0aa6] _
+
+case = GlossaryRegressionCase(case_id='677-surti-breed-સુરતી-ઓલાદ', source_text='મારે સુરતી ઓલાદ વિશે પૂછવું છે', glossary_en='Surti Breed', glossary_gu='સુરતી ઓલાદ', expected_any=('Surti Breed',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=677-surti-breed-સુરતી-ઓલાદ
+E         source_text='મારે સુરતી ઓલાદ વિશે પૂછવું છે'
+E         expected_any=('Surti Breed',)
+E         translation='I want to ask about Surti offspring'
+E         confidence='high'
+E         failure_ledger_json={"case_id": "677-surti-breed-સુરતી-ઓલાદ", "confidence": "high", "expected_any": ["Surti Breed"], "glossary_en": "Surti Breed", "glossary_gu": "સુરતી ઓલાદ", "hints": "  સુરતી ઓલાદ = Surti Breed\n  મસા = Warts\n  રેસા = Fiber\n  ગીર ઓલાદ = Gir Breed", "source_text": "મારે સુરતી ઓલાદ વિશે પૂછવું છે", "translation": "I want to ask about Surti offspring"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+_ test_vllm_pretranslation_uses_glossary_term[682-swollen-vulva-\u0aaa\u0ac7\u0ab6\u0abe\u0aac-\u0aaa\u0ab0-\u0ab8\u0acb\u0a9c\u0acb] _
+
+case = GlossaryRegressionCase(case_id='682-swollen-vulva-પેશાબ-પર-સોજો', source_text='મારે પેશાબ પર સોજો વિશે પૂછવું છે', glossary_en='Swollen Vulva', glossary_gu='પેશાબ પર સોજો', expected_any=('Swollen Vulva',))
+
+    @pytest.mark.parametrize("case", GLOSSARY_CASES, ids=lambda case: case.case_id)
+    def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
+        hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
+        assert _normalize_english(case.glossary_en) in _normalize_english(hints), (
+            f"Glossary hints did not include expected English term.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected={case.glossary_en!r}\n"
+            f"hints={hints!r}"
+        )
+    
+        translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+        assert translation.strip(), f"Empty pretranslation for {case.case_id}"
+        assert confidence in VALID_CONFIDENCE
+    
+        matched_expected = _contains_expected_alias(translation, case.expected_any)
+        failure_ledger = _failure_ledger(
+            case=case,
+            hints=hints,
+            translation=translation,
+            confidence=confidence,
+        )
+>       assert matched_expected is not None, (
+            f"Pretranslation did not contain the expected glossary term or alias.\n"
+            f"case_id={case.case_id}\n"
+            f"source_text={case.source_text!r}\n"
+            f"expected_any={case.expected_any!r}\n"
+            f"translation={translation!r}\n"
+            f"confidence={confidence!r}\n"
+            f"failure_ledger_json={failure_ledger}"
+        )
+E       AssertionError: Pretranslation did not contain the expected glossary term or alias.
+E         case_id=682-swollen-vulva-પેશાબ-પર-સોજો
+E         source_text='મારે પેશાબ પર સોજો વિશે પૂછવું છે'
+E         expected_any=('Swollen Vulva',)
+E         translation='I want to ask about swelling on the urine area'
+E         confidence='low'
+E         failure_ledger_json={"case_id": "682-swollen-vulva-પેશાબ-પર-સોજો", "confidence": "low", "expected_any": ["Swollen Vulva"], "glossary_en": "Swollen Vulva", "glossary_gu": "પેશાબ પર સોજો", "hints": "  સોજો = Swelling/Edema\n  પેશાબ પર સોજો = Swollen Vulva\n  મસા = Warts\n  લાલ પેશાબ = Red Urine", "source_text": "મારે પેશાબ પર સોજો વિશે પૂછવું છે", "translation": "I want to ask about swelling on the urine area"}
+E       assert None is not None
+
+tests/test_pretranslation_glossary_vllm_integration.py:336: AssertionError
+=============================== warnings summary ===============================
+<frozen abc>:106
+<frozen abc>:106
+  <frozen abc>:106: DeprecationWarning: You should use `Logger` instead. Deprecated since version 1.39.0 and will be removed in a future release.
+
+<frozen abc>:106
+<frozen abc>:106
+  <frozen abc>:106: DeprecationWarning: You should use `LoggerProvider` instead. Deprecated since version 1.39.0 and will be removed in a future release.
+
+.venv/lib/python3.12/site-packages/opentelemetry/_events/__init__.py:201
+  /home/azureuser/voice-oan-api/.venv/lib/python3.12/site-packages/opentelemetry/_events/__init__.py:201: DeprecationWarning: You should use `ProxyLoggerProvider` instead. Deprecated since version 1.39.0 and will be removed in a future release.
+    _PROXY_EVENT_LOGGER_PROVIDER = ProxyEventLoggerProvider()
+
+.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:323
+.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:323
+.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:323
+.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:323
+.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:323
+.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:323
+  /home/azureuser/voice-oan-api/.venv/lib/python3.12/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+app/core/cache.py:30
+  /home/azureuser/voice-oan-api/app/core/cache.py:30: DeprecationWarning: Call to '__init__' function with deprecated usage of input argument/s 'retry_on_timeout'. (TimeoutError is included by default.) -- Deprecated since version 6.0.0.
+    redis_client = Redis(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+26 failed, 754 passed, 12 warnings in 613.25s (0:10:13)
