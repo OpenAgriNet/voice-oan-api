@@ -806,30 +806,18 @@ async def stream_voice_message(
         provider=provider,
         process_id=process_id,
     )
-    # Tag the trace with the resolved pipeline variant so Langfuse dashboards
-    # can filter sessions by variant. The categorical score is emitted lazily
-    # (once a Langfuse trace context is active) below.
+    # Tag the trace metadata with the resolved pipeline variant for
+    # Langfuse dashboard filtering. The categorical *score* is emitted
+    # below from inside `trace.request_context()`, where a Langfuse trace
+    # context is active — emitting it here would silently no-op
+    # (Langfuse v4: "Operations that depend on an active span will be
+    # skipped"; mirror of amul-oan-api#70).
     try:
         trace.metadata["pipeline_variant"] = pipeline_variant
         trace.metadata["request_model"] = request_model_name
         trace.metadata["request_provider"] = request_provider
     except Exception:  # pragma: no cover - never break the call
         pass
-    if _get_langfuse_client is not None:
-        try:
-            _lf = _get_langfuse_client()
-            # Score the current trace once a trace context is active. The
-            # score_id is deterministic per session so subsequent turns in the
-            # same session upsert the same score (no duplicates).
-            _lf.score_current_trace(
-                name="pipeline_variant",
-                value=pipeline_variant,
-                data_type="CATEGORICAL",
-                score_id=f"voice-variant-{(session_id or '')[:180]}",
-                comment="Sticky pipeline variant for this voice session",
-            )
-        except Exception as e:  # pragma: no cover
-            logger.debug("Langfuse: voice pipeline_variant score failed: %s", e)
     logger.info(
         "voice request_variant session_id=%s variant=%s model=%s provider=%s",
         session_id,
@@ -921,6 +909,22 @@ async def stream_voice_message(
         # generator so downstream model calls and pydantic-ai spans nest under
         # this voice_request.
         with trace.request_context():
+            # Emit the per-session pipeline_variant categorical score from
+            # *inside* the trace context (chat #70 fix). score_id is
+            # deterministic per session so subsequent voice turns in the
+            # same session upsert the same score (no duplicates).
+            if _get_langfuse_client is not None:
+                try:
+                    _lf = _get_langfuse_client()
+                    _lf.score_current_trace(
+                        name="pipeline_variant",
+                        value=pipeline_variant,
+                        data_type="CATEGORICAL",
+                        score_id=f"voice-variant-{(session_id or '')[:180]}",
+                        comment="Sticky pipeline variant for this voice session",
+                    )
+                except Exception as e:  # pragma: no cover
+                    logger.debug("Langfuse: voice pipeline_variant score failed: %s", e)
             requested_source_lang = (source_lang or "gu").strip().lower()
             requested_target_lang = (target_lang or "gu").strip().lower()
             trace.set_language(requested_source_lang, requested_target_lang)
