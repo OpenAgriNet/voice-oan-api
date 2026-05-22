@@ -1,6 +1,15 @@
 import os
-from typing import AsyncGenerator, Optional, Literal
+from dataclasses import dataclass
+from typing import Any, AsyncGenerator, Optional, Literal
 # from fastapi import BackgroundTasks
+from pydantic_ai.exceptions import UsageLimitExceeded
+
+from agents.models import (
+    AZURE_FALLBACK_DEPLOYMENT,
+    AZURE_LLM_MODEL,
+    LLM_AGRINET_MODEL_NAME,
+    LLM_PROVIDER,
+)
 from agents.voice import agrinet_vllm_usage_limits, voice_agent
 from helpers.utils import get_logger
 from app.langfuse_client import get_langfuse, traced_voice_request
@@ -17,16 +26,81 @@ from app.services.translation import translation_service
 logger = get_logger(__name__)
 
 def _langfuse_llm_provider() -> Optional[str]:
-    return settings.llm_provider or os.getenv("LLM_PROVIDER")
+    return settings.llm_provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER
+
+
+def _langfuse_vllm_model() -> str:
+    if settings.llm_model_name:
+        return settings.llm_model_name
+    return LLM_AGRINET_MODEL_NAME or os.getenv("LLM_AGRINET_MODEL_NAME") or "agrinet-model"
+
+
+def _langfuse_azure_model() -> str:
+    return AZURE_FALLBACK_DEPLOYMENT or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or "gpt-4.1"
 
 
 def _langfuse_llm_model() -> Optional[str]:
-    return (
-        settings.llm_model_name
-        or os.getenv("LLM_MODEL_NAME")
-        # Common in this repo when using Azure OpenAI.
-        or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-    )
+    """Default/primary model label (vLLM) for trace tags before the run completes."""
+    provider = (_langfuse_llm_provider() or "vllm").lower()
+    if provider == "azure-openai":
+        return _langfuse_azure_model()
+    return _langfuse_vllm_model()
+
+
+def _infer_langfuse_model_from_response(response: Any) -> str:
+    """Pick Langfuse model from the last model response in the run (handles HTTP fallback)."""
+    azure_model = _langfuse_azure_model()
+    vllm_model = _langfuse_vllm_model()
+    try:
+        messages = response.all_messages() if hasattr(response, "all_messages") else []
+        for msg in reversed(messages):
+            model_name = getattr(msg, "model_name", None)
+            if not model_name:
+                continue
+            if azure_model in model_name or "gpt-4" in model_name:
+                return azure_model
+            if vllm_model in model_name or "agrinet" in model_name:
+                return vllm_model
+    except Exception:
+        logger.debug("Could not infer Langfuse model from run messages", exc_info=True)
+    return vllm_model
+
+
+def _langfuse_record_model_used(
+    lf_client: Any,
+    lf_obs: Any,
+    lf_gen: Any,
+    tags: list[str],
+    model_used: str,
+) -> None:
+    """Record the model that actually served the request (Langfuse SDK v4)."""
+    if lf_gen is not None:
+        try:
+            lf_gen.update(name=model_used, model=model_used)
+        except Exception:
+            logger.debug("Langfuse generation model update failed", exc_info=True)
+
+    if lf_obs is not None:
+        try:
+            lf_obs.update(metadata={"llm_model": model_used})
+        except Exception:
+            logger.debug("Langfuse observation metadata update failed", exc_info=True)
+
+    trace_id = getattr(lf_obs, "trace_id", None)
+    if not trace_id:
+        return
+
+    updated_tags = [t for t in tags if not t.startswith("llm_model:")]
+    updated_tags.append(f"llm_model:{model_used}")
+
+    # Langfuse 4.x has no public update_trace(); tag updates go via ingestion.
+    create_trace_tags = getattr(lf_client, "_create_trace_tags_via_ingestion", None)
+    if create_trace_tags is None:
+        return
+    try:
+        create_trace_tags(trace_id=trace_id, tags=updated_tags)
+    except Exception:
+        logger.debug("Langfuse trace tag update failed", exc_info=True)
 
 
 def _langfuse_usage_details(run_result: object) -> Optional[dict[str, object]]:
@@ -95,6 +169,63 @@ def _trim_voice_history(history: list) -> list:
         include_system_prompts=True,
         include_tool_calls=True
     )
+
+
+@dataclass
+class VoiceAgentRun:
+    response: Any
+    langfuse_model: str
+
+
+async def _run_voice_agent(
+    *,
+    user_prompt: str,
+    message_history: list,
+    deps: FarmerContext,
+    usage_limits: Any = agrinet_vllm_usage_limits,
+) -> VoiceAgentRun:
+    """
+    Run the voice agent on vLLM (with HTTP-level Azure fallback).
+
+    On UsageLimitExceeded (cumulative tokens across tool loops), retry once on Azure
+    with a smaller history so the run stays within limits.
+    """
+    try:
+        response = await voice_agent.run(
+            user_prompt=user_prompt,
+            message_history=message_history,
+            deps=deps,
+            usage_limits=usage_limits,
+        )
+        return VoiceAgentRun(
+            response=response,
+            langfuse_model=_infer_langfuse_model_from_response(response),
+        )
+    except UsageLimitExceeded as exc:
+        if AZURE_LLM_MODEL is None:
+            raise
+        reduced_history = trim_history(
+            message_history,
+            max_tokens=8_000,
+            include_system_prompts=False,
+            include_tool_calls=False,
+        )
+        logger.warning(
+            "Usage limit exceeded on vLLM (%s); retrying on Azure %s "
+            "(history %s -> %s messages)",
+            exc,
+            AZURE_FALLBACK_DEPLOYMENT,
+            len(message_history),
+            len(reduced_history),
+        )
+        with voice_agent.override(model=AZURE_LLM_MODEL):
+            response = await voice_agent.run(
+                user_prompt=user_prompt,
+                message_history=reduced_history,
+                deps=deps,
+                usage_limits=usage_limits,
+            )
+        return VoiceAgentRun(response=response, langfuse_model=_langfuse_azure_model())
 
 async def stream_voice_message(
     query: str,
@@ -170,20 +301,22 @@ async def stream_voice_message(
         final_text = ""
         new_messages: list = []
         lf_client = get_langfuse()
+        model_used = _langfuse_vllm_model()
         try:
             if lf_obs is not None and lf_client is not None:
                 with lf_client.start_as_current_observation(
                     as_type="generation",
-                    name=_langfuse_llm_model() or "llm",
-                    model=_langfuse_llm_model(),
+                    name=_langfuse_vllm_model(),
+                    model=_langfuse_vllm_model(),
                     input={"user_prompt": user_message},
                 ) as lf_gen:
-                    response = await voice_agent.run(
+                    agent_run = await _run_voice_agent(
                         user_prompt=user_message,
                         message_history=trimmed_history,
                         deps=deps,
-                        usage_limits=agrinet_vllm_usage_limits,
                     )
+                    model_used = agent_run.langfuse_model
+                    response = agent_run.response
                     raw_out = getattr(response, "output", None)
                     final_text = "" if raw_out is None else str(raw_out)
                     new_messages = (
@@ -191,15 +324,18 @@ async def stream_voice_message(
                     )
                     lf_gen.update(
                         output=final_text,
+                        model=model_used,
                         usage_details=_langfuse_usage_details(response),
                     )
+                    _langfuse_record_model_used(lf_client, lf_obs, lf_gen, tags, model_used)
             else:
-                response = await voice_agent.run(
+                agent_run = await _run_voice_agent(
                     user_prompt=user_message,
                     message_history=trimmed_history,
                     deps=deps,
-                    usage_limits=agrinet_vllm_usage_limits,
                 )
+                model_used = agent_run.langfuse_model
+                response = agent_run.response
                 raw_out = getattr(response, "output", None)
                 final_text = "" if raw_out is None else str(raw_out)
                 new_messages = (
@@ -295,30 +431,35 @@ async def get_voice_message_with_translation(
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
         lf_client = get_langfuse()
+        model_used = _langfuse_vllm_model()
         if lf_obs is not None and lf_client is not None:
             with lf_client.start_as_current_observation(
                 as_type="generation",
-                name=_langfuse_llm_model() or "llm",
-                model=_langfuse_llm_model(),
+                name=_langfuse_vllm_model(),
+                model=_langfuse_vllm_model(),
                 input={"user_prompt": user_message},
             ) as lf_gen:
-                response = await voice_agent.run(
+                agent_run = await _run_voice_agent(
                     user_prompt=user_message,
                     message_history=trimmed_history,
                     deps=deps,
-                    usage_limits=agrinet_vllm_usage_limits,
                 )
+                model_used = agent_run.langfuse_model
+                response = agent_run.response
                 lf_gen.update(
                     output=getattr(response, "output", None),
+                    model=model_used,
                     usage_details=_langfuse_usage_details(response),
                 )
+                _langfuse_record_model_used(lf_client, lf_obs, lf_gen, tags, model_used)
         else:
-            response = await voice_agent.run(
+            agent_run = await _run_voice_agent(
                 user_prompt=user_message,
                 message_history=trimmed_history,
                 deps=deps,
-                usage_limits=agrinet_vllm_usage_limits,
             )
+            model_used = agent_run.langfuse_model
+            response = agent_run.response
         # `pydantic_ai` run results include the messages generated for this run.
         new_messages = response.new_messages() if hasattr(response, "new_messages") else []
         if new_messages:
