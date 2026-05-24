@@ -479,6 +479,16 @@ async def _render_text_for_caller(text_en: str, target_lang: str) -> str:
         )
 
 
+async def _canned_for_caller(text_en: str, target_lang: str, canned: dict[str, str]) -> str:
+    """Return a pre-written caller string for the target language when one exists,
+    skipping the TranslateGemma round-trip on fixed fast-path replies. Falls back to
+    live translation for languages that have no canned variant."""
+    key = (target_lang or "en").strip().lower()
+    if key in canned:
+        return _prepare_voice_output(canned[key], key)
+    return await _render_text_for_caller(text_en, target_lang)
+
+
 def _history_pair(user_text: str, assistant_text: str) -> tuple[ModelRequest, ModelResponse]:
     return (
         ModelRequest(parts=[UserPromptPart(content=user_text)]),
@@ -1000,7 +1010,7 @@ async def stream_voice_message(
                 )
                 greeting_history = _GREETING_RESPONSES["en"]
                 with trace.stage("greeting_fast_path"):
-                    greeting_response = await _render_text_for_caller(greeting_history, requested_target_lang)
+                    greeting_response = await _canned_for_caller(greeting_history, requested_target_lang, _GREETING_RESPONSES)
                 greet_req, greet_resp = _history_pair(_canonical_history_user_text("greeting"), greeting_history)
                 with trace.stage("history_write"):
                     await update_message_history(session_id, [*history, greet_req, greet_resp])
@@ -1039,7 +1049,7 @@ async def stream_voice_message(
                 )
                 frag_response_for_history = _FRAGMENT_RESPONSES["en"]
                 with trace.stage("fragment_fast_path"):
-                    frag_response_for_caller = await _render_text_for_caller(frag_response_for_history, requested_target_lang)
+                    frag_response_for_caller = await _canned_for_caller(frag_response_for_history, requested_target_lang, _FRAGMENT_RESPONSES)
                 frag_req, frag_resp = _history_pair(_canonical_history_user_text("fragment"), frag_response_for_history)
                 with trace.stage("history_write"):
                     await update_message_history(session_id, [*history, frag_req, frag_resp])
@@ -1348,7 +1358,7 @@ async def stream_voice_message(
                     session_id, process_id, query,
                 )
                 low_conf_resp_for_history = _FRAGMENT_RESPONSES["en"]
-                low_conf_resp_for_caller = await _render_text_for_caller(low_conf_resp_for_history, requested_target_lang)
+                low_conf_resp_for_caller = await _canned_for_caller(low_conf_resp_for_history, requested_target_lang, _FRAGMENT_RESPONSES)
                 low_conf_req, low_conf_rsp = _history_pair(
                     history_user_text or _canonical_history_user_text("low_confidence"),
                     low_conf_resp_for_history,
@@ -1427,7 +1437,7 @@ async def stream_voice_message(
 
             trimmed_history = trim_history(
                 history,
-                max_tokens=80_000,
+                max_tokens=32_000,
                 include_system_prompts=False,
                 include_tool_calls=True,
             )
