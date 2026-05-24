@@ -1457,72 +1457,21 @@ async def stream_voice_message(
                 process_id=process_id,
                 user_query=processing_query,
             ):
-                # pydantic-ai 0.2.4's run_stream + stream_text(delta=True) does not
-                # drive the agent loop past a tool-call-only first response — Gemma 4
-                # frequently emits tool_calls without text, after which the streamed
-                # iterator yields zero chunks and the run never completes. Switching
-                # to the non-streaming `run()` forces the full tool-call/response loop
-                # and reliably returns the final en text; we then stream the en→gu
-                # translation downstream via translate_text_stream_fast so the
-                # external response contract (gu chunks to the caller) is preserved.
-                with trace.stage(
-                    "agent",
-                    as_type="agent",
-                    metadata={
-                        "signed_in": bool(signed_in and mobile),
-                        "request_limit": usage_limits.request_limit,
-                        "pipeline_variant": pipeline_variant,
-                        "model": request_model_name,
-                        "provider": request_provider,
-                    },
-                ):
-                    agent_result = await active_agent.run(
-                        user_prompt=user_message,
-                        message_history=model_input_history,
-                        deps=deps,
-                        usage_limits=usage_limits,
-                        model=request_model,
-                    )
-                _agent_output = (
-                    getattr(agent_result, "output", None)
-                    or getattr(agent_result, "data", None)
-                    or ""
-                )
-                if not isinstance(_agent_output, str):
-                    _agent_output = str(_agent_output)
-                _agent_output = _agent_output.strip()
-                if _agent_output:
-                    trace.mark("first_agent_text_ms")
-
-                class _AgentRunResultStreamShim:
-                    """Adapter so the downstream batching/translation logic keeps
-                    working unchanged: yields the full en text as a single chunk
-                    and exposes the same `new_messages()` accessor."""
-
-                    def __init__(self, result, text: str) -> None:
-                        self._result = result
-                        self._text = text
-
-                    def stream_text(self, *, delta: bool = True):  # noqa: ARG002
-                        text = self._text
-                        async def _gen():
-                            if text:
-                                yield text
-                        return _gen()
-
-                    def new_messages(self):
-                        return self._result.new_messages()
-
-                response_stream = _AgentRunResultStreamShim(agent_result, _agent_output)
-                # Run the rest of the original flow within a no-op async context so
-                # the indentation and finally-clauses below stay structurally intact.
-                from contextlib import asynccontextmanager as _asynccontextmanager
-
-                @_asynccontextmanager
-                async def _noop_async():
-                    yield response_stream
-
-                async with _noop_async() as response_stream:
+                # Restored token streaming on pydantic-ai 1.x. run_stream now drives
+                # the full tool-call loop past a tool-call-only first response (the
+                # 0.2.4 stall that previously forced a blocking run()), then streams
+                # the final English text. We pipe those en deltas straight into the
+                # en->gu batch translator below, so agent generation and output
+                # translation overlap instead of running strictly back-to-back.
+                agent_started_at = time.monotonic()
+                _agent_output = ""
+                async with active_agent.run_stream(
+                    user_prompt=user_message,
+                    message_history=model_input_history,
+                    deps=deps,
+                    usage_limits=usage_limits,
+                    model=request_model,
+                ) as response_stream:
                     stream_iter = response_stream.stream_text(delta=True)
                     first_text_chunk_received = False
                     sentence_buffer = ""
@@ -1571,6 +1520,11 @@ async def stream_voice_message(
                         async for chunk in stream_iter:
                             if await _request_is_stale("during_agent_stream"):
                                 break
+
+                            if isinstance(chunk, str) and chunk:
+                                if not _agent_output and chunk.strip():
+                                    trace.mark("first_agent_text_ms")
+                                _agent_output += chunk
 
                             if not needs_output_translation:
                                 if (
@@ -1735,7 +1689,17 @@ async def stream_voice_message(
                                 pass
 
                     logger.info(f"Streaming complete for session {session_id}")
+                    _agent_output = _agent_output.strip()
                     new_messages = response_stream.new_messages()
+                    trace.attach_stage_timing(
+                        "agent",
+                        (time.monotonic() - agent_started_at) * 1000.0,
+                        signed_in=bool(signed_in and mobile),
+                        request_limit=usage_limits.request_limit,
+                        pipeline_variant=pipeline_variant,
+                        model=request_model_name,
+                        provider=request_provider,
+                    )
                     trace.set_agent(
                         signed_in=bool(signed_in and mobile),
                         output=_agent_output,

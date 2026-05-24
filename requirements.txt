@@ -17,7 +17,7 @@ requests
 # LLM
 openai
 anthropic
-pydantic==2.11.4
+pydantic==2.13.4
 tiktoken
 tenacity
 
@@ -38,7 +38,7 @@ python-decouple
 openpyxl
 
 ### Pydantic AI (Updated to resolve conflicts)
-pydantic-ai-slim[openai,anthropic,vertexai]==0.2.4
+pydantic-ai-slim[openai,anthropic,vertexai]==1.102.0
 asgiref
 
 # Web Server
