@@ -33,6 +33,7 @@ from app.services.voice import (
     _build_ai_technician_summary,
     _build_compact_farmer_summary,
     _build_runtime_context_request,
+    _build_query_hints_request,
     _prepare_text_for_voice_translation,
     _has_meaningful_history,
     _is_bare_greeting,
@@ -440,7 +441,7 @@ class TestHelperCoverage:
 
     def test_runtime_context_adds_compact_comparison_mode(self):
         deps = FarmerContext(query="What is the difference between A2 milk and normal milk?")
-        request = _build_runtime_context_request(deps)
+        request = _build_query_hints_request(deps)
         content = request.parts[0].content
         assert "Voice answer mode: compact comparison." in content
         assert "Give one short contrast sentence" in content
@@ -448,14 +449,14 @@ class TestHelperCoverage:
 
     def test_runtime_context_adds_compact_explainer_mode(self):
         deps = FarmerContext(query="What is mastitis?")
-        request = _build_runtime_context_request(deps)
+        request = _build_query_hints_request(deps)
         content = request.parts[0].content
         assert "Voice answer mode: compact explainer." in content
         assert "Do not teach the full topic." in content
 
     def test_runtime_context_adds_action_first_symptom_mode(self):
         deps = FarmerContext(query="My cow has fever")
-        request = _build_runtime_context_request(deps)
+        request = _build_query_hints_request(deps)
         content = request.parts[0].content
         assert "Voice answer mode: action-first symptom response." in content
         assert "Start with the most useful immediate action" in content

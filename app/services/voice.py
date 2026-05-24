@@ -511,6 +511,12 @@ async def get_or_fetch_farmer_data(mobile: str):
 
 
 def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
+    """Stable per-call context (constant across a call's turns: date, farmer
+    profile, signed-in state, tool groups). Placed BEFORE history so the token
+    sequence [system][stable-context][history] stays a single growing prefix that
+    vLLM prefix caching can reuse across turns. Per-query content that changes
+    every turn lives in _build_query_hints_request() and is appended AFTER history
+    so it never breaks this prefix."""
     tool_groups = ["retrieval", "booking"]
     if deps.signed_in and deps.mobile:
         tool_groups.append("signed-in-farmer-data")
@@ -521,27 +527,40 @@ def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
         runtime_context.replace("Runtime context for this turn:\n", "", 1),
         f"- Tool groups in this run: {', '.join(tool_groups)}",
     ]
+    return ModelRequest(parts=[UserPromptPart(content="\n".join(context_lines))])
+
+
+def _build_query_hints_request(deps: FarmerContext) -> Optional[ModelRequest]:
+    """Per-query hints derived from the caller's current utterance: disambiguation
+    rules (for ambiguous terms) and the voice answer mode. Kept OUT of the stable
+    pre-history context — these change every turn, so placing them before history
+    would break the cacheable prefix. Appended right before the user message
+    instead, where the instructions also sit closest to the query they describe.
+    Returns None when the query triggers neither hint."""
+    hint_lines: list[str] = []
     # Inject ambiguity hints for the agent so it can decide to clarify vs. answer
     ambiguity_hints = get_ambiguity_hints_for_query(
         deps.query or "",
         threshold=settings.ambiguity_match_threshold,
     )
     if ambiguity_hints:
-        context_lines.append(f"- Disambiguation rules for terms in this query:\n{ambiguity_hints}")
+        hint_lines.append(f"- Disambiguation rules for terms in this query:\n{ambiguity_hints}")
     answer_mode = _voice_answer_mode_for_query(deps.query or "")
     if answer_mode == "compact_comparison":
-        context_lines.append(
+        hint_lines.append(
             "- Voice answer mode: compact comparison. Give one short contrast sentence, then at most one short practical takeaway. Do not enumerate. Do not use labels, colons, or list structure. Do not append an extra follow-up question unless required."
         )
     elif answer_mode == "compact_explainer":
-        context_lines.append(
+        hint_lines.append(
             "- Voice answer mode: compact explainer. Give one short plain-language definition or explanation, then at most one short practical takeaway. Do not teach the full topic. Do not enumerate. Do not use labels, colons, or list structure. Do not append an extra follow-up question unless required."
         )
     elif answer_mode == "action_first_symptom":
-        context_lines.append(
+        hint_lines.append(
             "- Voice answer mode: action-first symptom response. Start with the most useful immediate action in one short sentence. Add at most one short safety or escalation sentence. Do not give long background, multiple causes, or a symptom checklist unless asked."
         )
-    return ModelRequest(parts=[UserPromptPart(content="\n".join(context_lines))])
+    if not hint_lines:
+        return None
+    return ModelRequest(parts=[UserPromptPart(content="\n".join(["Hints for the current user query:", *hint_lines]))])
 
 
 def _extract_farmer_tags(records: list[FarmerRecord]) -> list[str]:
@@ -1449,7 +1468,13 @@ async def stream_voice_message(
             # attention to the actual runtime context. Keep only the runtime
             # context request, which carries the per-turn deps (today's date,
             # farmer profile, ambiguity hints, voice answer mode).
+            # Stable context first → [system][stable-context][history] is a single
+            # growing prefix vLLM can cache across turns. Per-query hints (if any)
+            # go last, right before the user message, so they never break it.
             model_input_history = [runtime_context_request, *trimmed_history]
+            query_hints_request = _build_query_hints_request(deps)
+            if query_hints_request is not None:
+                model_input_history.append(query_hints_request)
             active_agent = voice_agent_signed_in if (signed_in and mobile) else voice_agent
             usage_limits = UsageLimits(request_limit=6 if (signed_in and mobile) else 4)
 
