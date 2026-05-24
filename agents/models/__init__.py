@@ -1,113 +1,88 @@
+import json
+import logging
 import os
-from typing import Literal, cast
+from typing import Optional
 
-from openai import APIStatusError, AsyncAzureOpenAI, AsyncStream
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.models.openai import (
-    NOT_GIVEN,
-    OpenAIModelSettings,
-    chat,
-    get_user_agent,
-    ModelRequestParameters,
-    ModelResponse,
-    ModelMessage,
-)
+import httpx
+from openai import AsyncAzureOpenAI
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from dotenv import load_dotenv
-from openai.types.chat import ChatCompletionChunk
 
-from pydantic_ai import ModelHTTPError
-
-from app.model_boundary_capture import capture_model_boundary_payload
+from app.model_boundary_capture import boundary_capture_enabled, capture_model_boundary_payload
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 
-class BoundaryCaptureOpenAIModel(OpenAIModel):
-    async def _completions_create(
-        self,
-        messages: list[ModelMessage],
-        stream: bool,
-        model_settings: OpenAIModelSettings,
-        model_request_parameters: ModelRequestParameters,
-    ) -> chat.ChatCompletion | AsyncStream[ChatCompletionChunk]:
-        tools = self._get_tools(model_request_parameters)
 
-        if not tools:
-            tool_choice: Literal["none", "required", "auto"] | None = None
-        elif not model_request_parameters.allow_text_output:
-            tool_choice = "required"
-        else:
-            tool_choice = "auto"
+# ── Model-boundary capture ────────────────────────────────────────────────────
+# pydantic-ai 1.x no longer exposes the `_completions_create` override the old
+# BoundaryCaptureOpenAIModel subclass hooked. Capture the outgoing chat payload
+# at the HTTP layer instead, via an httpx request event-hook on a custom client
+# passed to OpenAIProvider. Gated by MODEL_BOUNDARY_CAPTURE_ENABLED; best-effort,
+# never raises (a failed capture must never drop a model request).
+async def _capture_request_hook(request: httpx.Request) -> None:
+    if not boundary_capture_enabled():
+        return
+    try:
+        if not request.url.path.endswith("/chat/completions"):
+            return
+        raw = request.content
+        if not raw:
+            return
+        body = json.loads(raw.decode("utf-8"))
+        capture_model_boundary_payload(
+            {
+                "model_name": body.get("model"),
+                "provider": "openai-compatible",
+                "stream": bool(body.get("stream", False)),
+                "tool_choice": body.get("tool_choice"),
+                "url": str(request.url),
+                "payload": body,
+            }
+        )
+    except Exception as exc:  # pragma: no cover - capture is best-effort
+        logger.debug("Model boundary capture hook failed: %s", exc)
 
-        openai_messages = await self._map_messages(messages)
-        extra_headers = model_settings.get("extra_headers", {})
-        extra_headers.setdefault("User-Agent", get_user_agent())
 
-        request_kwargs = {
-            "model": self._model_name,
-            "messages": openai_messages,
-            "n": 1,
-            "parallel_tool_calls": model_settings.get("parallel_tool_calls", NOT_GIVEN),
-            "tools": tools or NOT_GIVEN,
-            "tool_choice": tool_choice or NOT_GIVEN,
-            "stream": stream,
-            "stream_options": {"include_usage": True} if stream else NOT_GIVEN,
-            "stop": model_settings.get("stop_sequences", NOT_GIVEN),
-            "max_completion_tokens": model_settings.get("max_tokens", NOT_GIVEN),
-            "temperature": model_settings.get("temperature", NOT_GIVEN),
-            "top_p": model_settings.get("top_p", NOT_GIVEN),
-            "timeout": model_settings.get("timeout", NOT_GIVEN),
-            "seed": model_settings.get("seed", NOT_GIVEN),
-            "presence_penalty": model_settings.get("presence_penalty", NOT_GIVEN),
-            "frequency_penalty": model_settings.get("frequency_penalty", NOT_GIVEN),
-            "logit_bias": model_settings.get("logit_bias", NOT_GIVEN),
-            "reasoning_effort": model_settings.get("openai_reasoning_effort", NOT_GIVEN),
-            "user": model_settings.get("openai_user", NOT_GIVEN),
-            "extra_headers": extra_headers,
-            "extra_body": model_settings.get("extra_body"),
-        }
-        capture_payload = {
-            "model_name": self.model_name,
-            "provider": self.system,
-            "stream": stream,
-            "tool_choice": tool_choice,
-            "allow_text_output": model_request_parameters.allow_text_output,
-            "payload": {
-                key: value
-                for key, value in request_kwargs.items()
-                if value is not NOT_GIVEN and value is not None
-            },
-        }
-        capture_model_boundary_payload(capture_payload)
+def _capture_http_client() -> httpx.AsyncClient:
+    """Long-lived AsyncClient with the boundary-capture event hook attached."""
+    return httpx.AsyncClient(event_hooks={"request": [_capture_request_hook]})
 
-        try:
-            return await self.client.chat.completions.create(**request_kwargs)
-        except APIStatusError as e:
-            if (status_code := e.status_code) >= 400:
-                raise ModelHTTPError(status_code=status_code, model_name=self.model_name, body=e.body) from e
-            raise
+
+def _build_openai_compatible_model(
+    model_name: str,
+    *,
+    base_url: Optional[str],
+    api_key: Optional[str],
+) -> OpenAIChatModel:
+    return OpenAIChatModel(
+        model_name,
+        provider=OpenAIProvider(
+            base_url=base_url,
+            api_key=api_key,
+            http_client=_capture_http_client(),
+        ),
+    )
 
 
 # Get configurations from environment variables
-LLM_PROVIDER    = os.getenv('LLM_PROVIDER', 'openai').lower()
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'openai').lower()
 LLM_MODEL_NAME = os.getenv('LLM_MODEL_NAME')
 
 if LLM_PROVIDER == 'vllm':
-    LLM_MODEL = BoundaryCaptureOpenAIModel(
+    LLM_MODEL = _build_openai_compatible_model(
         LLM_MODEL_NAME,
-        provider=OpenAIProvider(
-            base_url=os.getenv('INFERENCE_ENDPOINT_URL'), 
-            api_key=os.getenv('INFERENCE_API_KEY'),  
-        ),
+        base_url=os.getenv('INFERENCE_ENDPOINT_URL'),
+        api_key=os.getenv('INFERENCE_API_KEY'),
     )
 elif LLM_PROVIDER == 'openai':
-    LLM_MODEL = BoundaryCaptureOpenAIModel(
+    LLM_MODEL = _build_openai_compatible_model(
         LLM_MODEL_NAME,
-        provider=OpenAIProvider(
-            api_key=os.getenv('OPENAI_API_KEY'),
-        ),
+        base_url=None,
+        api_key=os.getenv('OPENAI_API_KEY'),
     )
 elif LLM_PROVIDER == 'anthropic':
     # AnthropicModel reads ANTHROPIC_API_KEY from the environment
@@ -120,7 +95,7 @@ elif LLM_PROVIDER == 'azure-openai':
     azure_api_key = os.getenv('AZURE_OPENAI_API_KEY')
     azure_api_version = os.getenv('AZURE_OPENAI_API_VERSION')
     azure_deployment_name = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME')
-    
+
     if not azure_endpoint:
         raise ValueError("AZURE_OPENAI_ENDPOINT environment variable is required")
     if not azure_api_key:
@@ -129,14 +104,15 @@ elif LLM_PROVIDER == 'azure-openai':
         raise ValueError("AZURE_OPENAI_API_VERSION environment variable is required")
     if not azure_deployment_name:
         raise ValueError("AZURE_OPENAI_DEPLOYMENT_NAME environment variable is required")
-    
+
     azure_client = AsyncAzureOpenAI(
         azure_endpoint=azure_endpoint.rstrip('/'),
         api_version=azure_api_version,
         api_key=azure_api_key,
+        http_client=_capture_http_client(),
     )
-    
-    LLM_MODEL = BoundaryCaptureOpenAIModel(
+
+    LLM_MODEL = OpenAIChatModel(
         azure_deployment_name,
         provider=OpenAIProvider(openai_client=azure_client),
     )
@@ -161,12 +137,10 @@ OSS_INFERENCE_API_KEY = os.getenv('OSS_INFERENCE_API_KEY', 'dummy')
 OSS_LLM_MODEL = None
 if OSS_INFERENCE_ENDPOINT_URL:
     try:
-        OSS_LLM_MODEL = BoundaryCaptureOpenAIModel(
+        OSS_LLM_MODEL = _build_openai_compatible_model(
             OSS_LLM_MODEL_NAME,
-            provider=OpenAIProvider(
-                base_url=OSS_INFERENCE_ENDPOINT_URL,
-                api_key=OSS_INFERENCE_API_KEY,
-            ),
+            base_url=OSS_INFERENCE_ENDPOINT_URL,
+            api_key=OSS_INFERENCE_API_KEY,
         )
     except Exception:  # pragma: no cover - never break startup on OSS misconfig
         OSS_LLM_MODEL = None

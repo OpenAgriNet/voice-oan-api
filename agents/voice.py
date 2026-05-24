@@ -44,9 +44,8 @@ def _build_voice_agent(name: str, tools):
     return Agent(
         model=LLM_MODEL,
         name=name,
-        instrument=True,
         output_type=str,
-        deps=FarmerContext,
+        deps_type=FarmerContext,
         retries=3,
         tools=tools,
         instructions=STATIC_VOICE_SYSTEM_PROMPT,
