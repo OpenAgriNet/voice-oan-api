@@ -1482,7 +1482,11 @@ async def stream_voice_message(
                     usage_limits=usage_limits,
                     model=request_model,
                 ) as response_stream:
-                    stream_iter = response_stream.stream_text(delta=True)
+                    # debounce_by=0 disables pydantic-ai's default 100ms token
+                    # debounce so the first agent delta reaches the translation
+                    # stage immediately (every ms counts for phone TTFT). Our own
+                    # sentence batching downstream re-aggregates the smaller chunks.
+                    stream_iter = response_stream.stream_text(delta=True, debounce_by=0)
                     first_text_chunk_received = False
                     sentence_buffer = ""
                     translation_batch: list[str] = []
