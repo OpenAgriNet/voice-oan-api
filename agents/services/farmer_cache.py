@@ -3,11 +3,12 @@ Cache layer for farmer data fetched from PashuGPT APIs.
 
 Voice reads farmer context from Redis only. Freshness is controlled separately
 from key expiry:
-- refresh interval: 24h
-- cache retention: 7d
+- soft refresh interval: 12h for "found", 2h for "not_found"
+- cache retention (hard delete): 7d
 
 This lets the request path return cached data immediately, mark it stale in the
-read result, and schedule a background refresh without blocking the caller.
+read result, and schedule a background refresh (via a Redis queue drained by a
+worker) without blocking the caller.
 """
 import asyncio
 import hashlib

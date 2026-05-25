@@ -5,13 +5,36 @@ Self-contained: uses asyncio.run + mocks, so it needs neither a live Redis nor
 pytest-asyncio.
 """
 import asyncio
+import os
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
-# Import the app entry first so the pre-existing tools<->farmer_cache import
-# cycle resolves in the same order the running app establishes it.
 import app.services.voice as voice
 import agents.services.farmer_cache as fc
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def test_cold_import_has_no_circular_import():
+    """Regression: `uvicorn main:app` imports the refresh worker before the
+    routers, so farmer_cache must be importable COLD (first touch) without
+    hitting the farmer_cache <-> agents.tools cycle. Run in a subprocess to get
+    a truly fresh interpreter, mirroring the app's startup import order."""
+    code = (
+        "import app.tasks.farmer_refresh_worker;"
+        "import agents.services.farmer_cache;"
+        "print('OK')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"cold import failed:\n{result.stderr}"
+    assert "OK" in result.stdout
 
 
 class _Env:

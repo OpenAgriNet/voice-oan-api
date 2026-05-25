@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
-from agents.services.farmer_cache import drain_farmer_refresh_queue_once
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -26,6 +25,11 @@ _worker_task: Optional[asyncio.Task] = None
 
 
 async def _run_loop() -> None:
+    # Imported here (not at module scope) so importing this worker module is
+    # side-effect-free and never triggers the farmer_cache <-> tools import
+    # cycle at app startup (main.py imports the worker before the routers).
+    from agents.services.farmer_cache import drain_farmer_refresh_queue_once
+
     logger.info("Farmer refresh worker started")
     while True:
         try:
