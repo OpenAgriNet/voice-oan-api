@@ -114,14 +114,14 @@ def extract_complete_sentences(text: str):
     if inline_structural_match and inline_structural_match.start() > 0:
         split_at = inline_structural_match.start()
         head = text[:split_at]
-        tail = text[split_at:]
+        tail = text[split_at:].lstrip("\n")
         if head:
             return [head], tail
     structural_match = re.search(r"\n(?=(?:#{1,6}\s|[-*•]\s|\d+\.\s))", text)
     if structural_match:
         split_at = structural_match.start()
         head = text[:split_at]
-        tail = text[split_at:]
+        tail = text[split_at:].lstrip("\n")
         if head:
             return [head], tail
     sentences = sentence_segmenter(text)
@@ -157,6 +157,14 @@ def _split_voice_batch_text(text: str, max_chars: int = VOICE_TRANSLATION_BATCH_
                 if idx >= VOICE_TRANSLATION_SOFT_SPLIT_MIN_CHARS:
                     split_at = idx
                     break
+
+    if split_at < 0:
+        # Last resort: split at the latest word boundary so an unpunctuated
+        # run-on still flushes for voice delivery instead of stalling until
+        # the stream ends.
+        idx = window.rfind(" ")
+        if idx >= VOICE_TRANSLATION_SOFT_SPLIT_MIN_CHARS:
+            split_at = idx
 
     if split_at < 0:
         return text, ""
@@ -1367,12 +1375,9 @@ async def stream_voice_message(
             if (
                 requested_source_lang not in {"en", "english"}
                 and not (processing_query or "").strip()
-                and not (processing_query or "").strip()
             ):
                 trace.set_route("pretranslation_empty")
                 logger.info(
-                    "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
-                    session_id, process_id, query,
                     "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
                 )
