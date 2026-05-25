@@ -118,12 +118,60 @@ async def set_cache(key: str, value, ttl: int = DEFAULT_CACHE_TTL):
     return True
 
 
+# pydantic-ai usage integer fields. The 0.2.4 schema (request_tokens /
+# response_tokens / total_tokens / requests) and the 1.x schema (input_tokens /
+# output_tokens / cache_* tokens) both store these as ints, but legacy turns
+# where the model reported no usage (streamed / vLLM-gemma responses) persisted
+# them as null. The 1.x ModelMessagesTypeAdapter requires int, so loading that
+# history raises ValidationError. Coerce nulls to 0 on read.
+_USAGE_INT_FIELDS = (
+    "requests", "request_tokens", "response_tokens", "total_tokens",
+    "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
+    "input_audio_tokens", "cache_audio_read_tokens", "output_audio_tokens",
+)
+
+
+def _sanitize_legacy_usage(message_history):
+    """Coerce null usage token counts in cached history to 0 so the pydantic-ai
+    1.x adapter can validate history written by older revisions. Mutates and
+    returns the same structure; best-effort and never raises."""
+    if not isinstance(message_history, list):
+        return message_history
+    for msg in message_history:
+        if not isinstance(msg, dict):
+            continue
+        usage = msg.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        for field in _USAGE_INT_FIELDS:
+            if field in usage and usage.get(field) is None:
+                usage[field] = 0
+        details = usage.get("details")
+        if isinstance(details, dict):
+            for key, value in list(details.items()):
+                if value is None:
+                    details[key] = 0
+        elif details is None and "details" in usage:
+            usage["details"] = {}
+    return message_history
+
+
 async def _get_message_history(session_id: str) -> List[ModelMessage]:
     """Get or initialize message history."""
     message_history = await get_cache(f"{session_id}_{HISTORY_SUFFIX}")
-    if message_history:
+    if not message_history:
+        return []
+    message_history = _sanitize_legacy_usage(message_history)
+    try:
         return ModelMessagesTypeAdapter.validate_python(message_history)
-    return []
+    except Exception as exc:
+        # Never 500 a live call on unreadable history (e.g. future format
+        # drift). Drop it and proceed as a fresh turn — degraded, not broken.
+        logger.warning(
+            "Discarding unreadable message history for session %s: %s",
+            session_id, exc,
+        )
+        return []
 
 async def update_message_history(session_id: str, all_messages: List[ModelMessage]):
     """Update message history."""
