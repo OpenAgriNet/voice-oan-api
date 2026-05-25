@@ -247,7 +247,14 @@ class VoiceTrace:
                         "trace_id": self.trace_id,
                         "provider": str(self.provider or ""),
                     },
-                    tags=["voice", str(self.provider or "api")],
+                    tags=[
+                        "voice",
+                        str(self.provider or "api"),
+                        # Mirror chat's `variant:<oss|legacy>` trace tag so voice
+                        # sessions are sliceable by pipeline variant in Langfuse.
+                        # pipeline_variant is set on metadata before this opens.
+                        f"variant:{self.metadata.get('pipeline_variant') or 'legacy'}",
+                    ],
                     trace_name="voice_request",
                 )
             )
