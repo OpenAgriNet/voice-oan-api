@@ -114,14 +114,14 @@ def extract_complete_sentences(text: str):
     if inline_structural_match and inline_structural_match.start() > 0:
         split_at = inline_structural_match.start()
         head = text[:split_at]
-        tail = text[split_at:]
+        tail = text[split_at:].lstrip("\n")
         if head:
             return [head], tail
     structural_match = re.search(r"\n(?=(?:#{1,6}\s|[-*•]\s|\d+\.\s))", text)
     if structural_match:
         split_at = structural_match.start()
         head = text[:split_at]
-        tail = text[split_at:]
+        tail = text[split_at:].lstrip("\n")
         if head:
             return [head], tail
     sentences = sentence_segmenter(text)
@@ -157,6 +157,14 @@ def _split_voice_batch_text(text: str, max_chars: int = VOICE_TRANSLATION_BATCH_
                 if idx >= VOICE_TRANSLATION_SOFT_SPLIT_MIN_CHARS:
                     split_at = idx
                     break
+
+    if split_at < 0:
+        # Last resort: split at the latest word boundary so an unpunctuated
+        # run-on still flushes for voice delivery instead of stalling until
+        # the stream ends.
+        idx = window.rfind(" ")
+        if idx >= VOICE_TRANSLATION_SOFT_SPLIT_MIN_CHARS:
+            split_at = idx
 
     if split_at < 0:
         return text, ""
@@ -479,6 +487,16 @@ async def _render_text_for_caller(text_en: str, target_lang: str) -> str:
         )
 
 
+async def _canned_for_caller(text_en: str, target_lang: str, canned: dict[str, str]) -> str:
+    """Return a pre-written caller string for the target language when one exists,
+    skipping the TranslateGemma round-trip on fixed fast-path replies. Falls back to
+    live translation for languages that have no canned variant."""
+    key = (target_lang or "en").strip().lower()
+    if key in canned:
+        return _prepare_voice_output(canned[key], key)
+    return await _render_text_for_caller(text_en, target_lang)
+
+
 def _history_pair(user_text: str, assistant_text: str) -> tuple[ModelRequest, ModelResponse]:
     return (
         ModelRequest(parts=[UserPromptPart(content=user_text)]),
@@ -501,6 +519,12 @@ async def get_or_fetch_farmer_data(mobile: str):
 
 
 def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
+    """Stable per-call context (constant across a call's turns: date, farmer
+    profile, signed-in state, tool groups). Placed BEFORE history so the token
+    sequence [system][stable-context][history] stays a single growing prefix that
+    vLLM prefix caching can reuse across turns. Per-query content that changes
+    every turn lives in _build_query_hints_request() and is appended AFTER history
+    so it never breaks this prefix."""
     tool_groups = ["retrieval", "booking"]
     if deps.signed_in and deps.mobile:
         tool_groups.append("signed-in-farmer-data")
@@ -511,27 +535,40 @@ def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
         runtime_context.replace("Runtime context for this turn:\n", "", 1),
         f"- Tool groups in this run: {', '.join(tool_groups)}",
     ]
+    return ModelRequest(parts=[UserPromptPart(content="\n".join(context_lines))])
+
+
+def _build_query_hints_request(deps: FarmerContext) -> Optional[ModelRequest]:
+    """Per-query hints derived from the caller's current utterance: disambiguation
+    rules (for ambiguous terms) and the voice answer mode. Kept OUT of the stable
+    pre-history context — these change every turn, so placing them before history
+    would break the cacheable prefix. Appended right before the user message
+    instead, where the instructions also sit closest to the query they describe.
+    Returns None when the query triggers neither hint."""
+    hint_lines: list[str] = []
     # Inject ambiguity hints for the agent so it can decide to clarify vs. answer
     ambiguity_hints = get_ambiguity_hints_for_query(
         deps.query or "",
         threshold=settings.ambiguity_match_threshold,
     )
     if ambiguity_hints:
-        context_lines.append(f"- Disambiguation rules for terms in this query:\n{ambiguity_hints}")
+        hint_lines.append(f"- Disambiguation rules for terms in this query:\n{ambiguity_hints}")
     answer_mode = _voice_answer_mode_for_query(deps.query or "")
     if answer_mode == "compact_comparison":
-        context_lines.append(
+        hint_lines.append(
             "- Voice answer mode: compact comparison. Give one short contrast sentence, then at most one short practical takeaway. Do not enumerate. Do not use labels, colons, or list structure. Do not append an extra follow-up question unless required."
         )
     elif answer_mode == "compact_explainer":
-        context_lines.append(
+        hint_lines.append(
             "- Voice answer mode: compact explainer. Give one short plain-language definition or explanation, then at most one short practical takeaway. Do not teach the full topic. Do not enumerate. Do not use labels, colons, or list structure. Do not append an extra follow-up question unless required."
         )
     elif answer_mode == "action_first_symptom":
-        context_lines.append(
+        hint_lines.append(
             "- Voice answer mode: action-first symptom response. Start with the most useful immediate action in one short sentence. Add at most one short safety or escalation sentence. Do not give long background, multiple causes, or a symptom checklist unless asked."
         )
-    return ModelRequest(parts=[UserPromptPart(content="\n".join(context_lines))])
+    if not hint_lines:
+        return None
+    return ModelRequest(parts=[UserPromptPart(content="\n".join(["Hints for the current user query:", *hint_lines]))])
 
 
 def _extract_farmer_tags(records: list[FarmerRecord]) -> list[str]:
@@ -1000,7 +1037,7 @@ async def stream_voice_message(
                 )
                 greeting_history = _GREETING_RESPONSES["en"]
                 with trace.stage("greeting_fast_path"):
-                    greeting_response = await _render_text_for_caller(greeting_history, requested_target_lang)
+                    greeting_response = await _canned_for_caller(greeting_history, requested_target_lang, _GREETING_RESPONSES)
                 greet_req, greet_resp = _history_pair(_canonical_history_user_text("greeting"), greeting_history)
                 with trace.stage("history_write"):
                     await update_message_history(session_id, [*history, greet_req, greet_resp])
@@ -1039,7 +1076,7 @@ async def stream_voice_message(
                 )
                 frag_response_for_history = _FRAGMENT_RESPONSES["en"]
                 with trace.stage("fragment_fast_path"):
-                    frag_response_for_caller = await _render_text_for_caller(frag_response_for_history, requested_target_lang)
+                    frag_response_for_caller = await _canned_for_caller(frag_response_for_history, requested_target_lang, _FRAGMENT_RESPONSES)
                 frag_req, frag_resp = _history_pair(_canonical_history_user_text("fragment"), frag_response_for_history)
                 with trace.stage("history_write"):
                     await update_message_history(session_id, [*history, frag_req, frag_resp])
@@ -1338,17 +1375,14 @@ async def stream_voice_message(
             if (
                 requested_source_lang not in {"en", "english"}
                 and not (processing_query or "").strip()
-                and not (processing_query or "").strip()
             ):
                 trace.set_route("pretranslation_empty")
                 logger.info(
                     "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
                     session_id, process_id, query,
-                    "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
-                    session_id, process_id, query,
                 )
                 low_conf_resp_for_history = _FRAGMENT_RESPONSES["en"]
-                low_conf_resp_for_caller = await _render_text_for_caller(low_conf_resp_for_history, requested_target_lang)
+                low_conf_resp_for_caller = await _canned_for_caller(low_conf_resp_for_history, requested_target_lang, _FRAGMENT_RESPONSES)
                 low_conf_req, low_conf_rsp = _history_pair(
                     history_user_text or _canonical_history_user_text("low_confidence"),
                     low_conf_resp_for_history,
@@ -1427,7 +1461,7 @@ async def stream_voice_message(
 
             trimmed_history = trim_history(
                 history,
-                max_tokens=80_000,
+                max_tokens=32_000,
                 include_system_prompts=False,
                 include_tool_calls=True,
             )
@@ -1439,7 +1473,13 @@ async def stream_voice_message(
             # attention to the actual runtime context. Keep only the runtime
             # context request, which carries the per-turn deps (today's date,
             # farmer profile, ambiguity hints, voice answer mode).
+            # Stable context first → [system][stable-context][history] is a single
+            # growing prefix vLLM can cache across turns. Per-query hints (if any)
+            # go last, right before the user message, so they never break it.
             model_input_history = [runtime_context_request, *trimmed_history]
+            query_hints_request = _build_query_hints_request(deps)
+            if query_hints_request is not None:
+                model_input_history.append(query_hints_request)
             active_agent = voice_agent_signed_in if (signed_in and mobile) else voice_agent
             usage_limits = UsageLimits(request_limit=6 if (signed_in and mobile) else 4)
 
@@ -1457,73 +1497,26 @@ async def stream_voice_message(
                 process_id=process_id,
                 user_query=processing_query,
             ):
-                # pydantic-ai 0.2.4's run_stream + stream_text(delta=True) does not
-                # drive the agent loop past a tool-call-only first response — Gemma 4
-                # frequently emits tool_calls without text, after which the streamed
-                # iterator yields zero chunks and the run never completes. Switching
-                # to the non-streaming `run()` forces the full tool-call/response loop
-                # and reliably returns the final en text; we then stream the en→gu
-                # translation downstream via translate_text_stream_fast so the
-                # external response contract (gu chunks to the caller) is preserved.
-                with trace.stage(
-                    "agent",
-                    as_type="agent",
-                    metadata={
-                        "signed_in": bool(signed_in and mobile),
-                        "request_limit": usage_limits.request_limit,
-                        "pipeline_variant": pipeline_variant,
-                        "model": request_model_name,
-                        "provider": request_provider,
-                    },
-                ):
-                    agent_result = await active_agent.run(
-                        user_prompt=user_message,
-                        message_history=model_input_history,
-                        deps=deps,
-                        usage_limits=usage_limits,
-                        model=request_model,
-                    )
-                _agent_output = (
-                    getattr(agent_result, "output", None)
-                    or getattr(agent_result, "data", None)
-                    or ""
-                )
-                if not isinstance(_agent_output, str):
-                    _agent_output = str(_agent_output)
-                _agent_output = _agent_output.strip()
-                if _agent_output:
-                    trace.mark("first_agent_text_ms")
-
-                class _AgentRunResultStreamShim:
-                    """Adapter so the downstream batching/translation logic keeps
-                    working unchanged: yields the full en text as a single chunk
-                    and exposes the same `new_messages()` accessor."""
-
-                    def __init__(self, result, text: str) -> None:
-                        self._result = result
-                        self._text = text
-
-                    def stream_text(self, *, delta: bool = True):  # noqa: ARG002
-                        text = self._text
-                        async def _gen():
-                            if text:
-                                yield text
-                        return _gen()
-
-                    def new_messages(self):
-                        return self._result.new_messages()
-
-                response_stream = _AgentRunResultStreamShim(agent_result, _agent_output)
-                # Run the rest of the original flow within a no-op async context so
-                # the indentation and finally-clauses below stay structurally intact.
-                from contextlib import asynccontextmanager as _asynccontextmanager
-
-                @_asynccontextmanager
-                async def _noop_async():
-                    yield response_stream
-
-                async with _noop_async() as response_stream:
-                    stream_iter = response_stream.stream_text(delta=True)
+                # Restored token streaming on pydantic-ai 1.x. run_stream now drives
+                # the full tool-call loop past a tool-call-only first response (the
+                # 0.2.4 stall that previously forced a blocking run()), then streams
+                # the final English text. We pipe those en deltas straight into the
+                # en->gu batch translator below, so agent generation and output
+                # translation overlap instead of running strictly back-to-back.
+                agent_started_at = time.monotonic()
+                _agent_output = ""
+                async with active_agent.run_stream(
+                    user_prompt=user_message,
+                    message_history=model_input_history,
+                    deps=deps,
+                    usage_limits=usage_limits,
+                    model=request_model,
+                ) as response_stream:
+                    # debounce_by=0 disables pydantic-ai's default 100ms token
+                    # debounce so the first agent delta reaches the translation
+                    # stage immediately (every ms counts for phone TTFT). Our own
+                    # sentence batching downstream re-aggregates the smaller chunks.
+                    stream_iter = response_stream.stream_text(delta=True, debounce_by=0)
                     first_text_chunk_received = False
                     sentence_buffer = ""
                     translation_batch: list[str] = []
@@ -1571,6 +1564,11 @@ async def stream_voice_message(
                         async for chunk in stream_iter:
                             if await _request_is_stale("during_agent_stream"):
                                 break
+
+                            if isinstance(chunk, str) and chunk:
+                                if not _agent_output and chunk.strip():
+                                    trace.mark("first_agent_text_ms")
+                                _agent_output += chunk
 
                             if not needs_output_translation:
                                 if (
@@ -1735,7 +1733,17 @@ async def stream_voice_message(
                                 pass
 
                     logger.info(f"Streaming complete for session {session_id}")
+                    _agent_output = _agent_output.strip()
                     new_messages = response_stream.new_messages()
+                    trace.attach_stage_timing(
+                        "agent",
+                        (time.monotonic() - agent_started_at) * 1000.0,
+                        signed_in=bool(signed_in and mobile),
+                        request_limit=usage_limits.request_limit,
+                        pipeline_variant=pipeline_variant,
+                        model=request_model_name,
+                        provider=request_provider,
+                    )
                     trace.set_agent(
                         signed_in=bool(signed_in and mobile),
                         output=_agent_output,

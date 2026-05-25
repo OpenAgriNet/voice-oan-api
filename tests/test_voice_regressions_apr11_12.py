@@ -33,6 +33,7 @@ from app.services.voice import (
     _build_ai_technician_summary,
     _build_compact_farmer_summary,
     _build_runtime_context_request,
+    _build_query_hints_request,
     _prepare_text_for_voice_translation,
     _has_meaningful_history,
     _is_bare_greeting,
@@ -76,7 +77,7 @@ class _FakeResponseStream:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    def stream_text(self, delta: bool = True):
+    def stream_text(self, delta: bool = True, debounce_by: float | None = None, **kwargs):
         async def _gen():
             for chunk in self._chunks:
                 if self._delay:
@@ -317,8 +318,8 @@ class TestHelperCoverage:
         assert voice_agent_signed_in.model_settings["max_tokens"] == 3600
 
     def test_signed_in_agent_has_farmer_tools(self):
-        base_tool_names = set(voice_agent._function_tools.keys())
-        signed_in_tool_names = set(voice_agent_signed_in._function_tools.keys())
+        base_tool_names = set(voice_agent._function_toolset.tools.keys())
+        signed_in_tool_names = set(voice_agent_signed_in._function_toolset.tools.keys())
         assert {"search_terms", "search_documents", "get_farmer_milk_collection_details", "create_ai_call", "create_health_call"}.issubset(base_tool_names)
         assert {"get_farmer_profile", "get_herd_summary", "list_animal_tags"}.issubset(signed_in_tool_names)
         assert "get_farmer_profile" not in base_tool_names
@@ -440,7 +441,7 @@ class TestHelperCoverage:
 
     def test_runtime_context_adds_compact_comparison_mode(self):
         deps = FarmerContext(query="What is the difference between A2 milk and normal milk?")
-        request = _build_runtime_context_request(deps)
+        request = _build_query_hints_request(deps)
         content = request.parts[0].content
         assert "Voice answer mode: compact comparison." in content
         assert "Give one short contrast sentence" in content
@@ -448,14 +449,14 @@ class TestHelperCoverage:
 
     def test_runtime_context_adds_compact_explainer_mode(self):
         deps = FarmerContext(query="What is mastitis?")
-        request = _build_runtime_context_request(deps)
+        request = _build_query_hints_request(deps)
         content = request.parts[0].content
         assert "Voice answer mode: compact explainer." in content
         assert "Do not teach the full topic." in content
 
     def test_runtime_context_adds_action_first_symptom_mode(self):
         deps = FarmerContext(query="My cow has fever")
-        request = _build_runtime_context_request(deps)
+        request = _build_query_hints_request(deps)
         content = request.parts[0].content
         assert "Voice answer mode: action-first symptom response." in content
         assert "Start with the most useful immediate action" in content
@@ -537,7 +538,7 @@ class TestHelperCoverage:
         assert "Multiple farmer records are registered on this mobile number." in summary
         assert "For AI booking, first ask which farmer name the caller wants to use." in summary
         assert "Farmer code available: yes" in summary
-        assert "Known animal tags: 1001, 1002, 1003" in summary
+        assert "Known animal tags: one zero zero one, one zero zero two, one zero zero three" in summary
         assert "Farmer option 1: name=Rameshbhai, society_name=Anand Dairy Society, farmer_code=F123" in summary
         assert "Farmer option 2: name=Sureshbhai, society_name=Vidya Dairy Society, farmer_code=F456" in summary
         assert "AI technician option" not in summary
@@ -651,11 +652,12 @@ class TestHelperCoverage:
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_moderation_en.md"
         prompt_text = prompt_path.read_text(encoding="utf-8")
         assert "When the context is uncertain, label `in_scope`" in prompt_text
-        assert "Pass through any mention of milk, dairy products, medicines, treatments, dosages" in prompt_text
+        assert "Pass through any mention of camel milk, camel-related care, milk, dairy products, medicines, treatments, dosages" in prompt_text
         assert "Amul, cooperative services, farmer records, animal records, DCS, society, union" in prompt_text
         assert "Do not reject medicine questions just because they might be human medical" in prompt_text
         assert "Reject as `irrelevant` only when the utterance is unambiguously about a human body" in prompt_text
-        assert "Ambiguous medicine, treatment, dosage, pharmacy, product, or brand mentions" in prompt_text
+        assert "Ambiguous medicine, treatment, dosage, pharmacy" in prompt_text
+        assert "product, or brand mentions" in prompt_text
         assert "camel milk questions" in prompt_text
         assert "Cattle, buffalo, camels, goats, sheep, poultry care" in prompt_text
         assert "homeopathic/homepatheic, ayurvedic/aurvedic, Amul medicine" in prompt_text
@@ -727,7 +729,12 @@ class TestHelperCoverage:
         assert translated == "the cow has fever"
         assert confidence == "low"
 
-    def test_low_confidence_fallback_pretranslation_still_short_circuits(self, monkeypatch):
+    def test_empty_fallback_pretranslation_short_circuits_with_repeat_prompt(self, monkeypatch):
+        # Contract (see df9985f): the short-circuit now fires only when
+        # pretranslation produces NO usable text at all (primary raised and
+        # fallback returned empty). A merely low-confidence-but-non-empty
+        # pretranslation routes to the agent instead, which clarifies in
+        # context. Here both primary and fallback fail to yield text.
         from app.services import voice as voice_module
         from agents import voice as voice_agent_module
 
@@ -735,7 +742,7 @@ class TestHelperCoverage:
             raise TimeoutError("primary pretranslation failed")
 
         async def _fallback_pretranslation(*args, **kwargs):
-            return "unclear livestock query", "low"
+            return "", "low"
 
         agent_called = False
         history_store: dict[str, list] = {}
