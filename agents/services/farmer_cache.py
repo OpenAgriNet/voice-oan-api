@@ -17,10 +17,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.core.cache import cache, redis_client, build_cache_key
+from app.config import settings
+from app.observability import start_observation
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 from agents.tools.farmer_animal_backends import (
     GetAITechniciansBySocietyQueryParams,
     get_ai_technicians_by_society_api,
+    fetch_reason,
 )
 from helpers.utils import get_logger
 
@@ -31,6 +34,9 @@ FARMER_REFRESH_INTERVAL = 60 * 60 * 12  # soft expiry: refresh a "found" record 
 FARMER_NEGATIVE_REFRESH_INTERVAL = 60 * 60 * 2  # not_found refreshes sooner (caller may newly register)
 FARMER_REFRESH_LOCK_TTL = 60 * 5  # dedupe concurrent refreshes for 5 minutes
 FARMER_COLD_FETCH_TIMEOUT = 3.0  # bounded blocking fetch for a cold/never-cached miss
+# Beyond this age a cached record is too stale to serve: the read blocks on a
+# bounded API call instead (falls back to the stale record only if that fails).
+FARMER_MAX_SERVE_STALE_SECONDS = settings.farmer_max_serve_stale_seconds
 FARMER_CACHE_NAMESPACE = "farmer"
 FARMER_REFRESH_LOCK_NAMESPACE = "farmer-refresh"
 FARMER_REFRESH_QUEUE_NAMESPACE = "farmer-refresh-queue"
@@ -64,6 +70,26 @@ def _compute_freshness(envelope: FarmerDataEnvelope) -> tuple[bool, Optional[str
     refresh_after_iso = refresh_after.astimezone(timezone.utc).isoformat()
     is_stale = datetime.now(timezone.utc) >= refresh_after.astimezone(timezone.utc)
     return is_stale, ("expired" if is_stale else None), refresh_after_iso
+
+
+def _envelope_age_seconds(envelope: Optional[FarmerDataEnvelope]) -> Optional[float]:
+    if envelope is None or not envelope.fetchedAt:
+        return None
+    try:
+        fetched_at = datetime.fromisoformat(envelope.fetchedAt.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - fetched_at.astimezone(timezone.utc)).total_seconds()
+
+
+def exceeds_max_serve_stale(envelope: Optional[FarmerDataEnvelope]) -> bool:
+    """True when a cached record is too old to serve and the read should block
+    on a fresh API call (e.g. background refresh has been failing). Unknown age
+    counts as too stale."""
+    age = _envelope_age_seconds(envelope)
+    if age is None:
+        return True
+    return age > FARMER_MAX_SERVE_STALE_SECONDS
 
 
 async def get_cached_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
@@ -116,8 +142,25 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
         if records:
             envelope = FarmerDataEnvelope.from_records(records, source="api", lookup_status="found")
             envelope.aiTechnicians = await _fetch_ai_technicians(records)
-        else:
-            envelope = FarmerDataEnvelope.not_found(source="api")
+            await set_cached_farmer_data(phone, envelope)
+            return envelope
+
+        # Upstream returned nothing. Guard against a transient empty response
+        # wiping known-good data: keep a still-serveable "found" record rather
+        # than downgrading it to not_found. It stays stale, so it is retried.
+        existing = await get_cached_farmer_data(phone)
+        if (
+            existing is not None
+            and existing.lookupStatus == "found"
+            and not exceeds_max_serve_stale(existing)
+        ):
+            logger.info(
+                "Skipping not_found overwrite of good cached farmer data (phone hash %s...)",
+                _cache_key(phone)[:8],
+            )
+            return existing
+
+        envelope = FarmerDataEnvelope.not_found(source="api")
         await set_cached_farmer_data(phone, envelope)
         return envelope
     except Exception as e:
@@ -176,7 +219,8 @@ async def refresh_farmer_data_bounded(
     the phone is queued, and the caller proceeds with no farmer data this turn.
     """
     try:
-        return await asyncio.wait_for(refresh_farmer_data(phone), timeout=timeout)
+        with fetch_reason("cold_fetch"):
+            return await asyncio.wait_for(refresh_farmer_data(phone), timeout=timeout)
     except asyncio.TimeoutError:
         logger.warning(
             "Cold farmer fetch exceeded %.1fs for phone hash %s...; deferring to worker",
@@ -201,7 +245,16 @@ async def drain_farmer_refresh_queue_once(batch: int = 20) -> int:
     processed = 0
     for phone in members:
         try:
-            await refresh_farmer_data(phone)
+            # Root span so the nested API-call observations have a parent and
+            # are queryable in Langfuse (background refreshes aren't tied to a
+            # voice session); fetch_reason tags them as background_refresh.
+            with start_observation(
+                "farmer_background_refresh",
+                input={"phone_hash": _cache_key(phone)[:12]},
+                metadata={"reason": "background_refresh"},
+            ):
+                with fetch_reason("background_refresh"):
+                    await refresh_farmer_data(phone)
             processed += 1
         except Exception:
             logger.exception("Background farmer refresh failed for a queued phone")

@@ -115,12 +115,93 @@ def test_bounded_fetch_times_out_and_enqueues():
 
 
 def test_voice_read_returns_cached_without_blocking():
-    cached = object()
+    cached = _Env("found", 1)  # fresh, within max-serve-stale
     with patch.object(voice, "get_farmer_data_cached_only", new=AsyncMock(return_value=cached)), \
          patch.object(voice, "refresh_farmer_data_bounded", new=AsyncMock()) as bounded:
         result = asyncio.run(voice.get_or_fetch_farmer_data("111"))
     assert result is cached
     bounded.assert_not_called()
+
+
+def test_voice_read_blocks_when_too_stale():
+    stale = _Env("found", 1000)   # well beyond the 48h max-serve-stale
+    fresh = _Env("found", 0)
+    with patch.object(voice, "get_farmer_data_cached_only", new=AsyncMock(return_value=stale)), \
+         patch.object(voice, "refresh_farmer_data_bounded", new=AsyncMock(return_value=fresh)) as bounded:
+        result = asyncio.run(voice.get_or_fetch_farmer_data("111"))
+    assert result is fresh
+    bounded.assert_awaited_once_with("111")
+
+
+def test_voice_read_too_stale_falls_back_to_stale_on_api_failure():
+    stale = _Env("found", 1000)
+    with patch.object(voice, "get_farmer_data_cached_only", new=AsyncMock(return_value=stale)), \
+         patch.object(voice, "refresh_farmer_data_bounded", new=AsyncMock(return_value=None)):
+        result = asyncio.run(voice.get_or_fetch_farmer_data("111"))
+    assert result is stale  # API also failed -> serve stale rather than nothing
+
+
+def test_exceeds_max_serve_stale():
+    assert fc.exceeds_max_serve_stale(_Env("found", 1)) is False
+    assert fc.exceeds_max_serve_stale(_Env("found", 1000)) is True
+    assert fc.exceeds_max_serve_stale(None) is True
+
+
+def test_refresh_keeps_found_on_transient_not_found():
+    """A transient empty upstream response must not wipe a still-fresh 'found' record."""
+    existing = _Env("found", 1)
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=True)   # lock acquired
+    fake_redis.delete = AsyncMock()
+    with patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "fetch_farmer_info_raw", new=AsyncMock(return_value=[])), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=existing)), \
+         patch.object(fc, "set_cached_farmer_data", new=AsyncMock()) as set_cache:
+        result = asyncio.run(fc.refresh_farmer_data("9999999999"))
+    assert result is existing
+    set_cache.assert_not_called()  # did NOT downgrade to not_found
+
+
+def test_record_api_trace_captures_body_status_and_reason():
+    from agents.tools import farmer_animal_backends as backends
+
+    class _Resp:
+        status_code = 200
+        text = '{"totalAnimals": 5}'
+
+    captured = {}
+
+    class _Obs:
+        def update(self, output=None, metadata=None):
+            captured["output"] = output
+            captured["metadata"] = metadata
+
+    with backends.fetch_reason("cold_fetch"):
+        backends._record_api_trace(_Obs(), _Resp(), provider="amulpashudhan", url="http://x")
+    assert captured["output"]["status_code"] == 200
+    assert captured["output"]["ok"] is True
+    assert captured["output"]["body"] == '{"totalAnimals": 5}'
+    assert captured["output"]["fetch_reason"] == "cold_fetch"
+    assert captured["metadata"] == {"provider": "amulpashudhan", "url": "http://x"}
+
+
+def test_record_api_trace_none_observation_is_noop():
+    from agents.tools import farmer_animal_backends as backends
+
+    class _Resp:
+        status_code = 500
+        text = "boom"
+
+    backends._record_api_trace(None, _Resp(), provider="x", url="y")  # must not raise
+
+
+def test_fetch_reason_contextvar_default_and_scope():
+    from agents.tools import farmer_animal_backends as backends
+
+    assert backends.current_fetch_reason() == "request"
+    with backends.fetch_reason("background_refresh"):
+        assert backends.current_fetch_reason() == "background_refresh"
+    assert backends.current_fetch_reason() == "request"
 
 
 def test_voice_read_cold_miss_does_bounded_fetch():

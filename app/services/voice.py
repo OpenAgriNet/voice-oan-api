@@ -19,6 +19,7 @@ from agents.services.farmer_cache import (
     refresh_farmer_data_bounded,
     enqueue_farmer_refresh,
     should_refresh_farmer_data,
+    exceeds_max_serve_stale,
 )
 from app.models.union import UnionName
 from app.services.scheme_ingestion import (
@@ -524,6 +525,12 @@ async def get_or_fetch_farmer_data(mobile: str):
     """
     cached = await get_farmer_data_cached_only(mobile)
     if cached is not None:
+        if exceeds_max_serve_stale(cached):
+            # Too stale to serve (e.g. background refresh has been failing):
+            # block on a bounded API call, falling back to the stale record
+            # only if the API also fails.
+            fresh = await refresh_farmer_data_bounded(mobile)
+            return fresh if fresh is not None else cached
         return cached
     return await refresh_farmer_data_bounded(mobile)
 

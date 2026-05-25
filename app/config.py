@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     default_cache_ttl: int = 60 * 60 * 24  # 24 hours
     session_owner_ttl_seconds: int = int(os.getenv("SESSION_OWNER_TTL_SECONDS", "120"))
     session_owner_refresh_interval_seconds: int = int(os.getenv("SESSION_OWNER_REFRESH_INTERVAL_SECONDS", "15"))
+    # Farmer cache policy: beyond this age a cached record is too stale to serve —
+    # the read blocks on a bounded API call instead of serving it (falls back to
+    # the stale record only if the API also fails). Backstop above the 12h/2h
+    # soft-refresh; the 7d hard Redis TTL still deletes records entirely.
+    farmer_max_serve_stale_seconds: int = int(os.getenv("FARMER_MAX_SERVE_STALE_SECONDS", str(60 * 60 * 48)))
+    # Max chars of an upstream API response body recorded to Langfuse (to prove
+    # inconsistent returns). Responses are ~500 bytes; cap guards against blobs.
+    farmer_api_trace_body_chars: int = int(os.getenv("FARMER_API_TRACE_BODY_CHARS", "8000"))
 
     # Logging Configuration
     log_level: str = "INFO"

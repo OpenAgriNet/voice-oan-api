@@ -8,6 +8,8 @@ Used by farmer.py and animal.py to provide cohesive tools with fallback and merg
 """
 import json
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -20,6 +22,7 @@ from app.models.milk_collection import (
     FarmerMilkCollectionRequestModel,
     FarmerMilkCollectionResponseModel,
 )
+from app.config import settings
 from app.observability import start_observation
 from helpers.utils import get_logger
 
@@ -27,6 +30,55 @@ _logger = get_logger(__name__)
 
 BASE_AMULPASHUDHAN = "https://api.amulpashudhan.com/configman/v1/PashuGPT"
 BASE_HERDMAN = "https://herdman.live/apis/api"
+
+
+# Why this read happened — tags every API observation so we can tell, in
+# Langfuse, a request-time cold fetch from a background-worker refresh. Reads
+# served straight from Redis never reach this layer, so a recorded API call
+# always means the cache was bypassed.
+_fetch_reason: ContextVar[str] = ContextVar("farmer_fetch_reason", default="request")
+
+
+@contextmanager
+def fetch_reason(reason: str):
+    """Tag all Amul API calls made within this block with `reason`."""
+    token = _fetch_reason.set(reason)
+    try:
+        yield
+    finally:
+        _fetch_reason.reset(token)
+
+
+def current_fetch_reason() -> str:
+    return _fetch_reason.get()
+
+
+def _record_api_trace(observation, response, *, provider: str, url: str) -> None:
+    """Attach status code + response body + source to a Langfuse observation.
+
+    This is how we prove inconsistent upstream returns. Span latency is recorded
+    by Langfuse from the observation duration, so we only enrich the output.
+    Wrapped in try/except: tracing must never break a read.
+    """
+    if observation is None:
+        return
+    try:
+        body = response.text or ""
+    except Exception:
+        body = ""
+    try:
+        observation.update(
+            output={
+                "status_code": response.status_code,
+                "ok": response.status_code == 200,
+                "bytes": len(body),
+                "body": body[: settings.farmer_api_trace_body_chars],
+                "fetch_reason": _fetch_reason.get(),
+            },
+            metadata={"provider": provider, "url": url},
+        )
+    except Exception:
+        pass
 
 
 class GetAITechniciansBySocietyQueryParams(BaseModel):
@@ -78,8 +130,7 @@ async def fetch_farmer_amulpashudhan(mobile: str, token: str) -> Optional[List[D
                     url,
                     headers={"accept": "application/json", "Authorization": f"Bearer {token}"},
                 )
-            if observation is not None:
-                observation.update(output={"status_code": r.status_code}, metadata={"provider": "amulpashudhan", "url": url})
+            _record_api_trace(observation, r, provider="amulpashudhan", url=url)
         if r.status_code == 204 or not (r.text or "").strip():
             return None
         if r.status_code != 200:
@@ -109,8 +160,7 @@ async def fetch_farmer_herdman(mobile: str, token: str) -> Optional[List[Dict[st
                     params={"mobileno": mobile},
                     headers={"accept": "application/json", "api-token": f"Bearer {token}"},
                 )
-            if observation is not None:
-                observation.update(output={"status_code": r.status_code}, metadata={"provider": "herdman", "url": url})
+            _record_api_trace(observation, r, provider="herdman", url=url)
         if r.status_code != 200 or not (r.text or "").strip():
             return None
         data = json.loads(r.text)
@@ -160,8 +210,7 @@ async def fetch_animal_amulpashudhan(tag_no: str, token: str) -> Optional[Dict[s
                     url,
                     headers={"accept": "application/json", "Authorization": f"Bearer {token}"},
                 )
-            if observation is not None:
-                observation.update(output={"status_code": r.status_code}, metadata={"provider": "amulpashudhan", "url": url})
+            _record_api_trace(observation, r, provider="amulpashudhan", url=url)
         if r.status_code == 204 or not (r.text or "").strip():
             return None
         if r.status_code != 200:
@@ -212,8 +261,7 @@ async def fetch_animal_herdman(tag_no: str, token: str) -> Optional[Dict[str, An
                     params={"TagID": tag_no},
                     headers={"accept": "application/json", "api-token": f"Bearer {token}"},
                 )
-            if observation is not None:
-                observation.update(output={"status_code": r.status_code}, metadata={"provider": "herdman", "url": url})
+            _record_api_trace(observation, r, provider="herdman", url=url)
         if r.status_code != 200 or not (r.text or "").strip():
             return None
         data = json.loads(r.text)
@@ -265,8 +313,7 @@ async def create_ai_call_api(
                     "[CreateAICall(%s,%s,%s,%s)] :: Response received.",
                     request.union_code, request.society_code, request.farmer_code, request.species.value,
                 )
-            if observation is not None:
-                observation.update(output={"status_code": response.status_code}, metadata={"provider": "amulpashudhan", "url": api_url})
+            _record_api_trace(observation, response, provider="amulpashudhan", url=api_url)
         response_json = response.json()
         if not isinstance(response_json, dict):
             raise Exception("Not a valid dict in response.")
@@ -304,11 +351,7 @@ async def create_health_call_api(
                     request.species.value,
                     request.case_type.value,
                 )
-            if observation is not None:
-                observation.update(
-                    output={"status_code": response.status_code},
-                    metadata={"provider": "amulpashudhan", "url": api_url},
-                )
+            _record_api_trace(observation, response, provider="amulpashudhan", url=api_url)
         response_json = response.json()
         if not isinstance(response_json, dict):
             raise Exception("Not a valid dict in response.")
@@ -356,11 +399,7 @@ async def get_ai_technicians_by_society_api(
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 response.raise_for_status()
-            if observation is not None:
-                observation.update(
-                    output={"status_code": response.status_code},
-                    metadata={"provider": "amulpashudhan", "url": api_url},
-                )
+            _record_api_trace(observation, response, provider="amulpashudhan", url=api_url)
 
         response_json = response.json()
         if isinstance(response_json, dict) and isinstance(response_json.get("data"), list):
@@ -406,11 +445,7 @@ async def get_farmer_milk_collection_details_api(
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 response.raise_for_status()
-            if observation is not None:
-                observation.update(
-                    output={"status_code": response.status_code},
-                    metadata={"provider": "amulpashudhan", "url": api_url},
-                )
+            _record_api_trace(observation, response, provider="amulpashudhan", url=api_url)
 
         if response.status_code == 204 or not (response.text or "").strip():
             return None
