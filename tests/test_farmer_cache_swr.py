@@ -273,14 +273,23 @@ def test_record_api_trace_body_only_when_flag_enabled(monkeypatch):
 def test_safe_response_summary_shapes():
     from agents.tools.farmer_animal_backends import _safe_response_summary
 
-    full = _safe_response_summary('[{"totalAnimals": 5, "tagNo": "1"}]')
+    full = _safe_response_summary('[{"totalAnimals": 5, "tagNo": "1", "visits": [1, 2, 3]}]')
     assert full["records"] == 1 and "totalAnimals" in full["keys"] and full["null_keys"] == []
+    assert full["array_lens"] == {"visits": 3}          # array metric, no values
     missing = _safe_response_summary('[{"tagNo": "1"}]')   # totalAnimals absent
     assert "totalAnimals" not in missing["keys"]
     empty = _safe_response_summary("[]")
     assert empty["records"] == 0
     notjson = _safe_response_summary("<html>err</html>")
     assert notjson["json"] is False
+
+
+def test_safe_response_summary_flags_empty_arrays_and_strings():
+    from agents.tools.farmer_animal_backends import _safe_response_summary
+
+    out = _safe_response_summary('[{"animals": [], "society": "", "tagNo": "1"}]')
+    assert out["array_lens"] == {"animals": 0}     # empty array surfaced
+    assert out["empty_str_keys"] == ["society"]    # empty string surfaced
 
 
 def test_record_api_trace_none_observation_is_noop():

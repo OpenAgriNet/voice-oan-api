@@ -82,6 +82,16 @@ def _safe_response_summary(body: str) -> dict:
     if isinstance(first, dict):
         out["keys"] = sorted(first.keys())
         out["null_keys"] = sorted(k for k, v in first.items() if v is None)
+        # Lengths of list-valued fields (no values) — surfaces empty/thin records
+        # (e.g. an empty animals/visits/technicians array) which signal a
+        # degraded "empty" response distinct from a populated one.
+        array_lens = {k: len(v) for k, v in first.items() if isinstance(v, list)}
+        if array_lens:
+            out["array_lens"] = array_lens
+        # Keys whose value is an empty string — another empty-response signal.
+        empty_str_keys = sorted(k for k, v in first.items() if v == "")
+        if empty_str_keys:
+            out["empty_str_keys"] = empty_str_keys
     return out
 
 
