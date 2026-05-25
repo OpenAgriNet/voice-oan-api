@@ -44,6 +44,9 @@ class _Env:
         self.lookupStatus = lookup_status
         self.fetchedAt = (datetime.now(timezone.utc) - timedelta(hours=age_hours)).isoformat()
 
+    def model_dump(self):
+        return {"lookupStatus": self.lookupStatus, "fetchedAt": self.fetchedAt}
+
 
 def test_freshness_intervals_found_vs_not_found():
     # found: soft expiry at 12h
@@ -208,6 +211,110 @@ def test_bounded_timeout_releases_lock_on_cancel():
         result = asyncio.run(fc.refresh_farmer_data_bounded("111", timeout=0.05))
     assert result is None
     fake_redis.delete.assert_awaited()  # lock released on cancellation
+
+
+def test_lock_busy_never_clears_reenqueues_not_stale():
+    """Residual #3/#4 fix: if the in-flight holder outlives the wait, return None
+    and RE-ENQUEUE — do not serve the stale record or silently drop the phone."""
+    old = _Env("found", 1000)
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=None)   # lock busy
+    fake_redis.exists = AsyncMock(return_value=1)   # never clears within the wait
+    enqueue = AsyncMock()
+    with patch.object(fc, "FARMER_COLD_FETCH_TIMEOUT", 0.3), \
+         patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=old)), \
+         patch.object(fc, "enqueue_farmer_refresh", new=enqueue):
+        result = asyncio.run(fc.refresh_farmer_data("111"))
+    assert result is None                       # NOT the ancient cached record
+    enqueue.assert_awaited_once_with("111")     # re-queued, not dropped
+
+
+def test_lock_busy_held_then_released_returns_fresh():
+    """If the holder finishes within the (now cold-fetch-sized) wait, return its
+    fresh result and do not re-enqueue."""
+    fresh = _Env("found", 0)
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=None)               # lock busy
+    fake_redis.exists = AsyncMock(side_effect=[1, 0])           # held, then released
+    enqueue = AsyncMock()
+    with patch.object(fc, "FARMER_COLD_FETCH_TIMEOUT", 2.0), \
+         patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=fresh)), \
+         patch.object(fc, "enqueue_farmer_refresh", new=enqueue):
+        result = asyncio.run(fc.refresh_farmer_data("111"))
+    assert result is fresh
+    enqueue.assert_not_called()
+
+
+def test_restamp_kept_record_preserves_ttl():
+    """Don't-downgrade past the ceiling restamps fetchedAt (to stop a per-turn
+    block) but PRESERVES the remaining 7d TTL."""
+    existing = _Env("found", 1000)  # >24h
+    orig_fetched = existing.fetchedAt
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=True)       # lock acquired
+    fake_redis.delete = AsyncMock()
+    fake_redis.ttl = AsyncMock(return_value=100000)     # remaining hard TTL
+    fake_cache = AsyncMock()
+    with patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "cache", fake_cache), \
+         patch.object(fc, "fetch_farmer_info_raw", new=AsyncMock(return_value=[])), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=existing)):
+        result = asyncio.run(fc.refresh_farmer_data("9999999999"))
+    assert result is existing
+    assert existing.fetchedAt != orig_fetched           # restamped
+    fake_cache.set.assert_awaited()
+    assert fake_cache.set.call_args.kwargs.get("ttl") == 100000  # 7d TTL preserved, not reset
+
+
+def test_trace_recorded_before_raise_for_status_on_failure():
+    """A failing (5xx) booking response must still be traced — _record_api_trace
+    runs BEFORE response.raise_for_status()."""
+    import contextlib
+    from agents.tools import farmer_animal_backends as backends
+    from agents.models.ai_call import AICallRequestModel, AISpecies
+
+    captured = {}
+
+    class _Obs:
+        def update(self, output=None, metadata=None):
+            captured["output"] = output
+
+    @contextlib.contextmanager
+    def _fake_obs(*a, **k):
+        yield _Obs()
+
+    class _Resp:
+        status_code = 500
+        text = '{"error": "boom"}'
+
+        def raise_for_status(self):
+            raise Exception("HTTP 500")
+
+        def json(self):
+            return {}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    req = AICallRequestModel(
+        unionCode="2021", societyCode="NA4310", farmerCode="NA0002",
+        userId="u1", species=AISpecies.COW,
+    )
+    with patch.object(backends, "start_observation", _fake_obs), \
+         patch.object(backends.httpx, "AsyncClient", lambda *a, **k: _Client()):
+        result = asyncio.run(backends.create_ai_call_api(req, "tok"))
+    assert result is None                                    # raised -> None
+    assert captured["output"]["status_code"] == 500          # but the 500 WAS traced
+    assert captured["output"]["ok"] is False
 
 
 def _capture_trace(backends, resp, reason="cold_fetch"):

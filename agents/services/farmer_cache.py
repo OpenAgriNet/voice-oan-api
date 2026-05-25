@@ -33,7 +33,7 @@ FARMER_CACHE_TTL = 60 * 60 * 24 * 7  # 7 days hard retention in Redis (deletion)
 FARMER_REFRESH_INTERVAL = 60 * 60 * 12  # soft expiry: refresh a "found" record after 12h
 FARMER_NEGATIVE_REFRESH_INTERVAL = 60 * 60 * 2  # not_found refreshes sooner (caller may newly register)
 FARMER_REFRESH_LOCK_TTL = 60 * 5  # dedupe concurrent refreshes for 5 minutes
-FARMER_COLD_FETCH_TIMEOUT = 3.0  # bounded blocking fetch for a cold/never-cached miss
+FARMER_COLD_FETCH_TIMEOUT = 4.0  # bounded blocking fetch for a cold/never-cached miss (cold ~3.1s observed)
 # Beyond this age a cached record is too stale to serve: the read blocks on a
 # bounded API call instead (falls back to the stale record only if that fails).
 FARMER_MAX_SERVE_STALE_SECONDS = settings.farmer_max_serve_stale_seconds
@@ -125,29 +125,48 @@ async def set_cached_farmer_data(phone: str, data: FarmerDataEnvelope) -> None:
 from agents.tools.farmer import fetch_farmer_info_raw
 
 
+async def _restamp_kept_record(phone: str, envelope: FarmerDataEnvelope) -> None:
+    """When don't-downgrade keeps a 'found' record on an empty upstream, refresh
+    its fetchedAt so reads stop block-fetching it every turn — while PRESERVING the
+    remaining 7d Redis TTL so a genuinely removed farmer still expires on schedule."""
+    envelope.fetchedAt = datetime.now(timezone.utc).isoformat()
+    key = _cache_key(phone)
+    try:
+        remaining = await redis_client.ttl(build_cache_key(key, namespace=FARMER_CACHE_NAMESPACE))
+        if remaining and remaining > 0:
+            await cache.set(key, envelope.model_dump(), ttl=remaining, namespace=FARMER_CACHE_NAMESPACE)
+    except Exception as e:
+        logger.warning("Failed to restamp kept farmer record (phone hash %s...): %s", key[:8], e)
+
+
 async def _await_inflight_refresh(
-    phone: str, lock_key: str, *, max_wait: float = 2.0, interval: float = 0.1
-) -> Optional[FarmerDataEnvelope]:
-    """Wait briefly for the in-flight refresh holding `lock_key` to finish, then
-    return the latest cached value. Lets a caller that lost the lock race get the
-    fresh result instead of a None it would misread as failure."""
+    phone: str, lock_key: str, *, timeout: float, interval: float = 0.1
+) -> tuple[Optional[FarmerDataEnvelope], bool]:
+    """Poll until the in-flight refresh holding `lock_key` finishes (lock gone),
+    bounded by `timeout`. Returns (latest cached value, cleared) — cleared is True
+    only if the lock actually released within the window. No cap below `timeout`:
+    the request path's outer asyncio.wait_for is the real limiter, and the worker
+    passes its own bound — so a slow (~3s) cold-fetch holder is awaited fully
+    instead of giving up early and serving stale."""
     loop = asyncio.get_event_loop()
-    deadline = loop.time() + max_wait
+    deadline = loop.time() + timeout
+    cleared = False
     while loop.time() < deadline:
         await asyncio.sleep(interval)
         try:
             if not await redis_client.exists(lock_key):
+                cleared = True
                 break
         except Exception:
             break
-    return await get_cached_farmer_data(phone)
+    return await get_cached_farmer_data(phone), cleared
 
 
 async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
     """
     Refresh farmer data from upstream APIs and update Redis.
     Returns the refreshed envelope, or the in-flight refresh's result when the
-    lock is busy, or None on actual failure.
+    lock is busy and clears in time, or None on actual failure / lock-still-busy.
     """
     lock_key = _refresh_lock_key(phone)
     acquired = False
@@ -158,7 +177,15 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             # rather than None — None would make max-serve-stale serve the ancient
             # record and would let the worker drop a queued phone as a no-op.
             logger.debug("Farmer refresh in flight for phone hash %s...; awaiting result", _cache_key(phone)[:8])
-            return await _await_inflight_refresh(phone, lock_key)
+            env, cleared = await _await_inflight_refresh(
+                phone, lock_key, timeout=FARMER_COLD_FETCH_TIMEOUT
+            )
+            if cleared:
+                return env
+            # Holder outlived our wait — re-queue so the refresh isn't lost
+            # (covers the worker path) and signal "not done" to the caller.
+            await enqueue_farmer_refresh(phone)
+            return None
 
         records = await fetch_farmer_info_raw(phone)
         if records:
@@ -179,6 +206,12 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
                 "Skipping not_found overwrite of good cached farmer data (phone hash %s...)",
                 _cache_key(phone)[:8],
             )
+            # If it had already aged past the serve ceiling, a persistently-empty
+            # upstream would otherwise force a blocking re-fetch on EVERY turn.
+            # Restamp fetchedAt so reads serve it without blocking, while
+            # PRESERVING the 7d hard TTL so a genuinely removed farmer still expires.
+            if exceeds_max_serve_stale(existing):
+                await _restamp_kept_record(phone, existing)
             return existing
 
         envelope = FarmerDataEnvelope.not_found(source="api")
