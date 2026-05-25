@@ -124,7 +124,7 @@ def test_voice_read_returns_cached_without_blocking():
 
 
 def test_voice_read_blocks_when_too_stale():
-    stale = _Env("found", 1000)   # well beyond the 48h max-serve-stale
+    stale = _Env("found", 1000)   # well beyond the 24h max-serve-stale
     fresh = _Env("found", 0)
     with patch.object(voice, "get_farmer_data_cached_only", new=AsyncMock(return_value=stale)), \
          patch.object(voice, "refresh_farmer_data_bounded", new=AsyncMock(return_value=fresh)) as bounded:
@@ -162,13 +162,55 @@ def test_refresh_keeps_found_on_transient_not_found():
     set_cache.assert_not_called()  # did NOT downgrade to not_found
 
 
-def test_record_api_trace_captures_body_status_and_reason():
-    from agents.tools import farmer_animal_backends as backends
+def test_refresh_keeps_old_found_past_ceiling_on_transient_not_found():
+    """Even past max-serve-stale, a transient empty must not overwrite a 'found'
+    record (genuine removal is left to the 7d hard TTL)."""
+    existing = _Env("found", 1000)  # well past the 24h ceiling
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=True)
+    fake_redis.delete = AsyncMock()
+    with patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "fetch_farmer_info_raw", new=AsyncMock(return_value=[])), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=existing)), \
+         patch.object(fc, "set_cached_farmer_data", new=AsyncMock()) as set_cache:
+        result = asyncio.run(fc.refresh_farmer_data("9999999999"))
+    assert result is existing
+    set_cache.assert_not_called()
 
-    class _Resp:
-        status_code = 200
-        text = '{"totalAnimals": 5}'
 
+def test_refresh_lock_busy_awaits_inflight_value():
+    """A refresh that loses the NX-lock race returns the in-flight result, not
+    None (None would defeat max-serve-stale and drop queued refreshes)."""
+    sentinel = _Env("found", 0)
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=None)   # lock busy
+    fake_redis.exists = AsyncMock(return_value=0)   # in-flight refresh already finished
+    with patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=sentinel)):
+        result = asyncio.run(fc.refresh_farmer_data("111"))
+    assert result is sentinel
+
+
+def test_bounded_timeout_releases_lock_on_cancel():
+    """The design's key claim: when the bounded fetch times out and cancels the
+    in-flight refresh, the NX lock is released in refresh_farmer_data's finally."""
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=True)   # lock acquired
+    fake_redis.delete = AsyncMock()
+
+    async def _slow(_phone):
+        await asyncio.sleep(5)
+        return []
+
+    with patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "fetch_farmer_info_raw", new=_slow), \
+         patch.object(fc, "enqueue_farmer_refresh", new=AsyncMock()):
+        result = asyncio.run(fc.refresh_farmer_data_bounded("111", timeout=0.05))
+    assert result is None
+    fake_redis.delete.assert_awaited()  # lock released on cancellation
+
+
+def _capture_trace(backends, resp, reason="cold_fetch"):
     captured = {}
 
     class _Obs:
@@ -176,13 +218,69 @@ def test_record_api_trace_captures_body_status_and_reason():
             captured["output"] = output
             captured["metadata"] = metadata
 
-    with backends.fetch_reason("cold_fetch"):
-        backends._record_api_trace(_Obs(), _Resp(), provider="amulpashudhan", url="http://x")
-    assert captured["output"]["status_code"] == 200
-    assert captured["output"]["ok"] is True
-    assert captured["output"]["body"] == '{"totalAnimals": 5}'
-    assert captured["output"]["fetch_reason"] == "cold_fetch"
-    assert captured["metadata"] == {"provider": "amulpashudhan", "url": "http://x"}
+    with backends.fetch_reason(reason):
+        backends._record_api_trace(_Obs(), resp, provider="amulpashudhan", url="http://x")
+    return captured
+
+
+def test_record_api_trace_is_pii_safe_by_default():
+    """By default NO raw body is shipped — only status + structure (keys/null_keys
+    + record count), which still proves an inconsistent return."""
+    from agents.tools import farmer_animal_backends as backends
+
+    class _Resp:
+        status_code = 200
+        text = '{"farmerName": "Ramesh", "totalAnimals": null, "tagNo": "1,2"}'
+
+    out = _capture_trace(backends, _Resp())["output"]
+    assert out["status_code"] == 200
+    assert out["ok"] is True
+    assert out["fetch_reason"] == "cold_fetch"
+    assert out["records"] == 1
+    assert out["keys"] == ["farmerName", "tagNo", "totalAnimals"]
+    assert out["null_keys"] == ["totalAnimals"]          # proves the Turn-A shape
+    assert "body" not in out                              # no PII value leaks
+    assert "Ramesh" not in str(out)
+
+
+def test_record_api_trace_ok_is_2xx():
+    from agents.tools import farmer_animal_backends as backends
+
+    class _R204:
+        status_code = 204
+        text = ""
+
+    class _R500:
+        status_code = 500
+        text = "err"
+
+    assert _capture_trace(backends, _R204())["output"]["ok"] is True   # 204 is ok
+    assert _capture_trace(backends, _R500())["output"]["ok"] is False
+
+
+def test_record_api_trace_body_only_when_flag_enabled(monkeypatch):
+    from agents.tools import farmer_animal_backends as backends
+
+    class _Resp:
+        status_code = 200
+        text = '{"totalAnimals": 5}'
+
+    monkeypatch.setattr(backends.settings, "farmer_api_trace_body", True)
+    out = _capture_trace(backends, _Resp())["output"]
+    assert out["body"] == '{"totalAnimals": 5}'
+
+
+def test_safe_response_summary_shapes():
+    from agents.tools.farmer_animal_backends import _safe_response_summary
+
+    full = _safe_response_summary('[{"totalAnimals": 5, "tagNo": "1"}]')
+    assert full["records"] == 1 and "totalAnimals" in full["keys"] and full["null_keys"] == []
+    missing = _safe_response_summary('[{"tagNo": "1"}]')   # totalAnimals absent
+    assert "totalAnimals" not in missing["keys"]
+    empty = _safe_response_summary("[]")
+    assert empty["records"] == 0
+    notjson = _safe_response_summary("<html>err</html>")
+    assert notjson["json"] is False
 
 
 def test_record_api_trace_none_observation_is_noop():

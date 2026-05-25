@@ -66,8 +66,12 @@ class Settings(BaseSettings):
     # the stale record only if the API also fails). Backstop above the 12h/2h
     # soft-refresh; the 7d hard Redis TTL still deletes records entirely.
     farmer_max_serve_stale_seconds: int = int(os.getenv("FARMER_MAX_SERVE_STALE_SECONDS", str(60 * 60 * 24)))
-    # Max chars of an upstream API response body recorded to Langfuse (to prove
-    # inconsistent returns). Responses are ~500 bytes; cap guards against blobs.
+    # Farmer/animal API tracing records a PII-SAFE structure summary by default
+    # (status, record count, which keys are present/null) — enough to prove
+    # inconsistent returns without shipping farmer PII to Langfuse. Raw response
+    # bodies are only captured when FARMER_API_TRACE_BODY is explicitly enabled
+    # (temporary deep-debug), capped at FARMER_API_TRACE_BODY_CHARS.
+    farmer_api_trace_body: bool = _get_bool_env("FARMER_API_TRACE_BODY", default=False)
     farmer_api_trace_body_chars: int = int(os.getenv("FARMER_API_TRACE_BODY_CHARS", "8000"))
 
     # Logging Configuration

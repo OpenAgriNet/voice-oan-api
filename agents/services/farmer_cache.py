@@ -125,18 +125,40 @@ async def set_cached_farmer_data(phone: str, data: FarmerDataEnvelope) -> None:
 from agents.tools.farmer import fetch_farmer_info_raw
 
 
+async def _await_inflight_refresh(
+    phone: str, lock_key: str, *, max_wait: float = 2.0, interval: float = 0.1
+) -> Optional[FarmerDataEnvelope]:
+    """Wait briefly for the in-flight refresh holding `lock_key` to finish, then
+    return the latest cached value. Lets a caller that lost the lock race get the
+    fresh result instead of a None it would misread as failure."""
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + max_wait
+    while loop.time() < deadline:
+        await asyncio.sleep(interval)
+        try:
+            if not await redis_client.exists(lock_key):
+                break
+        except Exception:
+            break
+    return await get_cached_farmer_data(phone)
+
+
 async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
     """
     Refresh farmer data from upstream APIs and update Redis.
-    Returns the refreshed envelope or None on refresh failure.
+    Returns the refreshed envelope, or the in-flight refresh's result when the
+    lock is busy, or None on actual failure.
     """
     lock_key = _refresh_lock_key(phone)
     acquired = False
     try:
         acquired = await redis_client.set(lock_key, "1", ex=FARMER_REFRESH_LOCK_TTL, nx=True)
         if not acquired:
-            logger.debug("Farmer refresh already in flight for phone hash %s...", _cache_key(phone)[:8])
-            return None
+            # Another refresh is in-flight. Wait for its result and return that,
+            # rather than None — None would make max-serve-stale serve the ancient
+            # record and would let the worker drop a queued phone as a no-op.
+            logger.debug("Farmer refresh in flight for phone hash %s...; awaiting result", _cache_key(phone)[:8])
+            return await _await_inflight_refresh(phone, lock_key)
 
         records = await fetch_farmer_info_raw(phone)
         if records:
@@ -145,15 +167,14 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             await set_cached_farmer_data(phone, envelope)
             return envelope
 
-        # Upstream returned nothing. Guard against a transient empty response
-        # wiping known-good data: keep a still-serveable "found" record rather
-        # than downgrading it to not_found. It stays stale, so it is retried.
+        # Upstream returned nothing. Never let a transient empty response wipe
+        # known-good data — keep the "found" record regardless of age (it stays
+        # stale and is retried). We cannot distinguish a genuine "not found" from
+        # a transient failure here, so genuine removal is left to the 7d hard
+        # Redis TTL rather than an ambiguous empty response. (A confident
+        # not_found signal is a follow-up in the provider-interface PR.)
         existing = await get_cached_farmer_data(phone)
-        if (
-            existing is not None
-            and existing.lookupStatus == "found"
-            and not exceeds_max_serve_stale(existing)
-        ):
+        if existing is not None and existing.lookupStatus == "found":
             logger.info(
                 "Skipping not_found overwrite of good cached farmer data (phone hash %s...)",
                 _cache_key(phone)[:8],
