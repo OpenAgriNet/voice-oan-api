@@ -48,8 +48,17 @@ async def _capture_request_hook(request: httpx.Request) -> None:
 
 
 def _capture_http_client() -> httpx.AsyncClient:
-    """Long-lived AsyncClient with the boundary-capture event hook attached."""
-    return httpx.AsyncClient(event_hooks={"request": [_capture_request_hook]})
+    """Long-lived AsyncClient with the boundary-capture event hook attached.
+
+    Pin an explicit 600s read/write/pool timeout (5s connect) to match the
+    OpenAI SDK default and pydantic-ai's cached_async_http_client. A bare
+    AsyncClient inherits httpx's 5s default, which would abort long streaming
+    agent runs (multi-second generation + tool round-trips) under load.
+    """
+    return httpx.AsyncClient(
+        event_hooks={"request": [_capture_request_hook]},
+        timeout=httpx.Timeout(600.0, connect=5.0),
+    )
 
 
 def _build_openai_compatible_model(
