@@ -32,6 +32,10 @@ class FarmerContext(BaseModel):
         default=None, description="Langfuse parent observation id (16 hex chars)."
     )
     
+    def nudge_lang_code(self) -> str:
+        """Language for hold/nudge audio (matches response language)."""
+        return self.target_lang or self.lang_code
+
     def _language_string(self):
         """Get the language string for the agrinet agent."""
         # Use target_lang if available, otherwise fall back to lang_code
