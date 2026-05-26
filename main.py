@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from contextlib import asynccontextmanager
 from app.tasks.scheme_scheduler import start_scheme_scheduler, stop_scheme_scheduler
+from app.tasks.farmer_refresh_worker import start_farmer_refresh_worker, stop_farmer_refresh_worker
 
 load_dotenv()
 
@@ -25,8 +26,10 @@ async def lifespan(app: FastAPI):
     from helpers.utils import load_prompt_templates
     load_prompt_templates(settings.base_dir / "assets" / "prompts")
     await start_scheme_scheduler()
+    await start_farmer_refresh_worker()
     yield
     # Shutdown
+    await stop_farmer_refresh_worker()
     await stop_scheme_scheduler()
     print(f"🛑 {settings.app_name} shutting down...")
 

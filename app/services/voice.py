@@ -16,7 +16,8 @@ from agents.voice import voice_agent, voice_agent_signed_in, STATIC_VOICE_SYSTEM
 from agents.tools.farmer import normalize_phone_to_mobile
 from agents.services.farmer_cache import (
     get_farmer_data_cached_only,
-    refresh_farmer_data,
+    refresh_farmer_data_bounded,
+    enqueue_farmer_refresh,
     should_refresh_farmer_data,
 )
 from app.models.union import UnionName
@@ -511,11 +512,20 @@ def _is_signed_in_session(user_info: Optional[dict], user_id: str) -> bool:
 
 
 async def get_or_fetch_farmer_data(mobile: str):
+    """Voice read policy (stale-while-revalidate).
+
+    Serve the cached envelope immediately when present (fresh or stale — the
+    caller enqueues a background refresh for stale records). On a cold/never-
+    cached (or hard-expired/deleted) miss, do a bounded blocking fetch so the
+    first turn has data, capped by FARMER_COLD_FETCH_TIMEOUT so a slow upstream
+    never hangs the call.
+
+    Still patchable by tests that stub this symbol.
     """
-    Backward-compatible alias for tests and callers that still patch the old symbol.
-    Voice request flow now uses Redis-only reads from this alias.
-    """
-    return await get_farmer_data_cached_only(mobile)
+    cached = await get_farmer_data_cached_only(mobile)
+    if cached is not None:
+        return cached
+    return await refresh_farmer_data_bounded(mobile)
 
 
 def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
@@ -1421,7 +1431,7 @@ async def stream_voice_message(
                         len(ai_technician_info),
                     )
                     if mobile and should_refresh_farmer_data(envelope):
-                        asyncio.create_task(refresh_farmer_data(mobile))
+                        await enqueue_farmer_refresh(mobile)
                         logger.info(
                             "Farmer cache refresh scheduled in background for mobile %s stale=%s status=%s",
                             mobile,

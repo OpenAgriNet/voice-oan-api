@@ -3,11 +3,12 @@ Cache layer for farmer data fetched from PashuGPT APIs.
 
 Voice reads farmer context from Redis only. Freshness is controlled separately
 from key expiry:
-- refresh interval: 24h
-- cache retention: 7d
+- soft refresh interval: 12h for "found", 2h for "not_found"
+- cache retention (hard delete): 7d
 
 This lets the request path return cached data immediately, mark it stale in the
-read result, and schedule a background refresh without blocking the caller.
+read result, and schedule a background refresh (via a Redis queue drained by a
+worker) without blocking the caller.
 """
 import asyncio
 import hashlib
@@ -25,11 +26,16 @@ from helpers.utils import get_logger
 
 logger = get_logger(__name__)
 
-FARMER_CACHE_TTL = 60 * 60 * 24 * 7  # 7 days retention in Redis
-FARMER_REFRESH_INTERVAL = 60 * 60 * 24  # refresh once a day
+FARMER_CACHE_TTL = 60 * 60 * 24 * 7  # 7 days hard retention in Redis (deletion)
+FARMER_REFRESH_INTERVAL = 60 * 60 * 12  # soft expiry: refresh a "found" record after 12h
+FARMER_NEGATIVE_REFRESH_INTERVAL = 60 * 60 * 2  # not_found refreshes sooner (caller may newly register)
 FARMER_REFRESH_LOCK_TTL = 60 * 5  # dedupe concurrent refreshes for 5 minutes
+FARMER_COLD_FETCH_TIMEOUT = 3.0  # bounded blocking fetch for a cold/never-cached miss
 FARMER_CACHE_NAMESPACE = "farmer"
 FARMER_REFRESH_LOCK_NAMESPACE = "farmer-refresh"
+FARMER_REFRESH_QUEUE_NAMESPACE = "farmer-refresh-queue"
+# Single Redis set holding raw phone numbers awaiting a background refresh.
+FARMER_REFRESH_QUEUE_KEY = build_cache_key("pending", namespace=FARMER_REFRESH_QUEUE_NAMESPACE)
 
 
 def _cache_key(phone: str) -> str:
@@ -49,7 +55,12 @@ def _compute_freshness(envelope: FarmerDataEnvelope) -> tuple[bool, Optional[str
     except ValueError:
         return True, "invalid_fetched_at", None
 
-    refresh_after = fetched_at + timedelta(seconds=FARMER_REFRESH_INTERVAL)
+    interval = (
+        FARMER_NEGATIVE_REFRESH_INTERVAL
+        if envelope.lookupStatus == "not_found"
+        else FARMER_REFRESH_INTERVAL
+    )
+    refresh_after = fetched_at + timedelta(seconds=interval)
     refresh_after_iso = refresh_after.astimezone(timezone.utc).isoformat()
     is_stale = datetime.now(timezone.utc) >= refresh_after.astimezone(timezone.utc)
     return is_stale, ("expired" if is_stale else None), refresh_after_iso
@@ -138,6 +149,63 @@ async def get_or_fetch_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
         return cached
 
     return await refresh_farmer_data(phone)
+
+
+async def enqueue_farmer_refresh(phone: str) -> None:
+    """Queue a phone for background refresh (stale-while-revalidate).
+
+    Pushes the raw phone onto a Redis set so a dedicated worker can refresh it
+    off the request path. The set dedupes naturally, and refresh_farmer_data
+    self-dedupes via its NX lock, so enqueuing the same phone repeatedly is safe.
+    """
+    if not phone:
+        return
+    try:
+        await redis_client.sadd(FARMER_REFRESH_QUEUE_KEY, phone)
+    except Exception as e:
+        logger.warning("Failed to enqueue farmer refresh: %s", e)
+
+
+async def refresh_farmer_data_bounded(
+    phone: str, timeout: float = FARMER_COLD_FETCH_TIMEOUT
+) -> Optional[FarmerDataEnvelope]:
+    """Blocking refresh with a hard timeout, for a cold/never-cached miss.
+
+    On timeout we defer to the background worker rather than hanging the turn:
+    the in-flight refresh is cancelled (its NX lock is released in its finally),
+    the phone is queued, and the caller proceeds with no farmer data this turn.
+    """
+    try:
+        return await asyncio.wait_for(refresh_farmer_data(phone), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Cold farmer fetch exceeded %.1fs for phone hash %s...; deferring to worker",
+            timeout,
+            _cache_key(phone)[:8],
+        )
+        await enqueue_farmer_refresh(phone)
+        return None
+
+
+async def drain_farmer_refresh_queue_once(batch: int = 20) -> int:
+    """Pop up to `batch` queued phones and refresh each. Returns count processed."""
+    try:
+        members = await redis_client.spop(FARMER_REFRESH_QUEUE_KEY, batch)
+    except Exception as e:
+        logger.warning("Failed to read farmer refresh queue: %s", e)
+        return 0
+    if not members:
+        return 0
+    if isinstance(members, (str, bytes)):
+        members = [members]
+    processed = 0
+    for phone in members:
+        try:
+            await refresh_farmer_data(phone)
+            processed += 1
+        except Exception:
+            logger.exception("Background farmer refresh failed for a queued phone")
+    return processed
 
 
 async def _fetch_ai_technicians(records: list[FarmerRecord]) -> list[dict]:
