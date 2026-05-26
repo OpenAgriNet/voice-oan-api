@@ -63,7 +63,7 @@ def get_tool_nudge_message(lang_code: str = "en") -> str:
     return random.choice(messages)
 
 
-async def send_nudge_message_raya(message: str, session_id: str, process_id: str = None) -> None:
+async def send_nudge_message_raya(message: str, session_id: str, process_id: str = None) -> Optional[int]:
     """Send nudge message via RAYA API (async, non-blocking)."""
     try:
         nudge_url = settings.nudge_api_url
@@ -94,7 +94,7 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
                 )
             if observation is not None:
                 observation.update(
-                    output={"status_code": response.status_code},
+                    output={"status_code": response.status_code, "nudge_message": message},
                     metadata={"url": nudge_url, "component": "nudge_api"},
                 )
         response_body = response.text
@@ -121,6 +121,7 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
                 response.status_code,
                 response_body,
             )
+        return response.status_code
     except httpx.HTTPError as e:
         logger.error(
             "Error sending nudge message; session_id=%s process_id=%s error=%s",
@@ -128,6 +129,7 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
             process_id,
             e,
         )
+        return None
     except Exception as e:
         logger.error(
             "Unexpected error sending nudge message; session_id=%s process_id=%s error=%s",
@@ -135,3 +137,4 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
             process_id,
             e,
         )
+        return None

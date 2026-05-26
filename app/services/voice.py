@@ -948,6 +948,33 @@ async def stream_voice_message(
         trace.record_emit(text, kind=kind)
         return text
 
+    def _update_active_langfuse_trace(
+        *,
+        input_payload: Optional[dict] = None,
+        output_payload: Optional[dict] = None,
+        metadata_payload: Optional[dict] = None,
+    ) -> None:
+        """Best-effort update of the currently active Langfuse trace."""
+        try:
+            from app.observability import get_langfuse_client
+
+            client = get_langfuse_client()
+            updater = getattr(client, "update_current_trace", None) if client is not None else None
+            if not callable(updater):
+                return
+            kwargs = {}
+            if input_payload is not None:
+                kwargs["input"] = input_payload
+            if output_payload is not None:
+                kwargs["output"] = output_payload
+            if metadata_payload is not None:
+                kwargs["metadata"] = metadata_payload
+            if kwargs:
+                updater(**kwargs)
+        except Exception:
+            # Trace enrichment must never affect request execution.
+            return
+
     try:
         # Keep shared Langfuse attributes active across the full streaming
         # generator. Individual stages emit their own top-level traces.
@@ -1132,8 +1159,14 @@ async def stream_voice_message(
                                 "trigger_reason": trigger_reason,
                                 "target_lang": nudge_lang,
                             },
-                        ):
-                            await send_nudge_message_raya(nudge_msg, session_id, process_id)
+                        ) as nudge_stage:
+                            status_code = await send_nudge_message_raya(nudge_msg, session_id, process_id)
+                            nudge_stage.set_output(
+                                {
+                                    "status_code": status_code,
+                                    "nudge_message": nudge_msg,
+                                }
+                            )
                         elapsed = max(0.0, time.monotonic() - request_started_at)
                         logger.info(
                             "Nudge sent (%s); session_id=%s process_id=%s total_elapsed=%.3fs",
@@ -1544,6 +1577,21 @@ async def stream_voice_message(
                     usage_limits=usage_limits,
                     model=request_model,
                 ) as response_stream:
+                    _update_active_langfuse_trace(
+                        input_payload={
+                            "query": processing_query,
+                            "model_name": request_model_name,
+                        },
+                        metadata_payload={
+                            "signed_in": bool(signed_in and mobile),
+                            "request_limit": usage_limits.request_limit,
+                            "pipeline_variant": pipeline_variant,
+                            "provider": request_provider,
+                            "model_name": request_model_name,
+                            "source_lang": requested_source_lang,
+                            "target_lang": requested_target_lang,
+                        },
+                    )
                     # debounce_by=0 disables pydantic-ai's default 100ms token
                     # debounce so the first agent delta reaches the translation
                     # stage immediately (every ms counts for phone TTFT). Our own
@@ -1793,6 +1841,21 @@ async def stream_voice_message(
                         signed_in=bool(signed_in and mobile),
                         output=_agent_output,
                         new_messages=new_messages,
+                    )
+                    _update_active_langfuse_trace(
+                        output_payload={
+                            "agent_response": _agent_output,
+                        },
+                        metadata_payload={
+                            "signed_in": bool(signed_in and mobile),
+                            "request_limit": usage_limits.request_limit,
+                            "pipeline_variant": pipeline_variant,
+                            "provider": request_provider,
+                            "model_name": request_model_name,
+                            "agent_elapsed_ms": round((time.monotonic() - agent_started_at) * 1000.0, 2),
+                            "agent_output_chars": len(_agent_output or ""),
+                            "new_message_count": len(new_messages or []),
+                        },
                     )
 
             # If the LLM called signal_conversation_state("conversation_closing"),

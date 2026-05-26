@@ -91,6 +91,8 @@ class _StageTimer:
         self.record: _StageRecord | None = None
         self._cm: Any | None = None
         self._attr_cm: Any | None = None
+        self._output: Any | None = None
+        self._output_set = False
 
     def __enter__(self) -> "_StageTimer":
         observation = None
@@ -126,6 +128,10 @@ class _StageTimer:
         )
         return self
 
+    def set_output(self, output: Any) -> None:
+        self._output = output
+        self._output_set = True
+
     def __exit__(self, exc_type, exc, tb) -> bool:
         if self.record is None:
             return False
@@ -149,12 +155,25 @@ class _StageTimer:
             self.trace.stage_totals_ms.get(self.name, 0.0) + duration,
             2,
         )
-        _safe_update(
-            self.record.observation,
-            metadata={"duration_ms": duration, "status": status, **self.record.metadata},
-            level=level,
-            status_message=status_message,
-        )
+        output_payload: Any | None = None
+        if self._output_set:
+            output_payload = self._output
+        elif self.name == "history_write":
+            output_payload = {"history_write": "done" if status == "ok" else "not done"}
+            if status != "ok":
+                output_payload["reason"] = {
+                    "type": exc_type.__name__ if exc_type else None,
+                    "message": status_message,
+                }
+
+        update_kwargs: dict[str, Any] = {
+            "metadata": {"duration_ms": duration, "status": status, **self.record.metadata},
+            "level": level,
+            "status_message": status_message,
+        }
+        if output_payload is not None:
+            update_kwargs["output"] = output_payload
+        _safe_update(self.record.observation, **update_kwargs)
         if self._cm is not None:
             try:
                 self._cm.__exit__(exc_type, exc, tb)
