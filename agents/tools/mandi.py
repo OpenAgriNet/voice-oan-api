@@ -272,7 +272,9 @@ async def mandi_prices(ctx: RunContext[FarmerContext], latitude: float, longitud
     """
     try:
         # Send nudge message asynchronously without blocking
-        nudge_message = get_nudge_message("mandi_prices", ctx.deps.lang_code)
+        nudge_message = get_nudge_message(
+            "mandi_prices", ctx.deps.nudge_lang_code(), ctx.deps.session_id
+        )
         result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
         logger.info(f"Nudge message sent: {result}")
 
