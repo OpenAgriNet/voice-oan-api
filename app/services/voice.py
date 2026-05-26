@@ -948,32 +948,44 @@ async def stream_voice_message(
         trace.record_emit(text, kind=kind)
         return text
 
-    def _update_active_langfuse_trace(
+    def _update_active_langfuse_observation(
         *,
         input_payload: Optional[dict] = None,
         output_payload: Optional[dict] = None,
         metadata_payload: Optional[dict] = None,
     ) -> None:
-        """Best-effort update of the currently active Langfuse trace."""
+        """Best-effort update of the currently active Langfuse observation.
+
+        Pydantic AI's instrumented agent run is a span (e.g. "Voice Agent run").
+        Langfuse v4 shows input/output on observations, not via update_current_trace().
+        """
+        if not any(v is not None for v in (input_payload, output_payload, metadata_payload)):
+            return
         try:
             from app.observability import get_langfuse_client
 
             client = get_langfuse_client()
-            updater = getattr(client, "update_current_trace", None) if client is not None else None
-            if not callable(updater):
+            if client is None:
                 return
-            kwargs = {}
+            kwargs: dict = {}
             if input_payload is not None:
                 kwargs["input"] = input_payload
             if output_payload is not None:
                 kwargs["output"] = output_payload
             if metadata_payload is not None:
                 kwargs["metadata"] = metadata_payload
-            if kwargs:
-                updater(**kwargs)
-        except Exception:
-            # Trace enrichment must never affect request execution.
-            return
+            # Prefer observation/span updaters (Langfuse v4 observation-centric model).
+            for method_name in (
+                "update_current_span",
+                "update_current_observation",
+                "update_current_trace",
+            ):
+                updater = getattr(client, method_name, None)
+                if callable(updater):
+                    updater(**kwargs)
+                    return
+        except Exception as exc:
+            logger.debug("Langfuse observation enrichment failed: %s", exc)
 
     try:
         # Keep shared Langfuse attributes active across the full streaming
@@ -1262,7 +1274,7 @@ async def stream_voice_message(
                             "pipeline_variant": pipeline_variant,
                         },
                         model=_pretrans_model,
-                    ):
+                    ) as pretranslation_stage:
                         if is_oss:
                             processing_query = await translate_to_english_with_oss_vllm(
                                 text=query,
@@ -1273,6 +1285,11 @@ async def stream_voice_message(
                                 text=query,
                                 source_lang=requested_source_lang,
                             )
+                        pretranslation_stage.set_output(
+                            {
+                                "translated_query": processing_query,
+                            }
+                        )
                     trace.set_pretranslation(
                         text=processing_query,
                         provider=_pretrans_provider_label,
@@ -1298,10 +1315,15 @@ async def stream_voice_message(
                                 "source_lang": requested_source_lang,
                                 "fallback_used": True,
                             },
-                        ):
+                        ) as pretranslation_stage:
                             processing_query = await translate_to_english_with_structured_fallback(
                                 text=query,
                                 source_lang=requested_source_lang,
+                            )
+                            pretranslation_stage.set_output(
+                                {
+                                    "translated_query": processing_query,
+                                }
                             )
                         trace.set_pretranslation(
                             text=processing_query,
@@ -1577,7 +1599,7 @@ async def stream_voice_message(
                     usage_limits=usage_limits,
                     model=request_model,
                 ) as response_stream:
-                    _update_active_langfuse_trace(
+                    _update_active_langfuse_observation(
                         input_payload={
                             "query": processing_query,
                             "model_name": request_model_name,
@@ -1605,13 +1627,14 @@ async def stream_voice_message(
                         if not text_to_translate:
                             return
                         text_to_translate = _guard_identity_drift(text_to_translate)
-                        try:
-                            with trace.stage(
-                                "output_translation",
-                                as_type="generation",
-                                input={"chars": len(text_to_translate)},
-                                metadata={"target_lang": requested_target_lang},
-                            ):
+                        with trace.stage(
+                            "output_translation",
+                            as_type="generation",
+                            input={"user_query": query},
+                            metadata={"target_lang": requested_target_lang},
+                        ) as output_translation_stage:
+                            translated_parts: list[str] = []
+                            try:
                                 async for chunk in translate_text_stream_fast(
                                     text=text_to_translate,
                                     source_lang="english",
@@ -1626,19 +1649,34 @@ async def stream_voice_message(
                                     )
                                     if isinstance(cleaned, str) and cleaned.strip():
                                         trace.mark("first_translation_chunk_ms")
+                                        translated_parts.append(cleaned)
                                     yield cleaned
-                        except Exception as e:
-                            trace.increment("output_translation_errors")
-                            logger.error(
-                                "Translation pipeline output translation failed for session_id=%s error=%s",
-                                session_id,
-                                e,
-                            )
-                            trouble = TRANSLATION_TROUBLE_MESSAGE.get(
-                                requested_target_lang,
-                                TRANSLATION_TROUBLE_MESSAGE["en"],
-                            )
-                            yield trouble
+                                output_translation_stage.set_output(
+                                    {
+                                        "translated_response": "".join(translated_parts),
+                                    }
+                                )
+                            except Exception as e:
+                                trace.increment("output_translation_errors")
+                                logger.error(
+                                    "Translation pipeline output translation failed for session_id=%s error=%s",
+                                    session_id,
+                                    e,
+                                )
+                                trouble = TRANSLATION_TROUBLE_MESSAGE.get(
+                                    requested_target_lang,
+                                    TRANSLATION_TROUBLE_MESSAGE["en"],
+                                )
+                                output_translation_stage.set_output(
+                                    {
+                                        "error": {
+                                            "type": type(e).__name__,
+                                            "message": str(e)[:300],
+                                        },
+                                        "translated_response": trouble,
+                                    }
+                                )
+                                yield trouble
 
                     # Deferred moderation gate: resolve the concurrently-running
                     # verdict now, before emitting ANY caller-facing chunk. The
@@ -1842,7 +1880,7 @@ async def stream_voice_message(
                         output=_agent_output,
                         new_messages=new_messages,
                     )
-                    _update_active_langfuse_trace(
+                    _update_active_langfuse_observation(
                         output_payload={
                             "agent_response": _agent_output,
                         },
