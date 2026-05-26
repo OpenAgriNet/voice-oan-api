@@ -67,24 +67,35 @@ BASE_TOOLS = [
 ]
 
 SIGNED_IN_FARMER_TOOLS = [
-    Tool(
-        _with_nudge_signal(get_farmer_profile),
-        takes_ctx=True,
-        docstring_format='auto',
-        require_parameter_descriptions=False,
-    ),
-    Tool(
-        _with_nudge_signal(get_herd_summary),
-        takes_ctx=True,
-        docstring_format='auto',
-        require_parameter_descriptions=False,
-    ),
-    Tool(
-        _with_nudge_signal(list_animal_tags),
-        takes_ctx=True,
-        docstring_format='auto',
-        require_parameter_descriptions=False,
-    ),
+    # # Get Farmer Profile (disabled — redundant with _build_compact_farmer_summary
+    # # context; the brittle farmers[0]-only read returned "not available" when
+    # # the cached record was missing fields, while context already had them).
+    # Tool(
+    #     _with_nudge_signal(get_farmer_profile),
+    #     takes_ctx=True,
+    #     docstring_format='auto',
+    #     require_parameter_descriptions=False,
+    # ),
+
+    # # Get Herd Summary (disabled — same cache as context; root of the Turn-A
+    # # "I don't have your herd info" failure. Counts now always surfaced in
+    # # the runtime context with len(tags) fallback, matching chat's pattern).
+    # Tool(
+    #     _with_nudge_signal(get_herd_summary),
+    #     takes_ctx=True,
+    #     docstring_format='auto',
+    #     require_parameter_descriptions=False,
+    # ),
+
+    # # List Animal Tags (disabled — runtime context now lists all tags inline
+    # # (no truncation), so a tool round-trip is no longer needed).
+    # Tool(
+    #     _with_nudge_signal(list_animal_tags),
+    #     takes_ctx=True,
+    #     docstring_format='auto',
+    #     require_parameter_descriptions=False,
+    # ),
+
     Tool(
         _with_nudge_signal(get_union_scheme_data),
         takes_ctx=True,
