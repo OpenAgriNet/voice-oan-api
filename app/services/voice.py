@@ -631,12 +631,28 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
         lines.append(f"- Society code: {society_code}")
     if first.farmerCode:
         lines.append(f"- Farmer code: {first.farmerCode}")
-    if first.totalAnimals is not None:
-        lines.append(f"- Total animals: {first.totalAnimals}")
+    # Herd counts: always surface what we have. The agent answers from this
+    # context (the brittle get_herd_summary / list_animal_tags / get_farmer_profile
+    # tools were dropped — they read the same cache and returned "not available"
+    # when the upstream record omitted totalAnimals even though tags were present).
+    first_data = first.model_dump()
+    total_animals = first.totalAnimals
+    if total_animals is None and tags:
+        total_animals = len(tags)  # fallback when upstream omits the count
+    if total_animals is not None:
+        lines.append(f"- Total animals: {total_animals}")
+    cow = first_data.get("cow") or first_data.get("Cow")
+    if cow is not None:
+        lines.append(f"- Cows: {cow}")
+    buffalo = first_data.get("buffalo") or first_data.get("Buffalo")
+    if buffalo is not None:
+        lines.append(f"- Buffaloes: {buffalo}")
+    milking = first_data.get("totalMilkingAnimals") or first_data.get("Milking Animal")
+    if milking is not None:
+        lines.append(f"- Milking animals: {milking}")
     if tags:
-        preview = ", ".join(tags[:8])
-        extra = f" (+{len(tags) - 8} more)" if len(tags) > 8 else ""
-        lines.append(f"- Known animal tags: {preview}{extra}")
+        # All tags inline — no truncation, since the list-tags tool was dropped.
+        lines.append(f"- Known animal tags: {', '.join(tags)}")
     if len(envelope.farmers) > 1:
         lines.append("- Multiple farmer records are registered on this mobile number.")
         lines.append("- For AI booking, first ask which farmer name the caller wants to use.")
