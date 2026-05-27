@@ -16,8 +16,10 @@ from agents.voice import voice_agent, voice_agent_signed_in, STATIC_VOICE_SYSTEM
 from agents.tools.farmer import normalize_phone_to_mobile
 from agents.services.farmer_cache import (
     get_farmer_data_cached_only,
-    refresh_farmer_data,
+    refresh_farmer_data_bounded,
+    enqueue_farmer_refresh,
     should_refresh_farmer_data,
+    exceeds_max_serve_stale,
 )
 from app.models.union import UnionName
 from app.services.scheme_ingestion import (
@@ -511,11 +513,26 @@ def _is_signed_in_session(user_info: Optional[dict], user_id: str) -> bool:
 
 
 async def get_or_fetch_farmer_data(mobile: str):
+    """Voice read policy (stale-while-revalidate).
+
+    Serve the cached envelope immediately when present (fresh or stale — the
+    caller enqueues a background refresh for stale records). On a cold/never-
+    cached (or hard-expired/deleted) miss, do a bounded blocking fetch so the
+    first turn has data, capped by FARMER_COLD_FETCH_TIMEOUT so a slow upstream
+    never hangs the call.
+
+    Still patchable by tests that stub this symbol.
     """
-    Backward-compatible alias for tests and callers that still patch the old symbol.
-    Voice request flow now uses Redis-only reads from this alias.
-    """
-    return await get_farmer_data_cached_only(mobile)
+    cached = await get_farmer_data_cached_only(mobile)
+    if cached is not None:
+        if exceeds_max_serve_stale(cached):
+            # Too stale to serve (e.g. background refresh has been failing):
+            # block on a bounded API call, falling back to the stale record
+            # only if the API also fails.
+            fresh = await refresh_farmer_data_bounded(mobile)
+            return fresh if fresh is not None else cached
+        return cached
+    return await refresh_farmer_data_bounded(mobile)
 
 
 def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
@@ -614,12 +631,28 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
         lines.append(f"- Society code: {society_code}")
     if first.farmerCode:
         lines.append(f"- Farmer code: {first.farmerCode}")
-    if first.totalAnimals is not None:
-        lines.append(f"- Total animals: {first.totalAnimals}")
+    # Herd counts: always surface what we have. The agent answers from this
+    # context (the brittle get_herd_summary / list_animal_tags / get_farmer_profile
+    # tools were dropped — they read the same cache and returned "not available"
+    # when the upstream record omitted totalAnimals even though tags were present).
+    first_data = first.model_dump()
+    total_animals = first.totalAnimals
+    if total_animals is None and tags:
+        total_animals = len(tags)  # fallback when upstream omits the count
+    if total_animals is not None:
+        lines.append(f"- Total animals: {total_animals}")
+    cow = first_data.get("cow") or first_data.get("Cow")
+    if cow is not None:
+        lines.append(f"- Cows: {cow}")
+    buffalo = first_data.get("buffalo") or first_data.get("Buffalo")
+    if buffalo is not None:
+        lines.append(f"- Buffaloes: {buffalo}")
+    milking = first_data.get("totalMilkingAnimals") or first_data.get("Milking Animal")
+    if milking is not None:
+        lines.append(f"- Milking animals: {milking}")
     if tags:
-        preview = ", ".join(tags[:8])
-        extra = f" (+{len(tags) - 8} more)" if len(tags) > 8 else ""
-        lines.append(f"- Known animal tags: {preview}{extra}")
+        # All tags inline — no truncation, since the list-tags tool was dropped.
+        lines.append(f"- Known animal tags: {', '.join(tags)}")
     if len(envelope.farmers) > 1:
         lines.append("- Multiple farmer records are registered on this mobile number.")
         lines.append("- For AI booking, first ask which farmer name the caller wants to use.")
@@ -1421,7 +1454,7 @@ async def stream_voice_message(
                         len(ai_technician_info),
                     )
                     if mobile and should_refresh_farmer_data(envelope):
-                        asyncio.create_task(refresh_farmer_data(mobile))
+                        await enqueue_farmer_refresh(mobile)
                         logger.info(
                             "Farmer cache refresh scheduled in background for mobile %s stale=%s status=%s",
                             mobile,

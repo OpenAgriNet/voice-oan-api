@@ -7,7 +7,6 @@ import json
 from pydantic_ai import RunContext
 
 from agents.deps import FarmerContext
-from agents.services.farmer_cache import get_or_fetch_farmer_data
 from helpers.gujarati_numbers import mask_tag_identifier
 
 
@@ -15,6 +14,12 @@ async def _get_envelope(ctx: RunContext[FarmerContext]):
     mobile = ctx.deps.mobile
     if not mobile:
         return None
+    # Lazy import: this module is pulled in by agents.tools/__init__, and
+    # farmer_cache imports back into agents.tools at module top — importing
+    # get_or_fetch_farmer_data here (not at module scope) breaks that cycle so
+    # farmer_cache can be imported cold (e.g. by the refresh worker at startup).
+    from agents.services.farmer_cache import get_or_fetch_farmer_data
+
     return await get_or_fetch_farmer_data(mobile)
 
 
