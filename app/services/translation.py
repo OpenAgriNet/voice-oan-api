@@ -804,6 +804,7 @@ async def translate_to_english_with_gpt5_mini(
     source_lang: str,
     *,
     max_tokens: int = 1024,
+    record_langfuse: bool = True,
 ) -> str:
     """Translate input text to English using OpenAI for pipeline pre-translation.
 
@@ -819,7 +820,7 @@ async def translate_to_english_with_gpt5_mini(
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
 
-    langfuse = _get_langfuse()
+    langfuse = _get_langfuse() if record_langfuse else None
 
     try:
         if not langfuse:
@@ -909,6 +910,7 @@ async def translate_to_english_with_oss_vllm(
     source_lang: str,
     *,
     max_tokens: int = 1024,
+    record_langfuse: bool = True,
 ) -> str:
     """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
 
@@ -928,7 +930,7 @@ async def translate_to_english_with_oss_vllm(
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
 
-    langfuse = _get_langfuse()
+    langfuse = _get_langfuse() if record_langfuse else None
 
     try:
         if not langfuse:

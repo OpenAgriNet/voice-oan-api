@@ -39,6 +39,15 @@ def _safe_update(observation: Any | None, **kwargs: Any) -> None:
         logger.debug("Langfuse observation update failed: %s", exc)
 
 
+def _flush_langfuse(client: Any | None) -> None:
+    if client is None:
+        return
+    try:
+        client.flush()
+    except Exception as exc:
+        logger.debug("Langfuse flush failed: %s", exc)
+
+
 def sanitize_text(text: Optional[str], *, mode: Optional[str] = None) -> dict[str, Any]:
     """Return trace-safe text metadata.
 
@@ -126,11 +135,25 @@ class _StageTimer:
             metadata=dict(self.metadata),
             observation=observation,
         )
+        if observation is not None:
+            _flush_langfuse(self.trace.langfuse_client)
         return self
+
+    async def __aenter__(self) -> "_StageTimer":
+        return self.__enter__()
 
     def set_output(self, output: Any) -> None:
         self._output = output
         self._output_set = True
+
+    def publish_output(self, output: Any) -> None:
+        """Update stage output immediately so long-running spans appear in Langfuse."""
+        self.set_output(output)
+        _safe_update(self.record.observation if self.record else None, output=output)
+        _flush_langfuse(self.trace.langfuse_client)
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return self.__exit__(exc_type, exc, tb)
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         if self.record is None:
@@ -250,36 +273,14 @@ class VoiceTrace:
 
     @contextmanager
     def request_context(self) -> Iterator[None]:
-        """Attach shared attributes without creating a root voice_request trace."""
-        if not self.enabled or self.langfuse_client is None:
-            yield
-            return
+        """No-op wrapper kept for call-site compatibility.
 
-        try:
-            from langfuse import propagate_attributes  # pyright: ignore[reportMissingImports]
-        except Exception:
-            yield
-            return
-
-        try:
-            with propagate_attributes(
-                user_id=(self.user_id or "anonymous")[:200],
-                session_id=(self.session_id or "")[:200] or None,
-                metadata={
-                    "process_id": str(self.process_id or "")[:200],
-                    "trace_id": self.trace_id,
-                    "provider": str(self.provider or ""),
-                },
-                tags=[
-                    "voice",
-                    str(self.provider or "api"),
-                    f"variant:{self.metadata.get('pipeline_variant') or 'legacy'}",
-                ],
-            ):
-                yield
-        except Exception as exc:
-            logger.debug("Voice Langfuse request context setup failed: %s", exc)
-            yield
+        Each `trace.stage(...)` already opens its own top-level Langfuse trace
+        with session/user metadata (same pattern as query_moderation). Nesting
+        another propagate_attributes here caused main-flow stages to disappear
+        from Langfuse while background-task stages still exported.
+        """
+        yield
 
     def _stage_trace_context(self, trace_name: str) -> Any | None:
         if not self.enabled or self.langfuse_client is None:

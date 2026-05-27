@@ -988,8 +988,7 @@ async def stream_voice_message(
             logger.debug("Langfuse observation enrichment failed: %s", exc)
 
     try:
-        # Keep shared Langfuse attributes active across the full streaming
-        # generator. Individual stages emit their own top-level traces.
+        # Each pipeline stage emits its own top-level Langfuse trace.
         with trace.request_context():
             requested_source_lang = (source_lang or "gu").strip().lower()
             requested_target_lang = (target_lang or "gu").strip().lower()
@@ -1279,11 +1278,13 @@ async def stream_voice_message(
                             processing_query = await translate_to_english_with_oss_vllm(
                                 text=query,
                                 source_lang=requested_source_lang,
+                                record_langfuse=False,
                             )
                         else:
                             processing_query = await translate_to_english_with_gpt5_mini(
                                 text=query,
                                 source_lang=requested_source_lang,
+                                record_langfuse=False,
                             )
                         pretranslation_stage.set_output(
                             {
@@ -1346,12 +1347,24 @@ async def stream_voice_message(
                         history_user_text = _canonical_history_user_text("pretranslation_failed")
 
             else:
-                history_user_text = query
-                trace.set_pretranslation(
-                    text=query,
-                    provider="none",
-                    fallback_used=False,
-                )
+                with trace.stage(
+                    "query_pretranslation",
+                    as_type="generation",
+                    input=trace.metadata.get("query"),
+                    metadata={
+                        "provider": "none",
+                        "source_lang": requested_source_lang,
+                        "pipeline_variant": pipeline_variant,
+                    },
+                    model="identity",
+                ) as pretranslation_stage:
+                    history_user_text = query
+                    pretranslation_stage.set_output({"translated_query": query})
+                    trace.set_pretranslation(
+                        text=query,
+                        provider="none",
+                        fallback_used=False,
+                    )
 
             # ── Content moderation: deferred gate (runs with the agent) ──────
             # check_moderation() was kicked off at the top of the turn and runs
@@ -1543,7 +1556,8 @@ async def stream_voice_message(
             if len(cleaned_history) != len(history):
                 logger.warning(f"Cleaned {len(history) - len(cleaned_history)} orphaned tool calls from history")
                 if not await _request_is_stale("before_cleaned_history_write"):
-                    await update_message_history(session_id, cleaned_history)
+                    with trace.stage("history_write"):
+                        await update_message_history(session_id, cleaned_history)
                 history = cleaned_history
 
             trimmed_history = trim_history(
@@ -1592,91 +1606,283 @@ async def stream_voice_message(
                 # translation overlap instead of running strictly back-to-back.
                 agent_started_at = time.monotonic()
                 _agent_output = ""
-                async with active_agent.run_stream(
-                    user_prompt=user_message,
-                    message_history=model_input_history,
-                    deps=deps,
-                    usage_limits=usage_limits,
-                    model=request_model,
-                ) as response_stream:
-                    _update_active_langfuse_observation(
-                        input_payload={
-                            "query": processing_query,
-                            "model_name": request_model_name,
-                        },
-                        metadata_payload={
-                            "signed_in": bool(signed_in and mobile),
-                            "request_limit": usage_limits.request_limit,
-                            "pipeline_variant": pipeline_variant,
-                            "provider": request_provider,
-                            "model_name": request_model_name,
-                            "source_lang": requested_source_lang,
-                            "target_lang": requested_target_lang,
-                        },
-                    )
-                    # debounce_by=0 disables pydantic-ai's default 100ms token
-                    # debounce so the first agent delta reaches the translation
-                    # stage immediately (every ms counts for phone TTFT). Our own
-                    # sentence batching downstream re-aggregates the smaller chunks.
-                    stream_iter = response_stream.stream_text(delta=True, debounce_by=0)
-                    first_text_chunk_received = False
-                    sentence_buffer = ""
-                    translation_batch: list[str] = []
-                    batch_word_count = 0
-                    async def _yield_translated_text(text_to_translate: str) -> AsyncGenerator[str, None]:
-                        if not text_to_translate:
-                            return
-                        text_to_translate = _guard_identity_drift(text_to_translate)
-                        with trace.stage(
-                            "output_translation",
-                            as_type="generation",
-                            input={"user_query": query},
-                            metadata={"target_lang": requested_target_lang},
-                        ) as output_translation_stage:
-                            translated_parts: list[str] = []
-                            try:
-                                async for chunk in translate_text_stream_fast(
-                                    text=text_to_translate,
-                                    source_lang="english",
-                                    target_lang=requested_target_lang,
-                                ):
-                                    if await _request_is_stale("during_output_translation"):
-                                        return
-                                    cleaned = (
+                async with trace.stage(
+                    "voice_agent_run",
+                    as_type="generation",
+                    input={"query": processing_query},
+                    metadata={
+                        "signed_in": bool(signed_in and mobile),
+                        "request_limit": usage_limits.request_limit,
+                        "pipeline_variant": pipeline_variant,
+                        "provider": request_provider,
+                        "source_lang": requested_source_lang,
+                        "target_lang": requested_target_lang,
+                    },
+                    model=request_model_name,
+                ) as agent_stage:
+                    async with active_agent.run_stream(
+                        user_prompt=user_message,
+                        message_history=model_input_history,
+                        deps=deps,
+                        usage_limits=usage_limits,
+                        model=request_model,
+                    ) as response_stream:
+                        _update_active_langfuse_observation(
+                            input_payload={
+                                "query": processing_query,
+                                "model_name": request_model_name,
+                            },
+                            metadata_payload={
+                                "signed_in": bool(signed_in and mobile),
+                                "request_limit": usage_limits.request_limit,
+                                "pipeline_variant": pipeline_variant,
+                                "provider": request_provider,
+                                "model_name": request_model_name,
+                                "source_lang": requested_source_lang,
+                                "target_lang": requested_target_lang,
+                            },
+                        )
+                        # debounce_by=0 disables pydantic-ai's default 100ms token
+                        # debounce so the first agent delta reaches the translation
+                        # stage immediately (every ms counts for phone TTFT). Our own
+                        # sentence batching downstream re-aggregates the smaller chunks.
+                        stream_iter = response_stream.stream_text(delta=True, debounce_by=0)
+                        first_text_chunk_received = False
+                        sentence_buffer = ""
+                        translation_batch: list[str] = []
+                        batch_word_count = 0
+                        async def _yield_translated_text(text_to_translate: str) -> AsyncGenerator[str, None]:
+                            if not text_to_translate:
+                                return
+                            text_to_translate = _guard_identity_drift(text_to_translate)
+                            with trace.stage(
+                                "output_translation",
+                                as_type="generation",
+                                input={"user_query": query},
+                                metadata={"target_lang": requested_target_lang},
+                            ) as output_translation_stage:
+                                translated_parts: list[str] = []
+                                try:
+                                    async for chunk in translate_text_stream_fast(
+                                        text=text_to_translate,
+                                        source_lang="english",
+                                        target_lang=requested_target_lang,
+                                    ):
+                                        if await _request_is_stale("during_output_translation"):
+                                            return
+                                        cleaned = (
+                                            _prepare_voice_output(chunk, requested_target_lang)
+                                            if isinstance(chunk, str) and chunk
+                                            else chunk
+                                        )
+                                        if isinstance(cleaned, str) and cleaned.strip():
+                                            trace.mark("first_translation_chunk_ms")
+                                            translated_parts.append(cleaned)
+                                        yield cleaned
+                                    output_translation_stage.set_output(
+                                        {
+                                            "translated_response": "".join(translated_parts),
+                                        }
+                                    )
+                                except Exception as e:
+                                    trace.increment("output_translation_errors")
+                                    logger.error(
+                                        "Translation pipeline output translation failed for session_id=%s error=%s",
+                                        session_id,
+                                        e,
+                                    )
+                                    trouble = TRANSLATION_TROUBLE_MESSAGE.get(
+                                        requested_target_lang,
+                                        TRANSLATION_TROUBLE_MESSAGE["en"],
+                                    )
+                                    output_translation_stage.set_output(
+                                        {
+                                            "error": {
+                                                "type": type(e).__name__,
+                                                "message": str(e)[:300],
+                                            },
+                                            "translated_response": trouble,
+                                        }
+                                    )
+                                    yield trouble
+
+                        try:
+                            async for chunk in stream_iter:
+                                if await _request_is_stale("during_agent_stream"):
+                                    break
+
+                                if isinstance(chunk, str) and chunk:
+                                    if not _agent_output and chunk.strip():
+                                        trace.mark("first_agent_text_ms")
+                                        agent_stage.publish_output(
+                                            {
+                                                "agent_response": chunk,
+                                                "status": "streaming",
+                                            }
+                                        )
+                                    _agent_output += chunk
+
+                                if not needs_output_translation:
+                                    if (
+                                        not first_text_chunk_received
+                                        and isinstance(chunk, str)
+                                        and chunk
+                                        and chunk.strip()
+                                    ):
+                                        first_text_chunk_received = True
+                                        if nudge_task:
+                                            nudge_task.cancel()
+                                            logger.info(
+                                                "Nudge canceled (first text chunk received); session_id=%s process_id=%s chunk_preview=%s",
+                                                session_id,
+                                                process_id,
+                                                chunk[:50] if len(chunk) > 50 else chunk,
+                                            )
+                                            try:
+                                                await nudge_task
+                                            except asyncio.CancelledError:
+                                                pass
+                                        trace.set_nudge(cancel_reason="first_text_chunk_received")
+
+                                    cleaned_chunk = (
                                         _prepare_voice_output(chunk, requested_target_lang)
                                         if isinstance(chunk, str) and chunk
                                         else chunk
                                     )
-                                    if isinstance(cleaned, str) and cleaned.strip():
-                                        trace.mark("first_translation_chunk_ms")
-                                        translated_parts.append(cleaned)
-                                    yield cleaned
-                                output_translation_stage.set_output(
-                                    {
-                                        "translated_response": "".join(translated_parts),
-                                    }
-                                )
-                            except Exception as e:
-                                trace.increment("output_translation_errors")
-                                logger.error(
-                                    "Translation pipeline output translation failed for session_id=%s error=%s",
+                                    if await _request_is_stale("before_direct_yield"):
+                                        break
+                                    yield _emit(cleaned_chunk)
+                                    continue
+
+                                sentence_buffer += chunk
+                                ready_units, remaining = extract_translation_units(sentence_buffer)
+                                if ready_units:
+                                    for unit in ready_units:
+                                        candidate_units = [unit]
+                                        if len(unit) >= VOICE_TRANSLATION_BATCH_CHAR_LIMIT:
+                                            candidate_units = []
+                                            remaining_unit = unit
+                                            while remaining_unit:
+                                                head, tail = _split_voice_batch_text(remaining_unit)
+                                                if not tail or head == remaining_unit:
+                                                    candidate_units.append(remaining_unit)
+                                                    break
+                                                candidate_units.append(head)
+                                                remaining_unit = tail
+
+                                        for candidate in candidate_units:
+                                            translation_batch.append(candidate)
+                                            batch_word_count += len(candidate.split())
+                                            batch_text = "".join(translation_batch)
+
+                                            if should_translate_batch(batch_text, batch_word_count, is_first_batch=not first_text_chunk_received):
+                                                async for translated_chunk in _yield_translated_text(batch_text):
+                                                    if (
+                                                        not first_text_chunk_received
+                                                        and isinstance(translated_chunk, str)
+                                                        and translated_chunk
+                                                        and translated_chunk.strip()
+                                                    ):
+                                                        first_text_chunk_received = True
+                                                        if nudge_task:
+                                                            nudge_task.cancel()
+                                                            logger.info(
+                                                                "Nudge canceled (first translated chunk received); session_id=%s process_id=%s",
+                                                                session_id,
+                                                                process_id,
+                                                            )
+                                                            try:
+                                                                await nudge_task
+                                                            except asyncio.CancelledError:
+                                                                pass
+                                                        trace.set_nudge(cancel_reason="first_translated_chunk_received")
+                                                    if await _request_is_stale("before_translated_yield"):
+                                                        break
+                                                    yield _emit(_prepare_translated_emit(translated_chunk))
+                                                translation_batch = []
+                                                batch_word_count = 0
+
+                                    sentence_buffer = remaining
+
+                            if needs_output_translation and not await _request_is_stale("before_translation_flush"):
+                                if translation_batch:
+                                    batch_text = "".join(translation_batch)
+                                    async for translated_chunk in _yield_translated_text(batch_text):
+                                        if (
+                                            not first_text_chunk_received
+                                            and isinstance(translated_chunk, str)
+                                            and translated_chunk
+                                            and translated_chunk.strip()
+                                        ):
+                                            first_text_chunk_received = True
+                                            if nudge_task: nudge_task.cancel()
+                                            logger.info(
+                                                "Nudge canceled (final translated batch); session_id=%s process_id=%s",
+                                                session_id,
+                                                process_id,
+                                            )
+                                            try:
+                                                if nudge_task:
+                                                    await nudge_task
+                                            except asyncio.CancelledError:
+                                                pass
+                                            trace.set_nudge(cancel_reason="final_translated_batch")
+                                        if await _request_is_stale("before_final_translated_yield"):
+                                            break
+                                        yield _emit(_prepare_translated_emit(translated_chunk))
+
+                                if sentence_buffer.strip():
+                                    async for translated_chunk in _yield_translated_text(sentence_buffer):
+                                        if (
+                                            not first_text_chunk_received
+                                            and isinstance(translated_chunk, str)
+                                            and translated_chunk
+                                            and translated_chunk.strip()
+                                        ):
+                                            first_text_chunk_received = True
+                                            if nudge_task: nudge_task.cancel()
+                                            logger.info(
+                                                "Nudge canceled (tail translated fragment); session_id=%s process_id=%s",
+                                                session_id,
+                                                process_id,
+                                            )
+                                            try:
+                                                if nudge_task:
+                                                    await nudge_task
+                                            except asyncio.CancelledError:
+                                                pass
+                                            trace.set_nudge(cancel_reason="tail_translated_fragment")
+                                        if await _request_is_stale("before_tail_translated_yield"):
+                                            break
+                                        yield _emit(_prepare_translated_emit(translated_chunk))
+                        except StopAsyncIteration:
+                            pass
+                        except RuntimeError as e:
+                            if "StopAsyncIteration" in str(e) or "anext()" in str(e):
+                                # anext() errors occur on superseded processes during
+                                # teardown — the final process_id has its own generator
+                                # and is unaffected, so this is just cleanup noise.
+                                logger.debug(
+                                    "Suppressed stream runtime error (superseded process teardown) - session_id=%s process_id=%s error=%s",
                                     session_id,
+                                    process_id,
                                     e,
                                 )
-                                trouble = TRANSLATION_TROUBLE_MESSAGE.get(
-                                    requested_target_lang,
-                                    TRANSLATION_TROUBLE_MESSAGE["en"],
+                            else:
+                                raise
+                        finally:
+                            if nudge_task and not nudge_task.done():
+                                if nudge_task: nudge_task.cancel()
+                                trace.set_nudge(cancel_reason="stream_ended")
+                                logger.info(
+                                    "Nudge canceled (stream ended); session_id=%s process_id=%s",
+                                    session_id,
+                                    process_id,
                                 )
-                                output_translation_stage.set_output(
-                                    {
-                                        "error": {
-                                            "type": type(e).__name__,
-                                            "message": str(e)[:300],
-                                        },
-                                        "translated_response": trouble,
-                                    }
-                                )
-                                yield trouble
+                                try:
+                                    await nudge_task
+                                except asyncio.CancelledError:
+                                    pass
 
                     # Deferred moderation gate: resolve the concurrently-running
                     # verdict now, before emitting ANY caller-facing chunk. The
@@ -1866,9 +2072,18 @@ async def stream_voice_message(
                     logger.info(f"Streaming complete for session {session_id}")
                     _agent_output = _agent_output.strip()
                     new_messages = response_stream.new_messages()
+                    agent_elapsed_ms = round((time.monotonic() - agent_started_at) * 1000.0, 2)
+                    agent_stage.publish_output(
+                        {
+                            "agent_response": _agent_output,
+                            "agent_elapsed_ms": agent_elapsed_ms,
+                            "new_message_count": len(new_messages or []),
+                            "status": "complete",
+                        }
+                    )
                     trace.attach_stage_timing(
                         "agent",
-                        (time.monotonic() - agent_started_at) * 1000.0,
+                        agent_elapsed_ms,
                         signed_in=bool(signed_in and mobile),
                         request_limit=usage_limits.request_limit,
                         pipeline_variant=pipeline_variant,
@@ -1890,7 +2105,7 @@ async def stream_voice_message(
                             "pipeline_variant": pipeline_variant,
                             "provider": request_provider,
                             "model_name": request_model_name,
-                            "agent_elapsed_ms": round((time.monotonic() - agent_started_at) * 1000.0, 2),
+                            "agent_elapsed_ms": agent_elapsed_ms,
                             "agent_output_chars": len(_agent_output or ""),
                             "new_message_count": len(new_messages or []),
                         },
