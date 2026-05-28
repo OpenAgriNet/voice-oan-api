@@ -150,6 +150,11 @@ async def run_gujarati_matrix() -> None:
     print(f"\nTotal Gujarati cases with Goodbye streamed: {total}/{len(results)}", flush=True)
 
 
+async def run_all_matrices() -> None:
+    """Run English then Gujarati suites in one event loop (required for Redis)."""
+    await run_matrix()
+    await run_gujarati_matrix()
+
+
 if __name__ == "__main__":
-    asyncio.run(run_matrix())
-    asyncio.run(run_gujarati_matrix())
+    asyncio.run(run_all_matrices())
