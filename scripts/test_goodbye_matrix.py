@@ -9,8 +9,8 @@ from app.services.voice import stream_voice_message
 from app.utils import _get_message_history, claim_session_request_ownership
 
 
-FIRST_TURN_QUERY = "hey,how are you?"
-GU_FIRST_TURN_QUERY = "હે સરલાબેન, કેમ છો?"
+FIRST_TURN_QUERY = "how much water should i give to my cow in summers?"
+GU_FIRST_TURN_QUERY = "ઉનાળામાં મારે મારી ગાયને કેટલું પાણી આપવું જોઈએ?"
 
 CLOSING_QUERIES = [
     "ok",
