@@ -356,7 +356,7 @@ _IDENTITY_PHRASES_EN = {
 }
 
 _IDENTITY_RESPONSE_EN = (
-    "I am Sarlaben, a woman, your Amul AI assistant for dairy farming and animal husbandry. "
+    "I am Sarlaben, your Amul AI assistant for dairy farming and animal husbandry. "
     "Please tell me, how can I help you today?"
 )
 
