@@ -165,8 +165,18 @@ GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?<![^\s,।.!?])બ(?:હેન|ેન)(?=\s*[,।!?]|\s|$)"), ""),
     # "સાહેબ" as caller address
     (re.compile(r"(?<![^\s,।.!?])સ(?:ા)?હ(?:ે)?બ(?=\s*[,।!?]|\s|$)"), ""),
+    # "સર" as caller address
+    (re.compile(r"(?<![^\s,।.!?])સર(?=\s*[,।!?]|\s|$)"), ""),
     # "મેડમ" / "મૅડમ" / "મૅડ" as caller address
     (re.compile(r"(?<![^\s,।.!?])મ(?:ે|ૅ|ૅ)ડ(?:મ|)(?=\s*[,।!?]|\s|$)"), ""),
+]
+
+# Enforce feminine self-reference for Sarlaben in Gujarati assistant output.
+# Keep this intentionally narrow and deterministic to avoid semantic drift.
+GU_FEMININE_SELF_REFERENCE_REPLACEMENTS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"શકું\s+નથી"), "શકતી નથી"),
+    (re.compile(r"શકું\s+નહીં"), "શકતી નથી"),
+    (re.compile(r"શકું\s+નહિ"), "શકતી નથી"),
 ]
 
 GU_WORD_BOUNDARY_START = r"(?<![\u0A80-\u0AFF])"
@@ -249,6 +259,11 @@ def _post_normalize_gu_translation(
     # Strip gendered address terms (ભાઈ, બહેન, સાહેબ, મેડમ, સર) directed at
     # the caller before the text reaches TTS.
     for pat, repl in GU_GENDER_NEUTRAL_POST:
+        out = pat.sub(repl, out)
+
+    # -- Feminine self-reference guard --------------------------------------
+    # Sarlaben must not leak masculine first-person modal forms.
+    for pat, repl in GU_FEMININE_SELF_REFERENCE_REPLACEMENTS:
         out = pat.sub(repl, out)
 
     # -- Scaffold collapse: "Label: value\nLabel: value" → spoken flow ------
