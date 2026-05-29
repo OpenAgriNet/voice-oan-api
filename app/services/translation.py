@@ -617,11 +617,11 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
         "- Your job is faithful pretranslation for safe routing, not correction, completion, or advice.\n"
         "- Preserve uncertainty from the original speech. Do not repair missing words, fill missing slots, or choose a clean interpretation when the audio transcript is ambiguous.\n"
         "- Words that look like human names (e.g. સલાદ, સરલા, ગંગા) are almost always ANIMAL NAMES (cow/buffalo names). Transliterate them as-is, do NOT translate literally.\n"
-        "- If a garbled token does not clearly map to a real medicine, feed, symptom, or service term, do NOT invent a meaning. Keep the translation conservative and set confidence to low.\n"
+        "- If a garbled token does not clearly map to a real medicine, feed, symptom, or service term, do NOT invent a meaning. Keep the translation conservative.\n"
         "- Kinship words like બેન, બહેન, ભાઈ are often address markers for Sarlaben or filler in phone speech. Do not turn them into the caller's gender. Use 'Sarlaben' only if the caller is clearly addressing the assistant; otherwise omit the address marker.\n"
-        "- 'ભાઈ' in livestock context may refer to a male animal (bull/ox), but mark confidence low if the word could also be an address marker.\n"
-        "- Prefer veterinary/agricultural meanings only when the term is clear in the original transcript. If choosing the agricultural meaning requires guessing, preserve the uncertain token and set confidence low.\n"
-        "- Do not infer animal species. If cow/buffalo/sheep/goat is unclear, write 'unclear animal' or keep the uncertain token, and set confidence low.\n"
+        "- 'ભાઈ' in livestock context may refer to a male animal (bull/ox); keep it generic if the word could also be an address marker.\n"
+        "- Prefer veterinary/agricultural meanings only when the term is clear in the original transcript. If choosing the agricultural meaning requires guessing, preserve the uncertain token.\n"
+        "- Do not infer animal species. If cow/buffalo/sheep/goat is unclear, write 'unclear animal' or keep the uncertain token.\n"
     )
 
     # -- Ambiguity hints from ambiguity_terms.json ---------------------
@@ -646,11 +646,9 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
     system_content = (
         f"{domain_preamble}\n"
         "Translate the user's message to faithful spoken English for an internal agent. "
-        "Respond with JSON: {\"translation\": \"...\", \"confidence\": \"high\" or \"low\"}.\n\n"
+        "Respond with JSON: {\"translation\": \"...\"}.\n\n"
         "Do not preserve markdown, bullets, bracketed duplicates, or other formatting clutter, but do preserve the meaning uncertainty.\n"
-        "Set confidence to \"high\" only when the core request is clear without guessing: animal or subject, problem or topic, and desired action are identifiable from the transcript.\n"
-        "Set confidence to \"low\" when the input is garbled noise, random syllables, fragmentary, contradictory, or when any key noun, animal species, medicine, feed, product, disease, symptom, or requested action is uncertain.\n"
-        "If confidence is low, still provide the most faithful translation possible, using markers such as 'unclear animal', 'unclear feed name', 'unclear symptom', or '[unclear token]' instead of inventing missing meaning.\n"
+        "When the input is garbled noise, random syllables, fragmentary, contradictory, or when any key noun, animal species, medicine, feed, product, disease, symptom, or requested action is uncertain, still provide the most faithful translation possible, using markers such as 'unclear animal', 'unclear feed name', 'unclear symptom', or '[unclear token]' instead of inventing missing meaning.\n"
         "Never convert a doubtful token into a specific medicine, feed, disease, animal species, or service term just because it would make a plausible livestock question."
     )
 
@@ -661,14 +659,14 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
 
 
 def _build_structured_pretranslation_prompt(source_name: str, source_code: str, text: str) -> str:
-    """Build the structured translation+confidence prompt for non-OpenAI fallback models."""
+    """Build the structured translation prompt for non-OpenAI fallback models."""
     messages = _build_openai_pretranslation_messages(source_name, source_code, text)
     system_content = messages[0]["content"]
     user_content = messages[1]["content"]
     return (
         "<bos><start_of_turn>user\n"
         f"{system_content}\n\nUser message:\n{user_content}\n\n"
-        'Respond only with valid JSON: {"translation": "...", "confidence": "high" or "low"}.'
+        'Respond only with valid JSON: {"translation": "..."}.'
         "<end_of_turn>\n"
         "<start_of_turn>model\n"
     )
@@ -727,27 +725,22 @@ def _raise_empty_pretranslation(
     raise ValueError("GPT pretranslation returned empty output")
 
 
-def _extract_translation_from_response(response) -> tuple[str, str]:
-    """Extract translation text and confidence from OpenAI JSON response.
-
-    Returns (translation, confidence) where confidence is "high", "low", or "unknown".
-    """
+def _extract_translation_from_response(response) -> str:
+    """Extract the translation string from an OpenAI JSON response."""
     raw = (response.choices[0].message.content or "").strip()
     return _extract_translation_from_raw(raw)
 
 
-def _extract_translation_from_raw(raw: str) -> tuple[str, str]:
-    """Extract translation text and confidence from raw model output."""
+def _extract_translation_from_raw(raw: str) -> str:
+    """Extract the translation string from raw model output."""
     if not raw:
-        return "", "unknown"
+        return ""
     try:
         data = json.loads(raw)
-        translation = (data.get("translation") or "").strip()
-        confidence = (data.get("confidence") or "unknown").strip().lower()
-        return translation, confidence
+        return (data.get("translation") or "").strip()
     except (json.JSONDecodeError, AttributeError):
         # Fallback: use raw content if JSON parsing fails
-        return raw, "unknown"
+        return raw
 
 
 async def translate_to_english_with_structured_fallback(
@@ -755,13 +748,16 @@ async def translate_to_english_with_structured_fallback(
     source_lang: str,
     *,
     max_tokens: int = 1024,
-) -> tuple[str, str]:
-    """Fallback pretranslation with the same structured contract as the OpenAI path."""
+) -> str:
+    """Fallback pretranslation with the same structured contract as the OpenAI path.
+
+    Returns the translated text, or an empty string on empty/failed output.
+    """
     if not text or not text.strip():
-        return text, "unknown"
+        return text
 
     if source_lang.lower() in {"english", "en"}:
-        return text, "high"
+        return text
 
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
@@ -788,17 +784,17 @@ async def translate_to_english_with_structured_fallback(
 
             result = await response.json()
             raw_text = result["choices"][0]["text"].strip()
-            translated_text, confidence = _extract_translation_from_raw(raw_text)
+            translated_text = _extract_translation_from_raw(raw_text)
             translated_text = normalize_voice_output(translated_text, "english")
             translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             if not translated_text:
                 logger.warning(
-                    "Structured fallback pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    "Structured fallback pretranslation returned empty - source_lang=%s query=%r",
                     source_lang,
                     (text or "")[:100],
                 )
-                return text, "low"
-            return translated_text, confidence
+                return text
+            return translated_text
 
 
 async def translate_to_english_with_gpt5_mini(
@@ -806,16 +802,16 @@ async def translate_to_english_with_gpt5_mini(
     source_lang: str,
     *,
     max_tokens: int = 1024,
-) -> tuple[str, str]:
+) -> str:
     """Translate input text to English using OpenAI for pipeline pre-translation.
 
-    Returns (translated_text, confidence) where confidence is "high", "low", or "unknown".
+    Returns the translated text, or an empty string on empty/failed output.
     """
     if not text or not text.strip():
-        return text, "unknown"
+        return text
 
     if source_lang.lower() in {"english", "en"}:
-        return text, "high"
+        return text
 
     client = _get_openai_client()
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
@@ -832,15 +828,15 @@ async def translate_to_english_with_gpt5_mini(
                 text=text,
                 max_tokens=max_tokens,
             )
-            translated_text, confidence = _extract_translation_from_response(response)
+            translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 logger.warning(
-                    "OpenAI pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    "OpenAI pretranslation returned empty - source_lang=%s query=%r",
                     source_lang, (text or "")[:100],
                 )
-                return text, "low"
+                return text
             translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
-            return translated_text, confidence
+            return translated_text
 
         with langfuse.start_as_current_observation(
             name="query_pretranslation",
@@ -863,17 +859,17 @@ async def translate_to_english_with_gpt5_mini(
                 text=text,
                 max_tokens=max_tokens,
             )
-            translated_text, confidence = _extract_translation_from_response(response)
+            translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 logger.warning(
-                    "OpenAI pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    "OpenAI pretranslation returned empty - source_lang=%s query=%r",
                     source_lang, (text or "")[:100],
                 )
-                observation.update(output="__EMPTY__", metadata={"confidence": "low"})
-                return text, "low"
+                observation.update(output="__EMPTY__")
+                return text
             translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             observation.update(output=translated_text)
-            return translated_text, confidence
+            return translated_text
     except asyncio.TimeoutError as e:
         logger.error(
             "OpenAI pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
@@ -911,20 +907,20 @@ async def translate_to_english_with_oss_vllm(
     source_lang: str,
     *,
     max_tokens: int = 1024,
-) -> tuple[str, str]:
+) -> str:
     """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
 
-    Same return contract as translate_to_english_with_gpt5_mini:
-    (translated_text, confidence) where confidence is "high", "low", or "unknown".
+    Same return contract as translate_to_english_with_gpt5_mini: the translated
+    text, or an empty string on empty/failed output.
 
     Legacy sessions never hit this — the function is only called when the
     sticky pipeline router returns variant='oss'.
     """
     if not text or not text.strip():
-        return text, "unknown"
+        return text
 
     if source_lang.lower() in {"english", "en"}:
-        return text, "high"
+        return text
 
     client = _get_oss_pretranslation_client()
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
@@ -941,15 +937,15 @@ async def translate_to_english_with_oss_vllm(
                 text=text,
                 max_tokens=max_tokens,
             )
-            translated_text, confidence = _extract_translation_from_response(response)
+            translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 logger.warning(
-                    "OSS vLLM pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    "OSS vLLM pretranslation returned empty - source_lang=%s query=%r",
                     source_lang, (text or "")[:100],
                 )
-                return text, "low"
+                return text
             translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
-            return translated_text, confidence
+            return translated_text
 
         with langfuse.start_as_current_observation(
             name="query_pretranslation",
@@ -973,17 +969,17 @@ async def translate_to_english_with_oss_vllm(
                 text=text,
                 max_tokens=max_tokens,
             )
-            translated_text, confidence = _extract_translation_from_response(response)
+            translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 logger.warning(
-                    "OSS vLLM pretranslation returned empty; treating as low confidence - source_lang=%s query=%r",
+                    "OSS vLLM pretranslation returned empty - source_lang=%s query=%r",
                     source_lang, (text or "")[:100],
                 )
-                observation.update(output="__EMPTY__", metadata={"confidence": "low"})
-                return text, "low"
+                observation.update(output="__EMPTY__")
+                return text
             translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
             observation.update(output=translated_text)
-            return translated_text, confidence
+            return translated_text
     except asyncio.TimeoutError as e:
         logger.error(
             "OSS vLLM pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",

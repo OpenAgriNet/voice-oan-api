@@ -61,7 +61,6 @@ from app.services.translation import (
 )
 
 
-VALID_CONFIDENCE = {"high", "low", "unknown"}
 MATCHER_VERSION = "semantic-alias-v2"
 MATCH_STOPWORDS = {
     "a",
@@ -167,7 +166,6 @@ class PretranslationRegressionResult(BaseModel):
 
     case_id: str = Field(min_length=1)
     translation: str = Field(min_length=1)
-    confidence: str = Field(pattern="^(high|low|unknown)$")
     matched_expected: str = Field(min_length=1)
 
 
@@ -181,7 +179,6 @@ class GlossaryFailureLedgerEntry(BaseModel):
     glossary_gu: str = Field(min_length=1)
     expected_any: tuple[str, ...] = Field(min_length=1)
     translation: str = Field(min_length=1)
-    confidence: str = Field(pattern="^(high|low|unknown)$")
     hints: str
 
 
@@ -302,7 +299,6 @@ def _failure_ledger(
     case: GlossaryRegressionCase,
     hints: str,
     translation: str,
-    confidence: str,
 ) -> str:
     entry = GlossaryFailureLedgerEntry(
         matcher_version=MATCHER_VERSION,
@@ -312,7 +308,6 @@ def _failure_ledger(
         glossary_gu=case.glossary_gu,
         expected_any=case.expected_any,
         translation=translation,
-        confidence=confidence,
         hints=hints,
     )
     return json.dumps(
@@ -391,16 +386,14 @@ def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
         f"hints={hints!r}"
     )
 
-    translation, confidence = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
+    translation = asyncio.run(translate_to_english_with_gpt5_mini(case.source_text, "gu"))
     assert translation.strip(), f"Empty pretranslation for {case.case_id}"
-    assert confidence in VALID_CONFIDENCE
 
     matched_expected = _contains_expected_alias(translation, case.expected_any)
     failure_ledger = _failure_ledger(
         case=case,
         hints=hints,
         translation=translation,
-        confidence=confidence,
     )
     assert matched_expected is not None, (
         f"Pretranslation did not contain the expected glossary term or alias.\n"
@@ -408,13 +401,11 @@ def test_vllm_pretranslation_uses_glossary_term(case: GlossaryRegressionCase):
         f"source_text={case.source_text!r}\n"
         f"expected_any={case.expected_any!r}\n"
         f"translation={translation!r}\n"
-        f"confidence={confidence!r}\n"
         f"failure_ledger_json={failure_ledger}"
     )
 
     PretranslationRegressionResult(
         case_id=case.case_id,
         translation=translation,
-        confidence=confidence,
         matched_expected=matched_expected,
     )
