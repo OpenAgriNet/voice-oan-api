@@ -208,17 +208,15 @@ def test_fixture_contains_integration_scenarios():
     assert {"feedback_removed", "stt_retry_ceiling", "voice_text_cleanup"}.issubset(scenario_ids)
 
 
-def test_real_openai_pretranslation_confidence_for_clear_and_garbled_inputs():
+def test_real_openai_pretranslation_for_clear_and_garbled_inputs():
     if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY is required for this integration test")
 
-    clear_text, clear_confidence = asyncio.run(translate_to_english_with_gpt5_mini("ગાયને તાવ છે", "gu"))
-    noisy_text, noisy_confidence = asyncio.run(translate_to_english_with_gpt5_mini("કાળજ (વેચાવ)", "gu"))
+    clear_text = asyncio.run(translate_to_english_with_gpt5_mini("ગાયને તાવ છે", "gu"))
+    noisy_text = asyncio.run(translate_to_english_with_gpt5_mini("કાળજ (વેચાવ)", "gu"))
 
     assert clear_text
-    assert clear_confidence == "high"
     assert noisy_text
-    assert noisy_confidence in {"low", "high", "unknown"}
 
 
 def test_real_translategemma_output_is_speakable():

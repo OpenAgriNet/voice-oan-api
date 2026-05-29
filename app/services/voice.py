@@ -1205,7 +1205,6 @@ async def stream_voice_message(
 
             processing_query = query
             processing_lang = "en"
-            pretranslation_confidence = "unknown"
             history_user_text = query
             moderation_recent_history = "\n\n".join(format_message_pairs(history, 2))
             mobile = normalize_phone_to_mobile(user_id)
@@ -1256,18 +1255,17 @@ async def stream_voice_message(
                         model=_pretrans_model,
                     ):
                         if is_oss:
-                            processing_query, pretranslation_confidence = await translate_to_english_with_oss_vllm(
+                            processing_query = await translate_to_english_with_oss_vllm(
                                 text=query,
                                 source_lang=requested_source_lang,
                             )
                         else:
-                            processing_query, pretranslation_confidence = await translate_to_english_with_gpt5_mini(
+                            processing_query = await translate_to_english_with_gpt5_mini(
                                 text=query,
                                 source_lang=requested_source_lang,
                             )
                     trace.set_pretranslation(
                         text=processing_query,
-                        confidence=pretranslation_confidence,
                         provider=_pretrans_provider_label,
                         fallback_used=False,
                     )
@@ -1288,13 +1286,12 @@ async def stream_voice_message(
                             input=trace.metadata.get("query"),
                             metadata={"provider": "translategemma", "source_lang": requested_source_lang},
                         ):
-                            processing_query, pretranslation_confidence = await translate_to_english_with_structured_fallback(
+                            processing_query = await translate_to_english_with_structured_fallback(
                                 text=query,
                                 source_lang=requested_source_lang,
                             )
                         trace.set_pretranslation(
                             text=processing_query,
-                            confidence=pretranslation_confidence,
                             provider="translategemma",
                             fallback_used=True,
                         )
@@ -1306,10 +1303,8 @@ async def stream_voice_message(
                             fallback_error,
                         )
                         processing_query = ""
-                        pretranslation_confidence = "low"
                         trace.set_pretranslation(
                             text=processing_query,
-                            confidence=pretranslation_confidence,
                             provider="failed",
                             fallback_used=True,
                         )
@@ -1319,7 +1314,6 @@ async def stream_voice_message(
                 history_user_text = query
                 trace.set_pretranslation(
                     text=query,
-                    confidence="high",
                     provider="none",
                     fallback_used=False,
                 )
@@ -1395,14 +1389,8 @@ async def stream_voice_message(
                 return
 
             # ── Empty-pretranslation guard ───────────────────────────────
-            # The model's own `confidence: low` verdict was previously a
-            # gate here, but it was over-rejecting clear short follow-ups
-            # ("where do I apply online?", "any medicine for this?") because
-            # the pretranslation prompt instructs the model to flag low
-            # whenever any key noun is missing — which is normal for
-            # pronominal turns in a multi-turn conversation. We now only
-            # short-circuit when pretranslation produced no usable text at
-            # all (i.e. both primary and fallback failed). True noise still
+            # Only short-circuit when pretranslation produced no usable text
+            # at all (i.e. both primary and fallback failed). True noise still
             # routes to the agent, which is better at asking for
             # clarification in context than a canned global retry.
             if (

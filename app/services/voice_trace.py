@@ -303,13 +303,11 @@ class VoiceTrace:
         self,
         *,
         text: str,
-        confidence: str,
         provider: str,
         fallback_used: bool,
     ) -> None:
         self.metadata["pretranslation"] = {
             "text": sanitize_text(text),
-            "confidence": confidence,
             "provider": provider,
             "fallback_used": fallback_used,
         }
