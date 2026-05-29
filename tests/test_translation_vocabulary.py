@@ -427,10 +427,10 @@ class TestIdentityPhrases:
     """
 
     @pytest.mark.parametrize("wrong_phrase, correct_phrase, feedback_ids", [
-        # [377, 430, 419] "આવી છું" → "બોલું છું"
-        ("અમૂલ એ.આઈ.માંથી આવી છું", "અમૂલ એ.આઈ.માંથી બોલું છું", [377, 430, 419]),
-        # [378] Long intro → short intro
-        ("દૂધાળાં પશુઓ માટે મદદ કરવા આવી છું", "તમારા પશુઓ માટે શું મદદ કરી શકું", [378]),
+        # [377, 430, 419] "આવી છું" → "બોલી રહી છું"
+        ("અમૂલ એ.આઈ.માંથી આવી છું", "અમૂલ એ.આઈ.માંથી બોલી રહી છું", [377, 430, 419]),
+        # [378] Long intro → short intro (feminine self-reference)
+        ("દૂધાળાં પશુઓ માટે મદદ કરવા આવી છું", "તમારા પશુઓ માટે શું મદદ કરી શકતી", [378]),
     ])
     def test_identity_phrase_documented(self, wrong_phrase, correct_phrase, feedback_ids):
         """Document preferred introduction phrasing from feedback #{feedback_ids}."""

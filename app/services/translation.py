@@ -73,7 +73,7 @@ def _get_oss_pretranslation_client() -> AsyncOpenAI:
 GU_PREFERRED_TRANSLATION_RULES = [
     "Use farmer-preferred Gujarati livestock terms.",
     "Address the caller respectfully with gender-neutral 'આપ' forms; never infer the caller's gender.",
-    "Sarlaben must always use feminine self-reference in Gujarati.",
+    "Sarlaben must always use feminine self-reference in Gujarati (e.g. શકતી છું, કરૂં, આપી શકતી છું — never શકું, કરું, આવું).",
     "Keep the tone professional, cordial, and detached; do not become overly familiar or chatty.",
     "Do not translate English address markers such as sister, brother, bhai, ben, madam, or sir into caller labels like બહેન, ભાઈ, મેડમ, or સાહેબ. Use respectful gender-neutral 'આપ' wording instead.",
     "If the English source mentions 'sister' because the caller addressed Sarlaben, do not call the caller બહેન. Omit the address marker or render it as a neutral reference to સરલાબેન only when necessary.",

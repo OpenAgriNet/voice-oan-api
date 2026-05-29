@@ -406,6 +406,8 @@ class TestHelperCoverage:
         assert "Do not mirror kinship words from the translation" in STATIC_VOICE_SYSTEM_PROMPT
         assert "Never address the caller as sister" in STATIC_VOICE_SYSTEM_PROMPT
         assert "Never infer or assign the caller's gender" in STATIC_VOICE_SYSTEM_PROMPT
+        assert "Female Persona (mandatory)" in STATIC_VOICE_SYSTEM_PROMPT
+        assert "feminine self-reference" in STATIC_VOICE_SYSTEM_PROMPT
         assert "This is a live phone call, not a chat or article." in STATIC_VOICE_SYSTEM_PROMPT
         assert "Default to one short sentence." in STATIC_VOICE_SYSTEM_PROMPT
         assert "Do not use colons, headings, labels, hyphens, or en dashes" in STATIC_VOICE_SYSTEM_PROMPT
@@ -675,7 +677,7 @@ class TestHelperCoverage:
         assert "Bad technician prompt: `Which technician should I book with? I can book with the first, second, or third technician.`" in prompt_text
         assert "Good technician prompt: `Which technician should I book with? I can book with Ramesh Patel, Suresh Patel, or Mahesh Parmar.`" in prompt_text
         assert "Bad Gujarati technician prompt: `મારે કયા ટેકનિશિયન સાથે એપોઇન્ટમેન્ટ બુક કરવી જોઈએ? હું પહેલા બીજા અથવા ત્રીજા ટેકનિશિયન સાથે એપોઇન્ટમેન્ટ બુક કરાવી શકું છું.`" in prompt_text
-        assert "Good Gujarati technician prompt: `હું રાકેશ પટેલ અથવા સુરેશ પટેલ સાથે બુક કરી શકું છું. કયા ટેકનિશિયન સાથે બુક કરું?`" in prompt_text
+        assert "Good Gujarati technician prompt: `હું રાકેશ પટેલ અથવા સુરેશ પટેલ સાથે બુક કરી શકતી છું. કયા ટેકનિશિયન સાથે બુક કરૂં?`" in prompt_text
         assert "User: `Book beech daan`" in prompt_text
         assert "Assistant: `Which farmer name should I use for the booking? I found Rameshbhai and Sureshbhai.`" in prompt_text
         assert "User: `No, that is all`" in prompt_text
