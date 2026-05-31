@@ -171,12 +171,34 @@ GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?<![^\s,।.!?])મ(?:ે|ૅ|ૅ)ડ(?:મ|)(?=\s*[,।!?]|\s|$)"), ""),
 ]
 
-# Enforce feminine self-reference for Sarlaben in Gujarati assistant output.
-# Keep this intentionally narrow and deterministic to avoid semantic drift.
+# Enforce feminine first-person self-reference in Gujarati assistant output.
+# This runs on every Gujarati assistant response, so keep it narrow:
+# explicit sentence-level "હું ... " forms only, no blanket token rewrites.
 GU_FEMININE_SELF_REFERENCE_REPLACEMENTS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"શકું\s+નથી"), "શકતી નથી"),
-    (re.compile(r"શકું\s+નહીં"), "શકતી નથી"),
-    (re.compile(r"શકું\s+નહિ"), "શકતી નથી"),
+    (
+        re.compile(
+            r"(^|[,।.!?]\s+)\s*હું(?P<body>[^.!?\n]{0,80}?)શકું\s+ન(?:થી|હીં|હિ)(?=\s|[,।.!?]|$)"
+        ),
+        r"\1હું\g<body>શકતી નથી",
+    ),
+    (
+        re.compile(
+            r"(^|[,।.!?]\s+)\s*હું(?P<body>[^.!?\n]{0,80}?)શકું\s+છું(?=\s|[,।.!?]|$)"
+        ),
+        r"\1હું\g<body>શકતી છું",
+    ),
+    (
+        re.compile(
+            r"(^|[,।.!?]\s+)\s*હું(?P<body>[^.!?\n]{0,80}?)કરું(?=\s|[,।.!?]|$)"
+        ),
+        r"\1હું\g<body>કરૂં",
+    ),
+    (
+        re.compile(
+            r"(^|[,।.!?]\s+)\s*હું(?P<body>[^.!?\n]{0,80}?)આવું\s+છું(?=\s|[,।.!?]|$)"
+        ),
+        r"\1હું\g<body>આવી છું",
+    ),
 ]
 
 GU_WORD_BOUNDARY_START = r"(?<![\u0A80-\u0AFF])"
@@ -262,7 +284,8 @@ def _post_normalize_gu_translation(
         out = pat.sub(repl, out)
 
     # -- Feminine self-reference guard --------------------------------------
-    # Sarlaben must not leak masculine first-person modal forms.
+    # Runs on all Gujarati assistant output; patterns must remain
+    # self-reference-safe and deterministic.
     for pat, repl in GU_FEMININE_SELF_REFERENCE_REPLACEMENTS:
         out = pat.sub(repl, out)
 
