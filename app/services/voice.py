@@ -1222,12 +1222,20 @@ async def stream_voice_message(
             # Moderation receives the raw native-language text so it does
             # not need to wait for pretranslation to finish.
             moderation_started_at = time.monotonic()
+            # Stamp the true completion time so deferring the await (below) does
+            # not inflate the reported moderation latency: the verdict is now
+            # consumed after the agent's prefill, which can be later than when the
+            # moderation call actually finished.
+            moderation_done_at: dict = {"t": None}
             moderation_task = asyncio.create_task(
                 check_moderation(
                     text=query,
                     source_lang=requested_source_lang,
                     recent_history_text=moderation_recent_history,
                 )
+            )
+            moderation_task.add_done_callback(
+                lambda _t: moderation_done_at.__setitem__("t", time.monotonic())
             )
 
             if requested_source_lang not in {"en", "english"}:
@@ -1318,51 +1326,71 @@ async def stream_voice_message(
                     fallback_used=False,
                 )
 
-            # ── Content moderation gate ──────────────────────────────────
-            # Await the moderation task that was started alongside
-            # pretranslation. If it rejected the query, short-circuit with
-            # a canned decline and do not run the agent. Fail-open on any
-            # unexpected exception — a flaky moderation call must never
-            # drop a real farmer call.
-            try:
-                moderation_verdict: ModerationVerdict = await moderation_task
-                trace.attach_stage_timing(
-                    "moderation",
-                    (time.monotonic() - moderation_started_at) * 1000.0,
-                    source_lang=requested_source_lang,
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception as moderation_error:
-                trace.attach_stage_timing(
-                    "moderation",
-                    (time.monotonic() - moderation_started_at) * 1000.0,
-                    status="error",
-                    source_lang=requested_source_lang,
-                )
-                logger.error(
-                    "Moderation task raised unexpectedly for session_id=%s error=%s",
-                    session_id,
-                    moderation_error,
-                )
-                moderation_verdict = None  # type: ignore[assignment]
-            trace.set_moderation(moderation_verdict)
+            # ── Content moderation: deferred gate (runs with the agent) ──────
+            # check_moderation() was kicked off at the top of the turn and runs
+            # concurrently with pretranslation, the farmer-context load, AND the
+            # answer agent's prefill/generation below. We deliberately do NOT
+            # block on it here. The verdict is resolved lazily — via
+            # _resolve_moderation() — only at the points that can emit
+            # caller-facing output for a non-fast-path turn:
+            #   1. the empty-pretranslation short-circuit, and
+            #   2. just before the agent's first streamed chunk is emitted.
+            # This takes the ~1.5s moderation call off the critical path on
+            # warm-cache turns (cold farmer fetches already hid it). A rejected
+            # query is still declined before any answer reaches the caller, and
+            # side-effecting booking tools self-gate on the same verdict via
+            # deps.ensure_in_scope(), so optimistic agent execution can never turn
+            # a rejected query into a real booking write. Fail-open on any
+            # unexpected moderation exception — a flaky check must never drop a
+            # real farmer call.
+            _moderation_resolved = False
+            _moderation_verdict: Optional[ModerationVerdict] = None
 
-            if moderation_verdict is not None:
-                logger.info(
-                    "Moderation verdict: category=%s rejected=%s failed_open=%s reason=%r session_id=%s process_id=%s",
-                    moderation_verdict.category,
-                    moderation_verdict.rejected,
-                    moderation_verdict.failed_open,
-                    moderation_verdict.reason,
-                    session_id,
-                    process_id,
-                )
+            async def _resolve_moderation() -> Optional[ModerationVerdict]:
+                nonlocal _moderation_resolved, _moderation_verdict
+                if _moderation_resolved:
+                    return _moderation_verdict
+                _moderation_resolved = True
+                try:
+                    _moderation_verdict = await moderation_task
+                    done_t = moderation_done_at["t"] or time.monotonic()
+                    trace.attach_stage_timing(
+                        "moderation",
+                        (done_t - moderation_started_at) * 1000.0,
+                        source_lang=requested_source_lang,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as moderation_error:
+                    done_t = moderation_done_at["t"] or time.monotonic()
+                    trace.attach_stage_timing(
+                        "moderation",
+                        (done_t - moderation_started_at) * 1000.0,
+                        status="error",
+                        source_lang=requested_source_lang,
+                    )
+                    logger.error(
+                        "Moderation task raised unexpectedly for session_id=%s error=%s",
+                        session_id,
+                        moderation_error,
+                    )
+                    _moderation_verdict = None
+                trace.set_moderation(_moderation_verdict)
+                if _moderation_verdict is not None:
+                    logger.info(
+                        "Moderation verdict: category=%s rejected=%s failed_open=%s reason=%r session_id=%s process_id=%s",
+                        _moderation_verdict.category,
+                        _moderation_verdict.rejected,
+                        _moderation_verdict.failed_open,
+                        _moderation_verdict.reason,
+                        session_id,
+                        process_id,
+                    )
+                return _moderation_verdict
 
-            if moderation_verdict is not None and moderation_verdict.rejected:
+            async def _moderation_decline_stream(verdict: ModerationVerdict):
+                """Emit the canned decline and write history for a rejected query."""
                 trace.set_route("moderation_rejected")
-                if await _request_is_stale("after_moderation_reject"):
-                    return
                 if nudge_task and not nudge_task.done():
                     nudge_task.cancel()
                     trace.set_nudge(cancel_reason="moderation_rejected")
@@ -1376,7 +1404,7 @@ async def stream_voice_message(
                     except asyncio.CancelledError:
                         pass
                 decline_en = (
-                    moderation_verdict.decline_text_en()
+                    verdict.decline_text_en()
                     or "This helpline only handles dairy farming and animal husbandry questions."
                 )
                 decline_for_caller = await _render_text_for_caller(decline_en, requested_target_lang)
@@ -1386,7 +1414,6 @@ async def stream_voice_message(
                     await update_message_history(session_id, [*history, decl_req, decl_resp])
                 trace.set_outcome("moderation_rejected")
                 yield _emit(_prepare_voice_output(decline_for_caller, requested_target_lang))
-                return
 
             # ── Empty-pretranslation guard ───────────────────────────────
             # Only short-circuit when pretranslation produced no usable text
@@ -1397,6 +1424,15 @@ async def stream_voice_message(
                 requested_source_lang not in {"en", "english"}
                 and not (processing_query or "").strip()
             ):
+                # This short-circuits the agent, so resolve moderation here: a
+                # rejected query must be declined rather than asked to repeat.
+                _verdict = await _resolve_moderation()
+                if _verdict is not None and _verdict.rejected:
+                    if await _request_is_stale("after_moderation_reject"):
+                        return
+                    async for _c in _moderation_decline_stream(_verdict):
+                        yield _c
+                    return
                 trace.set_route("pretranslation_empty")
                 logger.info(
                     "Pretranslation produced no usable text; asking to repeat - session_id=%s process_id=%s query=%r",
@@ -1466,6 +1502,9 @@ async def stream_voice_message(
                 signed_in=signed_in,
                 mobile=mobile,
             )
+            # Let side-effecting tools (bookings) self-gate on the concurrent
+            # moderation verdict before performing any write.
+            deps.set_moderation_task(moderation_task)
 
             message_pairs = "\n\n".join(format_message_pairs(history, 3))
             logger.info(f"Message pairs: {message_pairs}")
@@ -1580,6 +1619,19 @@ async def stream_voice_message(
                                 TRANSLATION_TROUBLE_MESSAGE["en"],
                             )
                             yield trouble
+
+                    # Deferred moderation gate: resolve the concurrently-running
+                    # verdict now, before emitting ANY caller-facing chunk. The
+                    # agent has already done its prefill/tool calls (booking tools
+                    # self-gated on this verdict); if the query was rejected we
+                    # decline here and the agent's streamed output is discarded,
+                    # never reaching the caller.
+                    _verdict = await _resolve_moderation()
+                    if _verdict is not None and _verdict.rejected:
+                        if not await _request_is_stale("after_moderation_reject"):
+                            async for _c in _moderation_decline_stream(_verdict):
+                                yield _c
+                        return
 
                     try:
                         async for chunk in stream_iter:
