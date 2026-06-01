@@ -152,6 +152,13 @@ class _StageTimer:
         _safe_update(self.record.observation if self.record else None, output=output)
         _flush_langfuse(self.trace.langfuse_client)
 
+    def add_metadata(self, **metadata: Any) -> None:
+        """Attach additional metadata after stage start."""
+        if self.record is None:
+            return
+        self.record.metadata.update(metadata)
+        _safe_update(self.record.observation, metadata=self.record.metadata)
+
     async def __aexit__(self, exc_type, exc, tb) -> bool:
         return self.__exit__(exc_type, exc, tb)
 

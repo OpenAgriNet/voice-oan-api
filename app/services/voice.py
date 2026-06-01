@@ -691,6 +691,27 @@ def _collect_farmer_unions(envelope: Optional[FarmerDataEnvelope]) -> list[str]:
     return unions
 
 
+def _build_load_farmer_data_output(envelope: Optional[FarmerDataEnvelope]) -> dict[str, Optional[str]]:
+    if envelope is None or not envelope.farmers:
+        return {
+            "name": None,
+            "union_code": None,
+            "union_name": None,
+            "society_code": None,
+            "society_name": None,
+        }
+
+    first = envelope.farmers[0]
+    first_data = first.model_dump()
+    return {
+        "name": first_data.get("farmerName") or first_data.get("farmer_name"),
+        "union_code": first_data.get("unionCode") or first_data.get("union_code"),
+        "union_name": first_data.get("unionName") or first_data.get("union_name"),
+        "society_code": first_data.get("societyCode") or first_data.get("society_code"),
+        "society_name": first_data.get("societyName") or first_data.get("society_name"),
+    }
+
+
 async def _build_union_scheme_summary(farmer_unions: list[str]) -> str:
     scheme_unions = [union_name for union_name in farmer_unions if union_name in SUPPORTED_SCHEME_CONTEXT_UNIONS]
     if not scheme_unions:
@@ -1028,8 +1049,7 @@ async def stream_voice_message(
                 )
                 history_response = _FRAGMENT_RESPONSES["en"] if not final_attempt else "Sorry, I still could not hear you clearly. Please try again later."
                 stt_req, stt_resp = _history_pair(history_signal, history_response)
-                with trace.stage("history_write"):
-                    await update_message_history(session_id, [*history, stt_req, stt_resp])
+                await update_message_history(session_id, [*history, stt_req, stt_resp])
                 trace.set_outcome("stt_signal")
                 yield _emit(_prepare_voice_output(stt_response, requested_target_lang))
                 return
@@ -1067,8 +1087,7 @@ async def stream_voice_message(
                 with trace.stage("greeting_fast_path"):
                     greeting_response = await _canned_for_caller(greeting_history, requested_target_lang, _GREETING_RESPONSES)
                 greet_req, greet_resp = _history_pair(_canonical_history_user_text("greeting"), greeting_history)
-                with trace.stage("history_write"):
-                    await update_message_history(session_id, [*history, greet_req, greet_resp])
+                await update_message_history(session_id, [*history, greet_req, greet_resp])
                 trace.set_outcome("greeting_fast_path")
                 yield _emit(_prepare_voice_output(greeting_response, requested_target_lang))
                 return
@@ -1087,8 +1106,7 @@ async def stream_voice_message(
                 with trace.stage("identity_fast_path"):
                     identity_resp_for_caller = await _render_text_for_caller(identity_resp_en, requested_target_lang)
                 id_req, id_resp = _history_pair(_canonical_history_user_text("greeting"), identity_resp_en)
-                with trace.stage("history_write"):
-                    await update_message_history(session_id, [*history, id_req, id_resp])
+                await update_message_history(session_id, [*history, id_req, id_resp])
                 trace.set_outcome("identity_fast_path")
                 yield _emit(_prepare_voice_output(identity_resp_for_caller, requested_target_lang))
                 return
@@ -1106,8 +1124,7 @@ async def stream_voice_message(
                 with trace.stage("fragment_fast_path"):
                     frag_response_for_caller = await _canned_for_caller(frag_response_for_history, requested_target_lang, _FRAGMENT_RESPONSES)
                 frag_req, frag_resp = _history_pair(_canonical_history_user_text("fragment"), frag_response_for_history)
-                with trace.stage("history_write"):
-                    await update_message_history(session_id, [*history, frag_req, frag_resp])
+                await update_message_history(session_id, [*history, frag_req, frag_resp])
                 trace.set_outcome("fragment_fast_path")
                 yield _emit(_prepare_voice_output(frag_response_for_caller, requested_target_lang))
                 return
@@ -1450,8 +1467,7 @@ async def stream_voice_message(
                 decline_for_caller = await _render_text_for_caller(decline_en, requested_target_lang)
                 decline_user_text = _canonical_history_user_text("moderation_reject")
                 decl_req, decl_resp = _history_pair(decline_user_text, decline_en)
-                with trace.stage("history_write"):
-                    await update_message_history(session_id, [*history, decl_req, decl_resp])
+                await update_message_history(session_id, [*history, decl_req, decl_resp])
                 trace.set_outcome("moderation_rejected")
                 yield _emit(_prepare_voice_output(decline_for_caller, requested_target_lang))
 
@@ -1484,20 +1500,27 @@ async def stream_voice_message(
                     history_user_text or _canonical_history_user_text("low_confidence"),
                     low_conf_resp_for_history,
                 )
-                with trace.stage("history_write"):
-                    await update_message_history(session_id, [*history, low_conf_req, low_conf_rsp])
+                await update_message_history(session_id, [*history, low_conf_req, low_conf_rsp])
                 trace.set_outcome("pretranslation_empty")
                 yield _emit(_prepare_voice_output(low_conf_resp_for_caller, requested_target_lang))
                 return
 
             if farmer_cache_task is not None:
                 try:
-                    with trace.stage("farmer_context"):
+                    with trace.stage(
+                        "load_farmer_data",
+                        input={"user_id": user_id},
+                    ) as load_farmer_data_stage:
                         envelope = await farmer_cache_task
+                        load_farmer_data_stage.record.metadata["farmer_context"] = (
+                            envelope.model_dump() if envelope else None
+                        )
+                        load_farmer_data_stage.set_output(
+                            _build_load_farmer_data_output(envelope)
+                        )
                     farmer_info = _build_compact_farmer_summary(envelope)
                     farmer_unions = _collect_farmer_unions(envelope)
-                    with trace.stage("scheme_summary"):
-                        scheme_summary = await _build_union_scheme_summary(farmer_unions)
+                    scheme_summary = await _build_union_scheme_summary(farmer_unions)
                     if scheme_summary:
                         farmer_info = f"{farmer_info}\n{scheme_summary}" if farmer_info else scheme_summary
                     ai_technician_info = _build_ai_technician_summary(envelope)
@@ -1556,8 +1579,7 @@ async def stream_voice_message(
             if len(cleaned_history) != len(history):
                 logger.warning(f"Cleaned {len(history) - len(cleaned_history)} orphaned tool calls from history")
                 if not await _request_is_stale("before_cleaned_history_write"):
-                    with trace.stage("history_write"):
-                        await update_message_history(session_id, cleaned_history)
+                    await update_message_history(session_id, cleaned_history)
                 history = cleaned_history
 
             trimmed_history = trim_history(
@@ -2138,8 +2160,7 @@ async def stream_voice_message(
 
             messages = [*history, *new_messages]
             logger.info(f"Updating message history for session {session_id} with {len(messages)} messages")
-            with trace.stage("history_write"):
-                await update_message_history(session_id, messages)
+            await update_message_history(session_id, messages)
             if trace.outcome is None:
                 trace.set_outcome("success")
     except Exception as exc:
