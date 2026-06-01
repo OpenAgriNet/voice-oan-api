@@ -165,6 +165,12 @@ async def main() -> None:
         help="Scenario(s) to run. Defaults to all.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON only.")
+    parser.add_argument("--label", default="", help="Optional label for this benchmark run (e.g. before/after).")
+    parser.add_argument(
+        "--output",
+        default="",
+        help="Optional JSON output path. Writes full structured results when provided.",
+    )
     args = parser.parse_args()
 
     selected = args.scenario or list(SCENARIOS.keys())
@@ -189,12 +195,28 @@ async def main() -> None:
         voice_module.update_message_history = original_update_history
         voice_module.settings.nudge_timeout_seconds = original_timeout
 
+    payload = {
+        "label": args.label,
+        "runs_per_scenario": args.runs,
+        "scenarios": selected,
+        "results": all_results,
+    }
+
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
     if args.json:
-        print(json.dumps(all_results, indent=2, ensure_ascii=False))
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
     print("Voice TTFT benchmark")
     print("====================")
+    if args.label:
+        print(f"Label: {args.label}")
+    if args.output:
+        print(f"Saved JSON: {args.output}")
     for row in all_results:
         print(f"\nScenario: {row['scenario']}")
         if row["note"]:

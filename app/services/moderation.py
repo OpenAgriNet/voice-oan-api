@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass
+from contextlib import nullcontext
 from typing import Literal, Optional
 
 from openai import AsyncOpenAI
@@ -177,6 +178,11 @@ async def check_moderation(
     text: str,
     source_lang: str,
     recent_history_text: str = "",
+    *,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    process_id: Optional[str] = None,
+    pipeline_variant: Optional[str] = None,
 ) -> ModerationVerdict:
     """Classify a caller utterance. Returns a ModerationVerdict.
 
@@ -206,38 +212,60 @@ async def check_moderation(
             raw = (response.choices[0].message.content or "").strip()
             return _parse_verdict(raw)
 
-        with langfuse.start_as_current_observation(
-            name="query_moderation",
-            as_type="generation",
-            input={
-                "source_lang": source_lang,
-                "text": text,
-                "recent_history_text": recent_history_text,
-            },
-            model=model,
-            metadata={
-                "pipeline_stage": "query_moderation",
-                "moderation_provider": provider,
-            },
-        ) as observation:
-            response = await _create_moderation_response(
-                client,
-                model,
-                text,
-                source_lang,
-                recent_history_text,
-            )
-            raw = (response.choices[0].message.content or "").strip()
-            verdict = _parse_verdict(raw)
-            observation.update(
-                output={
-                    "category": verdict.category,
-                    "reason": verdict.reason,
-                    "failed_open": verdict.failed_open,
+        attr_context = nullcontext()
+        try:
+            from langfuse import propagate_attributes
+            attr_context = propagate_attributes(
+                user_id=(user_id or "anonymous")[:200],
+                session_id=(session_id or "")[:200] or None,
+                metadata={
+                    "process_id": str(process_id or "")[:200],
+                    "pipeline_variant": str(pipeline_variant or ""),
+                    "pipeline_stage": "query_moderation",
                 },
-                metadata={"rejected": verdict.rejected},
+                tags=[
+                    "voice",
+                    "api",
+                    f"variant:{pipeline_variant or 'legacy'}",
+                ],
+                trace_name="query_moderation",
             )
-            return verdict
+        except Exception:
+            attr_context = nullcontext()
+
+        with attr_context:
+            with langfuse.start_as_current_observation(
+                name="query_moderation",
+                as_type="generation",
+                input={
+                    "source_lang": source_lang,
+                    "text": text,
+                    "recent_history_text": recent_history_text,
+                },
+                model=model,
+                metadata={
+                    "pipeline_stage": "query_moderation",
+                    "moderation_provider": provider,
+                },
+            ) as observation:
+                response = await _create_moderation_response(
+                    client,
+                    model,
+                    text,
+                    source_lang,
+                    recent_history_text,
+                )
+                raw = (response.choices[0].message.content or "").strip()
+                verdict = _parse_verdict(raw)
+                observation.update(
+                    output={
+                        "category": verdict.category,
+                        "reason": verdict.reason,
+                        "failed_open": verdict.failed_open,
+                    },
+                    metadata={"rejected": verdict.rejected},
+                )
+                return verdict
     except asyncio.TimeoutError:
         logger.error(
             "Moderation timed out - source_lang=%s model=%s timeout=%.2fs query_chars=%s query_preview=%r",

@@ -5,7 +5,7 @@ import json
 import logging
 import time
 import uuid
-from contextlib import ExitStack, contextmanager, nullcontext
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
@@ -14,6 +14,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _VALID_TEXT_MODES = {"preview_hash", "full", "none"}
+_VALID_FLUSH_MODES = {"off", "request_end", "stage"}
 _HASH_SALT = "voice-oan-api"
 
 
@@ -89,11 +90,15 @@ class _StageTimer:
         self.model = model
         self.record: _StageRecord | None = None
         self._cm: Any | None = None
+        self._attr_cm: Any | None = None
 
     def __enter__(self) -> "_StageTimer":
         observation = None
         if self.trace.enabled and self.trace.langfuse_client is not None:
             try:
+                self._attr_cm = self.trace._stage_trace_context(self.name)
+                if self._attr_cm is not None:
+                    self._attr_cm.__enter__()
                 self._cm = self.trace.langfuse_client.start_as_current_observation(
                     name=self.name,
                     as_type=self.as_type,
@@ -104,6 +109,12 @@ class _StageTimer:
                 observation = self._cm.__enter__()
             except Exception as exc:
                 logger.debug("Langfuse stage start failed for %s: %s", self.name, exc)
+                if self._attr_cm is not None:
+                    try:
+                        self._attr_cm.__exit__(None, None, None)
+                    except Exception:
+                        pass
+                self._attr_cm = None
                 self._cm = None
 
         self.record = _StageRecord(
@@ -149,6 +160,13 @@ class _StageTimer:
                 self._cm.__exit__(exc_type, exc, tb)
             except Exception as close_exc:
                 logger.debug("Langfuse stage close failed for %s: %s", self.name, close_exc)
+        if self._attr_cm is not None:
+            try:
+                self._attr_cm.__exit__(exc_type, exc, tb)
+            except Exception as close_exc:
+                logger.debug("Langfuse stage attribute close failed for %s: %s", self.name, close_exc)
+        if self.trace._flush_mode() == "stage":
+            self.trace._flush_langfuse(reason=f"stage:{self.name}")
         return False
 
 
@@ -213,65 +231,75 @@ class VoiceTrace:
 
     @contextmanager
     def request_context(self) -> Iterator[None]:
-        """Open the root Langfuse observation for the full streaming request."""
+        """Attach shared attributes without creating a root voice_request trace."""
         if not self.enabled or self.langfuse_client is None:
             yield
             return
 
         try:
-            from langfuse import propagate_attributes
+            from langfuse import propagate_attributes  # pyright: ignore[reportMissingImports]
         except Exception:
             yield
             return
 
-        # Langfuse uses the active OTel context. Keeping this context open
-        # across the async generator makes moderation, translation, tools, and
-        # pydantic-ai child spans attach to one voice_request trace.
-        stack = ExitStack()
         try:
-            self.root_observation = stack.enter_context(
-                self.langfuse_client.start_as_current_observation(
-                    name="voice_request",
-                    as_type="span",
-                    input=self.metadata["query"],
-                    metadata=self.metadata,
-                    end_on_exit=False,
-                )
-            )
-            stack.enter_context(
-                propagate_attributes(
-                    user_id=(self.user_id or "anonymous")[:200],
-                    session_id=(self.session_id or "")[:200] or None,
-                    metadata={
-                        "process_id": str(self.process_id or "")[:200],
-                        "trace_id": self.trace_id,
-                        "provider": str(self.provider or ""),
-                    },
-                    tags=[
-                        "voice",
-                        str(self.provider or "api"),
-                        # Mirror chat's `variant:<oss|legacy>` trace tag so voice
-                        # sessions are sliceable by pipeline variant in Langfuse.
-                        # pipeline_variant is set on metadata before this opens.
-                        f"variant:{self.metadata.get('pipeline_variant') or 'legacy'}",
-                    ],
-                    trace_name="voice_request",
-                )
-            )
+            with propagate_attributes(
+                user_id=(self.user_id or "anonymous")[:200],
+                session_id=(self.session_id or "")[:200] or None,
+                metadata={
+                    "process_id": str(self.process_id or "")[:200],
+                    "trace_id": self.trace_id,
+                    "provider": str(self.provider or ""),
+                },
+                tags=[
+                    "voice",
+                    str(self.provider or "api"),
+                    f"variant:{self.metadata.get('pipeline_variant') or 'legacy'}",
+                ],
+            ):
+                yield
         except Exception as exc:
             logger.debug("Voice Langfuse request context setup failed: %s", exc)
-            stack.close()
-            with nullcontext():
-                yield
-            return
-
-        try:
             yield
-        finally:
-            try:
-                stack.close()
-            except Exception as exc:
-                logger.debug("Voice Langfuse request context close failed: %s", exc)
+
+    def _stage_trace_context(self, trace_name: str) -> Any | None:
+        if not self.enabled or self.langfuse_client is None:
+            return None
+        try:
+            from langfuse import propagate_attributes  # pyright: ignore[reportMissingImports]
+        except Exception:
+            return None
+
+        return propagate_attributes(
+            user_id=(self.user_id or "anonymous")[:200],
+            session_id=(self.session_id or "")[:200] or None,
+            metadata={
+                "process_id": str(self.process_id or "")[:200],
+                "trace_id": self.trace_id,
+                "provider": str(self.provider or ""),
+                "stage_name": trace_name[:200],
+            },
+            tags=[
+                "voice",
+                str(self.provider or "api"),
+                f"variant:{self.metadata.get('pipeline_variant') or 'legacy'}",
+            ],
+            trace_name=trace_name[:200],
+        )
+
+    def _flush_mode(self) -> str:
+        mode = (getattr(settings, "voice_trace_flush_mode", "request_end") or "request_end").strip().lower()
+        if mode not in _VALID_FLUSH_MODES:
+            return "request_end"
+        return mode
+
+    def _flush_langfuse(self, *, reason: str) -> None:
+        if not self.enabled or self.langfuse_client is None:
+            return
+        try:
+            self.langfuse_client.flush()
+        except Exception as exc:
+            logger.debug("Langfuse flush failed (reason=%s): %s", reason, exc)
 
     def set_language(self, source_lang: str, target_lang: str) -> None:
         self.source_lang = source_lang
@@ -396,6 +424,8 @@ class VoiceTrace:
                 self.root_observation.end()
             except Exception as exc:
                 logger.debug("Langfuse root observation end failed: %s", exc)
+        if self._flush_mode() == "request_end":
+            self._flush_langfuse(reason="request_end")
         if getattr(settings, "voice_trace_log_summary", True):
             try:
                 logger.info("VOICE_TRACE_SUMMARY %s", json.dumps(summary, ensure_ascii=False, default=str))

@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     voice_trace_text_mode: str = os.getenv("VOICE_TRACE_TEXT_MODE", "preview_hash")
     voice_trace_preview_chars: int = int(os.getenv("VOICE_TRACE_PREVIEW_CHARS", "120"))
     voice_trace_log_summary: bool = _get_bool_env("VOICE_TRACE_LOG_SUMMARY", default=True)
+    # Langfuse flush policy for voice tracing:
+    # - off: never call flush explicitly
+    # - request_end: flush once after VoiceTrace.finish() (default)
+    # - stage: flush at each stage boundary (higher latency risk on TTFT path)
+    voice_trace_flush_mode: str = os.getenv("VOICE_TRACE_FLUSH_MODE", "request_end").strip().lower()
 
     # Sticky %-split between OSS (vLLM gemma + pretranslation) and legacy pipelines.
     # A session is bucketed deterministically by session_id; OSS_PIPELINE_PCT

@@ -1,0 +1,59 @@
+{
+  "label": "before_stage_flush",
+  "runs_per_scenario": 20,
+  "scenarios": [
+    "identity_en_en",
+    "identity_gu_gu",
+    "signed_in_identity_gu_gu"
+  ],
+  "results": [
+    {
+      "scenario": "identity_en_en",
+      "note": "Lower bound for direct English agent response.",
+      "runs": 20,
+      "ttft_ms": {
+        "min": 95.58760999971128,
+        "p50": 102.5087115003771,
+        "max": 288.1639429997449
+      },
+      "total_ms": {
+        "min": 95.68372200010344,
+        "p50": 102.62294150015805,
+        "max": 288.3505209993018
+      },
+      "sample_first_chunk": "I am Sarlaben, your Amul AI assistant for dairy farming and animal husbandry. Please tell me, how can I help you today?"
+    },
+    {
+      "scenario": "identity_gu_gu",
+      "note": "Pretranslation + agent + output translation.",
+      "runs": 20,
+      "ttft_ms": {
+        "min": 135.56746900030703,
+        "p50": 226.62158400089538,
+        "max": 549.9975519996951
+      },
+      "total_ms": {
+        "min": 135.66031400114298,
+        "p50": 226.72099999999773,
+        "max": 550.1029240003845
+      },
+      "sample_first_chunk": "માફ કરશો, હાલમાં તમારા સવાલનો જવાબ આપવામાં તકલીફ થઈ રહી છે. કૃપા કરીને થોડા સમય પછી ફરી કોલ કરો."
+    },
+    {
+      "scenario": "signed_in_identity_gu_gu",
+      "note": "Includes signed-in/cached farmer summary path.",
+      "runs": 20,
+      "ttft_ms": {
+        "min": 151.07497000099102,
+        "p50": 249.74315500003286,
+        "max": 752.3407839998981
+      },
+      "total_ms": {
+        "min": 151.25709800122422,
+        "p50": 249.94965049972961,
+        "max": 752.4223549989983
+      },
+      "sample_first_chunk": "માફ કરશો, હાલમાં તમારા સવાલનો જવાબ આપવામાં તકલીફ થઈ રહી છે. કૃપા કરીને થોડા સમય પછી ફરી કોલ કરો."
+    }
+  ]
+}

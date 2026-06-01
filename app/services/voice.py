@@ -1,5 +1,4 @@
 import asyncio
-from contextlib import nullcontext
 from functools import lru_cache
 import time
 from typing import AsyncGenerator, Optional, Literal
@@ -76,10 +75,6 @@ from agents.models import (
     provider_for_variant,
 )
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
-try:  # Langfuse is optional at import time
-    from langfuse import get_client as _get_langfuse_client
-except ImportError:  # pragma: no cover
-    _get_langfuse_client = None
 
 logger = get_logger(__name__)
 
@@ -818,27 +813,6 @@ def should_translate_batch(
             return True
     return False
 
-# Langfuse Sessions: same session_id groups all traces for one conversation (session replay, session-level metrics).
-def _langfuse_session_context(session_id: str, user_id: str, process_id: Optional[str] = None):
-    """Set Langfuse session_id so all agent runs for this conversation appear under one Session."""
-    try:
-        from app.observability import langfuse_client
-        from langfuse import propagate_attributes
-        if langfuse_client is None:
-            return nullcontext()
-        # Langfuse Sessions: session_id ≤200 chars (US-ASCII); same ID = one Session in Langfuse UI
-        safe_session_id = (session_id or "").strip()[:200]
-        kwargs = dict(
-            session_id=safe_session_id or None,
-            user_id=(user_id or "anonymous")[:200],
-        )
-        if process_id:
-            kwargs["metadata"] = {"process_id": str(process_id)[:200]}
-        return propagate_attributes(**kwargs)
-    except Exception:
-        return nullcontext()
-
-
 async def stream_voice_message(
     query: str,
     session_id: str,
@@ -975,26 +949,9 @@ async def stream_voice_message(
         return text
 
     try:
-        # Keep the Langfuse root observation open for the full streaming
-        # generator so downstream model calls and pydantic-ai spans nest under
-        # this voice_request.
+        # Keep shared Langfuse attributes active across the full streaming
+        # generator. Individual stages emit their own top-level traces.
         with trace.request_context():
-            # Emit the per-session pipeline_variant categorical score from
-            # *inside* the trace context (chat #70 fix). score_id is
-            # deterministic per session so subsequent voice turns in the
-            # same session upsert the same score (no duplicates).
-            if _get_langfuse_client is not None:
-                try:
-                    _lf = _get_langfuse_client()
-                    _lf.score_current_trace(
-                        name="pipeline_variant",
-                        value=pipeline_variant,
-                        data_type="CATEGORICAL",
-                        score_id=f"voice-variant-{(session_id or '')[:180]}",
-                        comment="Sticky pipeline variant for this voice session",
-                    )
-                except Exception as e:  # pragma: no cover
-                    logger.debug("Langfuse: voice pipeline_variant score failed: %s", e)
             requested_source_lang = (source_lang or "gu").strip().lower()
             requested_target_lang = (target_lang or "gu").strip().lower()
             trace.set_language(requested_source_lang, requested_target_lang)
@@ -1169,7 +1126,14 @@ async def stream_voice_message(
                             if trigger_reason == "tool_call"
                             else get_timeout_nudge_message(nudge_lang)
                         )
-                        await send_nudge_message_raya(nudge_msg, session_id, process_id)
+                        with trace.stage(
+                            "send_nudge_message_raya",
+                            metadata={
+                                "trigger_reason": trigger_reason,
+                                "target_lang": nudge_lang,
+                            },
+                        ):
+                            await send_nudge_message_raya(nudge_msg, session_id, process_id)
                         elapsed = max(0.0, time.monotonic() - request_started_at)
                         logger.info(
                             "Nudge sent (%s); session_id=%s process_id=%s total_elapsed=%.3fs",
@@ -1232,6 +1196,10 @@ async def stream_voice_message(
                     text=query,
                     source_lang=requested_source_lang,
                     recent_history_text=moderation_recent_history,
+                    session_id=session_id,
+                    user_id=user_id,
+                    process_id=process_id,
+                    pipeline_variant=pipeline_variant,
                 )
             )
             moderation_task.add_done_callback(
@@ -1252,7 +1220,7 @@ async def stream_voice_message(
                     return
                 try:
                     with trace.stage(
-                        "pretranslation",
+                        "query_pretranslation",
                         as_type="generation",
                         input=trace.metadata.get("query"),
                         metadata={
@@ -1289,10 +1257,14 @@ async def stream_voice_message(
                     try:
                         logger.info("Falling back to TranslateGemma pretranslation for session_id=%s", session_id)
                         with trace.stage(
-                            "pretranslation_fallback",
+                            "query_pretranslation",
                             as_type="generation",
                             input=trace.metadata.get("query"),
-                            metadata={"provider": "translategemma", "source_lang": requested_source_lang},
+                            metadata={
+                                "provider": "translategemma",
+                                "source_lang": requested_source_lang,
+                                "fallback_used": True,
+                            },
                         ):
                             processing_query = await translate_to_english_with_structured_fallback(
                                 text=query,
