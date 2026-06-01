@@ -453,10 +453,10 @@ class TestIdentityPhrases:
     """
 
     @pytest.mark.parametrize("wrong_phrase, correct_phrase, feedback_ids", [
-        # [377, 430, 419] "આવી છું" → "બોલું છું"
-        ("અમૂલ એ.આઈ.માંથી આવી છું", "અમૂલ એ.આઈ.માંથી બોલું છું", [377, 430, 419]),
-        # [378] Long intro → short intro
-        ("દૂધાળાં પશુઓ માટે મદદ કરવા આવી છું", "તમારા પશુઓ માટે શું મદદ કરી શકું", [378]),
+        # [377, 430, 419] "આવી છું" → "બોલી રહી છું"
+        ("અમૂલ એ.આઈ.માંથી આવી છું", "અમૂલ એ.આઈ.માંથી બોલી રહી છું", [377, 430, 419]),
+        # [378] Long intro → short intro (feminine self-reference)
+        ("દૂધાળાં પશુઓ માટે મદદ કરવા આવી છું", "તમારા પશુઓ માટે શું મદદ કરી શકતી", [378]),
     ])
     def test_identity_phrase_documented(self, wrong_phrase, correct_phrase, feedback_ids):
         """Document preferred introduction phrasing from feedback #{feedback_ids}."""
@@ -515,3 +515,34 @@ class TestMissingQuantityRepair:
         result = normalize_gu("લીલો ચારો તરીકે બરબા આપો.")
         assert "બરસીમ" in result
         assert "બરબા" not in result
+
+
+class TestSarlabenFeminineSelfReference:
+    """Bounded guardrails for Sarlaben first-person Gujarati phrasing."""
+
+    @pytest.mark.parametrize(
+        "text, expected, forbidden",
+        [
+            ("હું મદદ કરી શકું નથી.", "શકતી નથી", "શકું નથી"),
+            ("હું મદદ કરી શકું છું.", "શકતી છું", "શકું છું"),
+            ("હું કાલે ફરીથી કરું.", "કરૂં", "કરું"),
+            ("હું કાલે ફરી આવું છું.", "આવી છું", "આવું છું"),
+        ],
+    )
+    def test_self_reference_forms_are_feminized(self, text, expected, forbidden):
+        result = normalize_gu(text)
+        assert expected in result
+        assert forbidden not in result
+
+    def test_non_self_reference_quote_is_not_rewritten(self):
+        text = "ખેડૂતે કહ્યું: 'હું મદદ કરી શકું નથી.'"
+        result = normalize_gu(text)
+        assert "શકું નથી" in result
+        assert "શકતી નથી" not in result
+
+    def test_caller_address_stripping_and_feminine_guard_compose(self):
+        text = "મેડમ, હું મદદ કરી શકું નથી."
+        result = normalize_gu(text)
+        assert "મેડમ" not in result
+        assert "શકતી નથી" in result
+        assert "શકું નથી" not in result

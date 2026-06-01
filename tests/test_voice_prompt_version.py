@@ -145,6 +145,9 @@ class TestNewVariantInvariants:
         text = _load(version)
         assert "Sarlaben" in text
         assert "Amul AI" in text
+        lower = text.lower()
+        assert "female persona" in lower or "helpline didi" in lower
+        assert "a woman" not in lower
 
     @pytest.mark.parametrize("version", NEW_VARIANTS)
     def test_phone_call_register_present(self, version):
