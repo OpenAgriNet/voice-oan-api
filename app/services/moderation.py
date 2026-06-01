@@ -12,6 +12,7 @@ legitimate farmer call.
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -20,8 +21,10 @@ from openai import AsyncOpenAI
 from app.config import settings
 from app.services.translation import (
     OPENAI_PRETRANSLATION_MODEL,
+    OSS_PRETRANSLATION_MODEL,
     _get_langfuse,
     _get_openai_client,
+    _get_oss_pretranslation_client,
 )
 from helpers.utils import get_logger, get_prompt
 
@@ -64,6 +67,20 @@ DECLINE_MESSAGES_EN: dict[str, str] = {
 
 MODERATION_PROMPT_NAME = "voice_moderation_en"
 _STATIC_MODERATION_SYSTEM_PROMPT = get_prompt(MODERATION_PROMPT_NAME)
+
+# Voice moderation runs on the self-hosted gemma vLLM endpoint by default: it is
+# fast (~0.2s, measured in the load sweep) and in-cluster, vs ~1.5s for the
+# OpenAI gpt path that previously served it — which doubled as the long pole on
+# warm-cache voice turns. Override with VOICE_MODERATION_PROVIDER=openai to fall
+# back to the gpt model (OPENAI_PRETRANSLATION_MODEL).
+_MODERATION_PROVIDER = (os.getenv("VOICE_MODERATION_PROVIDER", "vllm") or "vllm").strip().lower()
+
+
+def _moderation_client_and_model() -> tuple[AsyncOpenAI, str, str]:
+    """Return (client, model, provider_label) for the configured moderation backend."""
+    if _MODERATION_PROVIDER == "openai":
+        return _get_openai_client(), OPENAI_PRETRANSLATION_MODEL, "openai"
+    return _get_oss_pretranslation_client(), OSS_PRETRANSLATION_MODEL, "vllm"
 
 
 @dataclass(frozen=True)
@@ -140,13 +157,14 @@ def _build_messages(
 
 async def _create_moderation_response(
     client: AsyncOpenAI,
+    model: str,
     text: str,
     source_lang: str,
     recent_history_text: str = "",
 ):
     return await asyncio.wait_for(
         client.chat.completions.create(
-            model=OPENAI_PRETRANSLATION_MODEL,
+            model=model,
             messages=_build_messages(text, source_lang, recent_history_text),
             max_completion_tokens=200,
             response_format={"type": "json_object"},
@@ -169,13 +187,18 @@ async def check_moderation(
     if not text or not text.strip():
         return _allow("empty input", failed_open=False)
 
-    client = _get_openai_client()
+    try:
+        client, model, provider = _moderation_client_and_model()
+    except Exception as e:
+        logger.error("Moderation client init failed (%s); failing open", e)
+        return _allow(f"moderation client error: {type(e).__name__}", failed_open=True)
     langfuse = _get_langfuse()
 
     try:
         if not langfuse:
             response = await _create_moderation_response(
                 client,
+                model,
                 text,
                 source_lang,
                 recent_history_text,
@@ -191,14 +214,15 @@ async def check_moderation(
                 "text": text,
                 "recent_history_text": recent_history_text,
             },
-            model=OPENAI_PRETRANSLATION_MODEL,
+            model=model,
             metadata={
                 "pipeline_stage": "query_moderation",
-                "moderation_provider": "openai",
+                "moderation_provider": provider,
             },
         ) as observation:
             response = await _create_moderation_response(
                 client,
+                model,
                 text,
                 source_lang,
                 recent_history_text,
@@ -218,7 +242,7 @@ async def check_moderation(
         logger.error(
             "Moderation timed out - source_lang=%s model=%s timeout=%.2fs query_chars=%s query_preview=%r",
             source_lang,
-            OPENAI_PRETRANSLATION_MODEL,
+            model,
             settings.openai_pretranslation_timeout_seconds,
             len(text),
             text[:160],

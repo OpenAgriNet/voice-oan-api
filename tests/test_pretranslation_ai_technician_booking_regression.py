@@ -57,7 +57,6 @@ if INTEGRATION_ENABLED:
             pytrace=False,
         )
 
-VALID_CONFIDENCE = {"high", "low", "unknown"}
 MATCHER_VERSION = "ai-booking-semantic-v1"
 MATCH_STOPWORDS = {
     "a",
@@ -118,7 +117,6 @@ class PretranslationBookingResult(BaseModel):
     source_lang: str
     source_text: str
     translation: str
-    confidence: str
     matched_groups: tuple[str, ...]
 
 
@@ -133,7 +131,6 @@ class BookingFailureLedgerEntry(BaseModel):
     forbidden_any: tuple[str, ...]
     optional_any: tuple[str, ...]
     translation: str
-    confidence: str
     notes: str = ""
 
 
@@ -239,7 +236,7 @@ def _validate_booking_translation(case: BookingQueryCase, translation: str) -> t
     return True, tuple(matched), ""
 
 
-def _failure_ledger(case: BookingQueryCase, translation: str, confidence: str, reason: str) -> str:
+def _failure_ledger(case: BookingQueryCase, translation: str, reason: str) -> str:
     entry = BookingFailureLedgerEntry(
         matcher_version=MATCHER_VERSION,
         case_id=case.case_id,
@@ -249,7 +246,6 @@ def _failure_ledger(case: BookingQueryCase, translation: str, confidence: str, r
         forbidden_any=case.forbidden_any,
         optional_any=case.optional_any,
         translation=translation,
-        confidence=confidence,
         notes=reason or case.notes,
     )
     return json.dumps(entry.model_dump(), ensure_ascii=False, sort_keys=True)
@@ -739,11 +735,10 @@ def test_negative_translations_are_not_full_booking_intent(case_id: str, transla
     ids=[case.case_id for case in ENGLISH_BOOKING_TURN1_CASES],
 )
 def test_english_queries_passthrough_pretranslation_unchanged(english_query: str):
-    translated, confidence = asyncio.run(
+    translated = asyncio.run(
         translate_to_english_with_gpt5_mini(english_query, "en")
     )
     assert translated == english_query
-    assert confidence == "high"
 
 
 def test_gujarati_glossary_transliteration_does_not_corrupt_other_topic_bija():
@@ -766,20 +761,18 @@ def test_vllm_pretranslation_gujarati_booking_turn1(case: BookingQueryCase):
         pytest.skip("Set PRETRANSLATION_AI_BOOKING_INTEGRATION=1 for live booking regressions")
 
     hints = _get_glossary_hints_for_gu_query(case.source_text, max_results=20)
-    translation, confidence = asyncio.run(
+    translation = asyncio.run(
         translate_to_english_with_gpt5_mini(case.source_text, "gu")
     )
     assert translation.strip(), f"Empty pretranslation for {case.case_id}"
-    assert confidence in VALID_CONFIDENCE
 
     ok, matched, reason = _validate_booking_translation(case, translation)
-    ledger = _failure_ledger(case, translation, confidence, reason)
+    ledger = _failure_ledger(case, translation, reason)
     assert ok, (
         f"Gujarati booking pretranslation failed semantic checks.\n"
         f"case_id={case.case_id}\n"
         f"source_text={case.source_text!r}\n"
         f"translation={translation!r}\n"
-        f"confidence={confidence!r}\n"
         f"hints={hints!r}\n"
         f"matched={matched!r}\n"
         f"failure_ledger_json={ledger}"
@@ -790,7 +783,6 @@ def test_vllm_pretranslation_gujarati_booking_turn1(case: BookingQueryCase):
         source_lang=case.source_lang,
         source_text=case.source_text,
         translation=translation,
-        confidence=confidence,
         matched_groups=matched,
     )
 
@@ -801,20 +793,18 @@ def test_vllm_pretranslation_gujarati_technician_selection(case: BookingQueryCas
     if not INTEGRATION_ENABLED:
         pytest.skip("Set PRETRANSLATION_AI_BOOKING_INTEGRATION=1 for live booking regressions")
 
-    translation, confidence = asyncio.run(
+    translation = asyncio.run(
         translate_to_english_with_gpt5_mini(case.source_text, "gu")
     )
     assert translation.strip(), f"Empty pretranslation for {case.case_id}"
-    assert confidence in VALID_CONFIDENCE
 
     ok, matched, reason = _validate_booking_translation(case, translation)
-    ledger = _failure_ledger(case, translation, confidence, reason)
+    ledger = _failure_ledger(case, translation, reason)
     assert ok, (
         f"Gujarati technician-selection pretranslation failed semantic checks.\n"
         f"case_id={case.case_id}\n"
         f"source_text={case.source_text!r}\n"
         f"translation={translation!r}\n"
-        f"confidence={confidence!r}\n"
         f"matched={matched!r}\n"
         f"failure_ledger_json={ledger}"
     )
@@ -826,11 +816,10 @@ def test_vllm_pretranslation_negative_fodder_seed_not_insemination_booking():
         pytest.skip("Set PRETRANSLATION_AI_BOOKING_INTEGRATION=1 for live booking regressions")
 
     case = next(c for c in NEGATIVE_NON_BOOKING_CASES if c.case_id == "neg-gu-fodder-seed")
-    translation, confidence = asyncio.run(
+    translation = asyncio.run(
         translate_to_english_with_gpt5_mini(case.source_text, "gu")
     )
     assert translation.strip()
-    assert confidence in VALID_CONFIDENCE
 
     booking_probe = BookingQueryCase(
         case_id="probe-full-booking",
@@ -842,8 +831,7 @@ def test_vllm_pretranslation_negative_fodder_seed_not_insemination_booking():
     ok_booking, _, _ = _validate_booking_translation(booking_probe, translation)
     assert not ok_booking, (
         f"Fodder-seed query was misread as AI booking.\n"
-        f"translation={translation!r}\n"
-        f"confidence={confidence!r}"
+        f"translation={translation!r}"
     )
 
 
@@ -854,11 +842,10 @@ def test_english_booking_queries_remain_valid_after_passthrough(case: BookingQue
     if not INTEGRATION_ENABLED:
         pytest.skip("Set PRETRANSLATION_AI_BOOKING_INTEGRATION=1 to run integration suite marker")
 
-    translated, confidence = asyncio.run(
+    translated = asyncio.run(
         translate_to_english_with_gpt5_mini(case.source_text, "en")
     )
     assert translated == case.source_text
-    assert confidence == "high"
 
     ok, matched, reason = _validate_booking_translation(case, translated)
     assert ok, (

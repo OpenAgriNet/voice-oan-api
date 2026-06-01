@@ -49,6 +49,12 @@ async def create_health_call(
         case_type.value,
     )
 
+    # Moderation runs concurrently with the agent, so this booking write must
+    # block on the verdict: a rejected query must never create a real booking.
+    if not await ctx.deps.ensure_in_scope():
+        logger.info("Health call blocked: query failed moderation; session=%s", session_id)
+        return "This helpline only handles dairy farming and animal husbandry questions."
+
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
         logger.error("PASHUGPT_TOKEN is not set")

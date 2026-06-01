@@ -340,7 +340,6 @@ class TestHelperCoverage:
         assert "faithful pretranslation" in prompt
         assert "Preserve uncertainty" in prompt
         assert "Do not infer animal species" in prompt
-        assert "Set confidence to \"high\" only when the core request is clear without guessing" in prompt
         assert "unclear animal" in prompt
         assert "Never convert a doubtful token into a specific medicine, feed, disease, animal species, or service term" in prompt
 
@@ -350,7 +349,6 @@ class TestHelperCoverage:
         assert "Kinship words" in prompt
         assert "Do not turn them into the caller's gender" in prompt
         assert "address marker" in prompt
-        assert "mark confidence low if the word could also be an address marker" in prompt
 
     @pytest.mark.parametrize("query", [
         "મારી ભેસ્ટને તાવ છે",
@@ -723,18 +721,17 @@ class TestHelperCoverage:
         assert "તાવ" in result
 
     def test_extract_translation_from_raw_json(self):
-        translated, confidence = _extract_translation_from_raw(
+        translated = _extract_translation_from_raw(
             '{"translation": "the cow has fever", "confidence": "low"}'
         )
         assert translated == "the cow has fever"
-        assert confidence == "low"
 
     def test_empty_fallback_pretranslation_short_circuits_with_repeat_prompt(self, monkeypatch):
         # Contract (see df9985f): the short-circuit now fires only when
         # pretranslation produces NO usable text at all (primary raised and
-        # fallback returned empty). A merely low-confidence-but-non-empty
-        # pretranslation routes to the agent instead, which clarifies in
-        # context. Here both primary and fallback fail to yield text.
+        # fallback returned empty). A non-empty pretranslation routes to the
+        # agent instead, which clarifies in context. Here both primary and
+        # fallback fail to yield text.
         from app.services import voice as voice_module
         from agents import voice as voice_agent_module
 
@@ -742,7 +739,7 @@ class TestHelperCoverage:
             raise TimeoutError("primary pretranslation failed")
 
         async def _fallback_pretranslation(*args, **kwargs):
-            return "", "low"
+            return ""
 
         agent_called = False
         history_store: dict[str, list] = {}
@@ -807,7 +804,7 @@ class TestMultiTurnFlows:
             agent_called["value"] = True
 
         async def _pretranslate(*args, **kwargs):
-            return "My cow has fever", "high"
+            return "My cow has fever"
 
         monkeypatch.setattr(voice_module, "translate_to_english_with_gpt5_mini", _pretranslate)
 
@@ -839,7 +836,7 @@ class TestMultiTurnFlows:
             agent_called["value"] = True
 
         async def _pretranslate(*args, **kwargs):
-            return "yes", "high"
+            return "yes"
 
         monkeypatch.setattr(voice_module, "translate_to_english_with_gpt5_mini", _pretranslate)
 
@@ -912,7 +909,7 @@ class TestMultiTurnFlows:
             )
 
         async def _pretranslate(*args, **kwargs):
-            return "My cow has fever.", "high"
+            return "My cow has fever."
 
         monkeypatch.setattr(voice_module, "translate_to_english_with_gpt5_mini", _pretranslate)
 
@@ -990,7 +987,7 @@ class TestMultiTurnFlows:
 
         monkeypatch.setattr(voice_module, "get_or_fetch_farmer_data", _fake_farmer_data)
         async def _pretranslate(*args, **kwargs):
-            return "My cow has fever.", "high"
+            return "My cow has fever."
         monkeypatch.setattr(voice_module, "translate_to_english_with_gpt5_mini", _pretranslate)
         from agents import voice as voice_agent_module
         monkeypatch.setattr(voice_agent_module.voice_agent, "run_stream", _unexpected_base_run_stream)

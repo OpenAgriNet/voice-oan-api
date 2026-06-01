@@ -54,6 +54,12 @@ async def create_ai_call(
         session_id, union_code, society_code, farmer_code, user_id, species.value,
     )
 
+    # Moderation runs concurrently with the agent, so this booking write must
+    # block on the verdict: a rejected query must never create a real booking.
+    if not await ctx.deps.ensure_in_scope():
+        logger.info("AI call blocked: query failed moderation; session=%s", session_id)
+        return "This helpline only handles dairy farming and animal husbandry questions."
+
     # Session-based cooldown: one booking per session per 30 minutes
     if session_id:
         cache_key = session_id

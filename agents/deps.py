@@ -1,5 +1,6 @@
+import asyncio
 from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class FarmerContext(BaseModel):
@@ -26,6 +27,33 @@ class FarmerContext(BaseModel):
     ai_technician_info: str = Field(default="", description="Pre-built internal AI technician context string.")
     signed_in: bool = Field(default=False, description="Whether the session is signed in/authenticated for farmer-specific tools.")
     mobile: Optional[str] = Field(default=None, description="Normalized mobile number when available.")
+
+    # Handle to the per-turn content-moderation task, which now runs concurrently
+    # with the agent (see app.services.voice). Side-effecting tools await it via
+    # ensure_in_scope() so a rejected query can never produce a write, even though
+    # the agent executes optimistically before the verdict is known.
+    _moderation_task: Optional["asyncio.Task"] = PrivateAttr(default=None)
+
+    def set_moderation_task(self, task: Optional["asyncio.Task"]) -> None:
+        """Attach the concurrently-running moderation task for tool self-gating."""
+        self._moderation_task = task
+
+    async def ensure_in_scope(self) -> bool:
+        """Block until the concurrent moderation verdict is known.
+
+        Returns False ONLY when moderation explicitly rejected the query, so
+        side-effecting tools (e.g. bookings) refuse instead of performing a write.
+        Fail-open (returns True) when no task is attached or moderation errored —
+        a flaky moderation check must never drop a real farmer booking.
+        """
+        task = self._moderation_task
+        if task is None:
+            return True
+        try:
+            verdict = await task
+        except Exception:
+            return True
+        return not bool(verdict is not None and getattr(verdict, "rejected", False))
 
     def _query_string(self):
         """Get the query string for the agrinet agent."""

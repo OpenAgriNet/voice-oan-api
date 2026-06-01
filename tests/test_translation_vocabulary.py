@@ -16,14 +16,20 @@ import pytest
 import sys
 import os
 import re
+import json
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.services.translation import (
     _post_normalize_gu_translation,
+    GU_PREFERRED_TRANSLATION_RULES,
     GU_TERM_POLICY,
     GU_POST_REPLACEMENTS,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+GLOSSARY_PATH = REPO_ROOT / "assets" / "glossary_terms.json"
 
 
 # ---------------------------------------------------------------------------
@@ -419,6 +425,26 @@ class TestNonexistentWords:
 # ---------------------------------------------------------------------------
 # Identity / introduction phrase corrections
 # ---------------------------------------------------------------------------
+
+class TestAmulAiHelplineDisambiguation:
+    """Amul AI (Artificial Intelligence) must not be translated as insemination."""
+
+    def test_gujarati_output_rules_disambiguate_amul_ai_product_name(self):
+        rules = "\n".join(GU_PREFERRED_TRANSLATION_RULES)
+        assert "Amul AI" in rules
+        assert "AI helpline" in rules
+        assert "અમૂલ એ.આઈ." in rules
+        assert "કૃત્રિમ બીજદાન" in rules
+        assert "Artificial Intelligence" in rules
+
+    def test_amul_ai_glossary_entries_present(self):
+        glossary = json.loads(GLOSSARY_PATH.read_text(encoding="utf-8"))
+        by_en = {entry["en"]: entry["gu"] for entry in glossary}
+        assert by_en["Amul AI helpline advisor"] == "અમૂલ એ.આઈ. હેલ્પલાઇન સલાહકાર"
+        assert by_en["AI helpline"] == "એ.આઈ. હેલ્પલાઇન"
+        assert by_en["AMUL AI"] == "અમૂલ એ.આઈ."
+        assert by_en["amul helpline"] == "અમૂલ એ.આઈ. હેલ્પલાઇન"
+
 
 class TestIdentityPhrases:
     """
