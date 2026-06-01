@@ -13,7 +13,7 @@ from agents.tools.health_call import create_health_call
 from agents.tools.conversation_state import signal_conversation_state
 from agents.tools.farmer_cached import get_farmer_profile, get_herd_summary, list_animal_tags
 from agents.tools.common import fire_tool_call_nudge
-from agents.tools.union_schemes import get_union_scheme_data
+from agents.tools.union_schemes import get_union_scheme_data, prepare_get_union_scheme_data
 
 
 def _with_nudge_signal(func):
@@ -101,6 +101,7 @@ SIGNED_IN_FARMER_TOOLS = [
         takes_ctx=True,
         docstring_format='auto',
         require_parameter_descriptions=False,
+        prepare=prepare_get_union_scheme_data,
     ),
 ]
 
