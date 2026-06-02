@@ -55,7 +55,7 @@ from app.services.stt_signals import (
     count_consecutive_stt_signals,
 )
 from app.services.moderation import ModerationVerdict, check_moderation
-from app.services.fallback import execute_with_fallback
+from app.services.fallback import execute_with_fallback, stream_with_fallback
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
@@ -1621,74 +1621,55 @@ async def stream_voice_message(
                 # translation overlap instead of running strictly back-to-back.
                 agent_started_at = time.monotonic()
                 _agent_output = ""
-                async with active_agent.run_stream(
-                    user_prompt=user_message,
-                    message_history=model_input_history,
-                    deps=deps,
-                    usage_limits=usage_limits,
-                    model=request_model,
-                ) as response_stream:
-                    # debounce_by=0 disables pydantic-ai's default 100ms token
-                    # debounce so the first agent delta reaches the translation
-                    # stage immediately (every ms counts for phone TTFT). Our own
-                    # sentence batching downstream re-aggregates the smaller chunks.
-                    stream_iter = response_stream.stream_text(delta=True, debounce_by=0)
-                    first_text_chunk_received = False
-                    sentence_buffer = ""
-                    translation_batch: list[str] = []
-                    batch_word_count = 0
-                    async def _yield_translated_text(text_to_translate: str) -> AsyncGenerator[str, None]:
-                        if not text_to_translate:
-                            return
-                        text_to_translate = _guard_identity_drift(text_to_translate)
-                        try:
-                            with trace.stage(
-                                "output_translation",
-                                as_type="generation",
-                                input={"chars": len(text_to_translate)},
-                                metadata={"target_lang": requested_target_lang},
-                            ):
-                                async for chunk in translate_text_stream_fast(
-                                    text=text_to_translate,
-                                    source_lang="english",
-                                    target_lang=requested_target_lang,
-                                ):
-                                    if await _request_is_stale("during_output_translation"):
-                                        return
-                                    cleaned = (
-                                        _prepare_voice_output(chunk, requested_target_lang)
-                                        if isinstance(chunk, str) and chunk
-                                        else chunk
-                                    )
-                                    if isinstance(cleaned, str) and cleaned.strip():
-                                        trace.mark("first_translation_chunk_ms")
-                                    yield cleaned
-                        except Exception as e:
-                            trace.increment("output_translation_errors")
-                            logger.error(
-                                "Translation pipeline output translation failed for session_id=%s error=%s",
-                                session_id,
-                                e,
-                            )
-                            trouble = TRANSLATION_TROUBLE_MESSAGE.get(
-                                requested_target_lang,
-                                TRANSLATION_TROUBLE_MESSAGE["en"],
-                            )
-                            yield trouble
+                first_text_chunk_received = False
+                sentence_buffer = ""
+                translation_batch: list[str] = []
+                batch_word_count = 0
 
-                    # Deferred moderation gate: resolve the concurrently-running
-                    # verdict now, before emitting ANY caller-facing chunk. The
-                    # agent has already done its prefill/tool calls (booking tools
-                    # self-gated on this verdict); if the query was rejected we
-                    # decline here and the agent's streamed output is discarded,
-                    # never reaching the caller.
-                    _verdict = await _resolve_moderation()
-                    if _verdict is not None and _verdict.rejected:
-                        if not await _request_is_stale("after_moderation_reject"):
-                            async for _c in _moderation_decline_stream(_verdict):
-                                yield _c
+                async def _yield_translated_text(text_to_translate: str) -> AsyncGenerator[str, None]:
+                    if not text_to_translate:
                         return
+                    text_to_translate = _guard_identity_drift(text_to_translate)
+                    try:
+                        with trace.stage(
+                            "output_translation",
+                            as_type="generation",
+                            input={"chars": len(text_to_translate)},
+                            metadata={"target_lang": requested_target_lang},
+                        ):
+                            async for chunk in translate_text_stream_fast(
+                                text=text_to_translate,
+                                source_lang="english",
+                                target_lang=requested_target_lang,
+                            ):
+                                if await _request_is_stale("during_output_translation"):
+                                    return
+                                cleaned = (
+                                    _prepare_voice_output(chunk, requested_target_lang)
+                                    if isinstance(chunk, str) and chunk
+                                    else chunk
+                                )
+                                if isinstance(cleaned, str) and cleaned.strip():
+                                    trace.mark("first_translation_chunk_ms")
+                                yield cleaned
+                    except Exception as e:
+                        trace.increment("output_translation_errors")
+                        logger.error(
+                            "Translation pipeline output translation failed for session_id=%s error=%s",
+                            session_id,
+                            e,
+                        )
+                        trouble = TRANSLATION_TROUBLE_MESSAGE.get(
+                            requested_target_lang,
+                            TRANSLATION_TROUBLE_MESSAGE["en"],
+                        )
+                        yield trouble
 
+
+                # Token consumer (nudge / staleness / batch-translation) — shared by both
+                # the fallback and legacy source paths so the proven loop isn't duplicated.
+                async def _consume_agent_text(stream_iter):
+                    nonlocal _agent_output, first_text_chunk_received, sentence_buffer, translation_batch, batch_word_count
                     try:
                         async for chunk in stream_iter:
                             if await _request_is_stale("during_agent_stream"):
@@ -1861,23 +1842,109 @@ async def stream_voice_message(
                             except asyncio.CancelledError:
                                 pass
 
-                    logger.info(f"Streaming complete for session {session_id}")
+
+                if settings.fallback_enabled:
+                    # OSS -> managed first-token commit. Eager-start the agent as a task so
+                    # it runs in parallel with the moderation gate (latency preserved). On a
+                    # pre-first-token OSS failure we silently swap to managed; a post-first-
+                    # token failure can't swap (caller already heard audio) -> canned line.
+                    _fb_holder: dict = {}
+
+                    async def _make_stream(attempt):
+                        async with active_agent.run_stream(
+                            user_prompt=user_message,
+                            message_history=model_input_history,
+                            deps=deps,
+                            usage_limits=usage_limits,
+                            model=attempt.model,
+                        ) as rs:
+                            async for _c in rs.stream_text(delta=True, debounce_by=0):
+                                yield _c
+                            _fb_holder["new_messages"] = rs.new_messages()
+
+                    _src = stream_with_fallback(
+                        pipeline="chat",
+                        session_id=session_id,
+                        variant=pipeline_variant,
+                        make_stream=_make_stream,
+                    ).__aiter__()
+                    # Eager start: kick the first-token pull now, concurrent with moderation.
+                    _first_pull = asyncio.create_task(_src.__anext__())
+
+                    _verdict = await _resolve_moderation()
+                    if _verdict is not None and _verdict.rejected:
+                        _first_pull.cancel()
+                        try:
+                            await _first_pull
+                        except BaseException:
+                            pass
+                        try:
+                            await _src.aclose()
+                        except Exception:
+                            pass
+                        if not await _request_is_stale("after_moderation_reject"):
+                            async for _c in _moderation_decline_stream(_verdict):
+                                yield _c
+                        return
+
+                    async def _committed_stream():
+                        try:
+                            _first = await _first_pull
+                        except StopAsyncIteration:
+                            return
+                        yield _first
+                        async for _c in _src:
+                            yield _c
+
+                    try:
+                        async for _out in _consume_agent_text(_committed_stream()):
+                            yield _out
+                    except Exception as _stream_err:
+                        logger.error(
+                            "Voice agent stream failed after first token; session_id=%s process_id=%s error=%s",
+                            session_id, process_id, _stream_err,
+                        )
+                        if not await _request_is_stale("after_stream_error"):
+                            _trouble = TRANSLATION_TROUBLE_MESSAGE.get(
+                                requested_target_lang, TRANSLATION_TROUBLE_MESSAGE["en"],
+                            )
+                            yield _emit(_trouble)
                     _agent_output = _agent_output.strip()
-                    new_messages = response_stream.new_messages()
-                    trace.attach_stage_timing(
-                        "agent",
-                        (time.monotonic() - agent_started_at) * 1000.0,
-                        signed_in=bool(signed_in and mobile),
-                        request_limit=usage_limits.request_limit,
-                        pipeline_variant=pipeline_variant,
-                        model=request_model_name,
-                        provider=request_provider,
-                    )
-                    trace.set_agent(
-                        signed_in=bool(signed_in and mobile),
-                        output=_agent_output,
-                        new_messages=new_messages,
-                    )
+                    new_messages = _fb_holder.get("new_messages", [])
+                else:
+                    async with active_agent.run_stream(
+                        user_prompt=user_message,
+                        message_history=model_input_history,
+                        deps=deps,
+                        usage_limits=usage_limits,
+                        model=request_model,
+                    ) as response_stream:
+                        stream_iter = response_stream.stream_text(delta=True, debounce_by=0)
+                        _verdict = await _resolve_moderation()
+                        if _verdict is not None and _verdict.rejected:
+                            if not await _request_is_stale("after_moderation_reject"):
+                                async for _c in _moderation_decline_stream(_verdict):
+                                    yield _c
+                            return
+                        async for _out in _consume_agent_text(stream_iter):
+                            yield _out
+                        _agent_output = _agent_output.strip()
+                        new_messages = response_stream.new_messages()
+
+                trace.attach_stage_timing(
+                    "agent",
+                    (time.monotonic() - agent_started_at) * 1000.0,
+                    signed_in=bool(signed_in and mobile),
+                    request_limit=usage_limits.request_limit,
+                    pipeline_variant=pipeline_variant,
+                    model=request_model_name,
+                    provider=request_provider,
+                )
+                trace.set_agent(
+                    signed_in=bool(signed_in and mobile),
+                    output=_agent_output,
+                    new_messages=new_messages,
+                )
 
             # If the LLM called signal_conversation_state("conversation_closing"),
             # append the termination token so RAYA disconnects the call.
