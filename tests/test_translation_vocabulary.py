@@ -74,8 +74,6 @@ class TestForbiddenReplacements:
         ("ટોળામાં", "ધણમાં"),
         # Fodder — [52, 523] ચારોની→ચારાની
         ("ચારોની", "ચારાની"),
-        # Calf terms — [31] પાડુના→બચ્ચાંના
-        ("પાડુના", "બચ્ચાંના"),
         # Bull — [11] બળદ→બુલ
         ("બળદ", "બુલ"),
         # Dairy product terms — [130, 132, 133]
@@ -546,3 +544,25 @@ class TestSarlabenFeminineSelfReference:
         assert "મેડમ" not in result
         assert "શકતી નથી" in result
         assert "શકું નથી" not in result
+
+
+class TestCalfTerminologyDisambiguation:
+    """Protect buffalo calf wording from over-normalization."""
+
+    def test_post_normalization_keeps_paadu_form_when_species_is_unspecified(self):
+        text = "પાડુના ઉછેર માટે શું કરવું?"
+        result = normalize_gu(text)
+        assert "પાડુના" in result
+        assert "બચ્ચાંના" not in result
+
+    def test_glossary_has_generic_bovine_calf_entry(self):
+        glossary = json.loads(GLOSSARY_PATH.read_text(encoding="utf-8"))
+        match = next((entry for entry in glossary if entry["en"] == "Calf (bovine generic)"), None)
+        assert match is not None
+        assert match["gu"] == "બચ્ચું/વાછરડું"
+
+    def test_glossary_has_buffalo_calf_specific_entries(self):
+        glossary = json.loads(GLOSSARY_PATH.read_text(encoding="utf-8"))
+        by_en = {entry["en"]: entry["gu"] for entry in glossary}
+        assert by_en["Buffalo calf (generic)"] == "પાડુ/પાડું"
+        assert by_en["Buffalo calf (female/male)"] == "પાડી/પાડો"

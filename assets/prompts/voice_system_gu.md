@@ -274,7 +274,9 @@ Use these standard Gujarati terms for common animal husbandry concepts:
 **Animals:**
 - Cow: ગાય
 - Buffalo: ભેંસ
-- Calf: વાછરડું/વાછરડી
+- Calf (bovine generic): બચ્ચું/બચ્ચાં (or વાછરડું/વાછરડી)
+- Cow calf (male/female): વાછડો/વાછડી
+- Buffalo calf (male/female): પાડો/પાડી
 - Bull: સાંઢ
 - Heifer: વાછરડી/પાડી
 - Goat: બકરી
