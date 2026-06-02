@@ -9,9 +9,15 @@ from agents.deps import FarmerContext
 from agents.models.ai_call import AISpecies
 from agents.models.health_call import HealthCallRequestModel, HealthCaseType
 from agents.tools.farmer_animal_backends import create_health_call_api
+from app.core.cache import cache
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
+
+# One booking per session per 30 min (mirrors create_ai_call). Also makes this
+# tool idempotent against an agent re-run (OSS->managed streaming fallback).
+HEALTH_CALL_COOLDOWN_TTL = 60 * 30  # 30 minutes
+HEALTH_CALL_CACHE_NAMESPACE = "health_call_booked"
 
 
 async def create_health_call(
@@ -55,6 +61,19 @@ async def create_health_call(
         logger.info("Health call blocked: query failed moderation; session=%s", session_id)
         return "This helpline only handles dairy farming and animal husbandry questions."
 
+    # Session cooldown: one booking per session; also idempotent on agent re-run.
+    if session_id:
+        try:
+            existing = await cache.get(session_id, namespace=HEALTH_CALL_CACHE_NAMESPACE)
+            if existing:
+                logger.info("Health call already booked for session %s, skipping", session_id)
+                return (
+                    "This session already has an active health call booking. "
+                    "Please try again later or contact your society for assistance."
+                )
+        except Exception as e:
+            logger.warning("Failed to check health call cooldown: %s", e)
+
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
         logger.error("PASHUGPT_TOKEN is not set")
@@ -81,6 +100,18 @@ async def create_health_call(
             case_type.value,
         )
         return "Health call booking failed.\n\nUnable to create health call at the moment."
+
+    # Mark this session as booked so a re-run (or retry) does not double-book.
+    if session_id:
+        try:
+            await cache.set(
+                session_id,
+                {"ticket": response.ticket_number, "species": species.value},
+                ttl=HEALTH_CALL_COOLDOWN_TTL,
+                namespace=HEALTH_CALL_CACHE_NAMESPACE,
+            )
+        except Exception as e:
+            logger.warning("Failed to set health call cooldown: %s", e)
 
     ticket_number = response.ticket_number
     logger.info(
