@@ -1028,7 +1028,7 @@ class TestMultiTurnFlows:
 
         monkeypatch.setattr(voice_module, "generate_stt_signal_response", _fake_generate)
 
-        for _ in range(3):
+        for _ in range(4):
             output, history = asyncio.run(
                 _collect_stream(
                     query="No audio/User is speaking softly",
@@ -1040,10 +1040,11 @@ class TestMultiTurnFlows:
             )
             outputs.append(output)
 
-        assert final_flags == [False, False, True]
+        assert final_flags == [False, False, True, True]
         assert "ફરીથી" in outputs[0]
         assert "ફરીથી" in outputs[1]
         assert "પછીથી ફરી પ્રયાસ કરો" in outputs[2] or "થોડા સમય પછી ફરી કોલ કરો" in outputs[2]
+        assert outputs[3].strip() == "Goodbye."
         history_text = " ".join(
             getattr(part, "content", "")
             for msg in history
@@ -1051,6 +1052,7 @@ class TestMultiTurnFlows:
             if isinstance(getattr(part, "content", None), str)
         )
         assert "[stt:no-audio]" in history_text
+        assert "[auto-hangup:non-meaningful-threshold]" in history_text
         assert "No audio/User is speaking softly" not in history_text
 
     def test_tool_triggered_nudge_fires_once_before_first_chunk(self, monkeypatch):

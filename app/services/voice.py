@@ -272,7 +272,14 @@ _HISTORY_MARKERS = {
     "stt_no_audio": "[stt:no-audio]",
     "stt_unclear": "[stt:unclear-speech]",
     "moderation_reject": "[moderation-rejected]",
+    "auto_hangup_non_meaningful": "[auto-hangup:non-meaningful-threshold]",
 }
+
+NON_MEANINGFUL_TURN_HANGUP_THRESHOLD = 3
+NON_MEANINGFUL_HISTORY_MARKERS = frozenset({
+    _HISTORY_MARKERS["stt_no_audio"],
+    _HISTORY_MARKERS["stt_unclear"],
+})
 
 
 def _is_fragment_query(query: str) -> bool:
@@ -327,6 +334,57 @@ def _has_meaningful_history(history: list) -> bool:
                 continue
             return True
     return False
+
+
+def _recent_user_turn_texts(history: list, limit: int) -> list[str]:
+    """Return most recent user prompt texts, newest first."""
+    if limit <= 0:
+        return []
+    turns: list[str] = []
+    for msg in reversed(history or []):
+        user_text = None
+        for part in getattr(msg, "parts", []) or []:
+            if getattr(part, "part_kind", "") != "user-prompt":
+                continue
+            content = getattr(part, "content", None)
+            if not isinstance(content, str):
+                continue
+            text = content.strip()
+            if text:
+                user_text = text
+                break
+        if user_text is None:
+            continue
+        turns.append(user_text)
+        if len(turns) >= limit:
+            break
+    return turns
+
+
+def _consecutive_non_meaningful_user_turns(
+    history: list,
+    *,
+    current_user_marker: Optional[str] = None,
+) -> int:
+    """Count trailing non-meaningful user turns including the current marker."""
+    recent_turns: list[str] = []
+    if isinstance(current_user_marker, str):
+        marker = current_user_marker.strip()
+        if marker:
+            recent_turns.append(marker)
+    recent_turns.extend(
+        _recent_user_turn_texts(
+            history,
+            NON_MEANINGFUL_TURN_HANGUP_THRESHOLD,
+        )
+    )
+    count = 0
+    for text in recent_turns:
+        if text in NON_MEANINGFUL_HISTORY_MARKERS:
+            count += 1
+            continue
+        break
+    return count
 
 
 def _is_hold_message(query: str) -> bool:
@@ -1031,7 +1089,34 @@ async def stream_voice_message(
                     if stt_signal == "No audio/User is speaking softly"
                     else _canonical_history_user_text("stt_unclear")
                 )
+                non_meaningful_tail = _consecutive_non_meaningful_user_turns(
+                    history,
+                    current_user_marker=history_signal,
+                )
                 history_response = _FRAGMENT_RESPONSES["en"] if not final_attempt else "Sorry, I still could not hear you clearly. Please try again later."
+                if non_meaningful_tail >= (NON_MEANINGFUL_TURN_HANGUP_THRESHOLD + 1):
+                    logger.info(
+                        "Auto-hangup on STT/non-meaningful threshold+1; session_id=%s process_id=%s signal=%s final_attempt=%s non_meaningful_tail=%s",
+                        session_id,
+                        process_id,
+                        stt_signal,
+                        final_attempt,
+                        non_meaningful_tail,
+                    )
+                    goodbye = TELEPHONY_TERMINATE_CALL_TOKEN.get(
+                        requested_target_lang,
+                        TELEPHONY_TERMINATE_CALL_TOKEN["en"],
+                    )
+                    hang_req, hang_resp = _history_pair(
+                        _canonical_history_user_text("auto_hangup_non_meaningful"),
+                        TELEPHONY_TERMINATE_CALL_TOKEN["en"],
+                    )
+                    with trace.stage("history_write"):
+                        await update_message_history(session_id, [*history, hang_req, hang_resp])
+                    trace.set_outcome("stt_signal_auto_hangup")
+                    # Emit raw telephony terminate token; do not language-normalize.
+                    yield _emit(goodbye)
+                    return
                 stt_req, stt_resp = _history_pair(history_signal, history_response)
                 with trace.stage("history_write"):
                     await update_message_history(session_id, [*history, stt_req, stt_resp])
@@ -1054,7 +1139,8 @@ async def stream_voice_message(
                     TELEPHONY_TERMINATE_CALL_TOKEN["en"],
                 )
                 trace.set_outcome("hold_message")
-                yield _emit(_prepare_voice_output(goodbye, requested_target_lang))
+                # Emit raw telephony terminate token; do not language-normalize.
+                yield _emit(goodbye)
                 return
 
             # ── Greeting short-circuit ────────────────────────────────────

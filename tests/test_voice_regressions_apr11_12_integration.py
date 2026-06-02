@@ -364,9 +364,9 @@ def test_repeated_stt_failure_hits_retry_ceiling(monkeypatch):
     assert len(stt_calls) >= 1
     assert _contains_any(outputs[0], ["સંભળાતો નથી", "ફરીથી"])
     assert _contains_any(outputs[1], ["સંભળાતો નથી", "ફરીથી"])
-    assert _contains_any(outputs[2], ["સંભળાતો નથી", "ફરીથી"])
-    assert _contains_any(outputs[3], ["પછીથી ફરી પ્રયાસ કરો", "later", "try again later"])
-    assert _contains_none(outputs[3], ["ફરીથી બોલો", "please repeat", "say that again"])
+    assert _contains_any(outputs[2], ["પછીથી ફરી પ્રયાસ કરો", "later", "try again later"])
+    assert _contains_none(outputs[2], ["ફરીથી બોલો", "please repeat", "say that again"])
+    assert outputs[3].strip() == "Goodbye."
 
 
 def test_pretranslation_total_failure_asks_to_repeat_without_agent_call(monkeypatch):

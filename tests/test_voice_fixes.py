@@ -9,11 +9,17 @@ Covers:
 import pytest
 import sys
 import os
+from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 # Add project root to path so imports work
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.services.voice import _is_bare_greeting, _is_fragment_query, _is_hold_message
+from app.services.voice import (
+    _consecutive_non_meaningful_user_turns,
+    _is_bare_greeting,
+    _is_fragment_query,
+    _is_hold_message,
+)
 from app.services.stt_signals import detect_stt_signal
 from app.services.translation import _post_normalize_gu_translation
 from agents.tools.terms import get_ambiguity_hints_for_query
@@ -121,6 +127,30 @@ class TestFragmentDetection:
         assert _is_fragment_query(query) is False
 
 
+
+
+class TestNonMeaningfulTurnCounter:
+    def test_counts_consecutive_tail_including_current_marker(self):
+        history = [
+            ModelRequest(parts=[UserPromptPart(content="[stt:no-audio]")]),
+            ModelRequest(parts=[UserPromptPart(content="[stt:unclear-speech]")]),
+        ]
+        count = _consecutive_non_meaningful_user_turns(
+            history,
+            current_user_marker="[stt:no-audio]",
+        )
+        assert count == 3
+
+    def test_stops_counting_when_recent_turn_is_meaningful(self):
+        history = [
+            ModelRequest(parts=[UserPromptPart(content="[stt:no-audio]")]),
+            ModelRequest(parts=[UserPromptPart(content="my cow has fever")]),
+        ]
+        count = _consecutive_non_meaningful_user_turns(
+            history,
+            current_user_marker="[stt:no-audio]",
+        )
+        assert count == 1
 
 
 # ---------------------------------------------------------------------------
