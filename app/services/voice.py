@@ -55,6 +55,7 @@ from app.services.stt_signals import (
     count_consecutive_stt_signals,
 )
 from app.services.moderation import ModerationVerdict, check_moderation
+from app.services.fallback import execute_with_fallback
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
@@ -1250,65 +1251,50 @@ async def stream_voice_message(
                 if await _request_is_stale("before_query_pretranslation"):
                     moderation_task.cancel()
                     return
-                try:
-                    with trace.stage(
-                        "pretranslation",
-                        as_type="generation",
-                        input=trace.metadata.get("query"),
-                        metadata={
-                            "provider": _pretrans_provider_label,
-                            "source_lang": requested_source_lang,
-                            "pipeline_variant": pipeline_variant,
-                        },
-                        model=_pretrans_model,
-                    ):
-                        if is_oss:
-                            processing_query = await translate_to_english_with_oss_vllm(
-                                text=query,
-                                source_lang=requested_source_lang,
-                            )
-                        else:
-                            processing_query = await translate_to_english_with_gpt5_mini(
-                                text=query,
-                                source_lang=requested_source_lang,
-                            )
-                    trace.set_pretranslation(
-                        text=processing_query,
-                        provider=_pretrans_provider_label,
-                        fallback_used=False,
-                    )
-                    history_user_text = processing_query or _canonical_history_user_text("low_confidence")
-                except Exception as e:
-                    logger.error(
-                        "OpenAI pretranslation failed for session_id=%s source_lang=%s model=%s error=%s",
-                        session_id,
-                        requested_source_lang,
-                        OPENAI_PRETRANSLATION_MODEL,
-                        e,
-                    )
+                if settings.fallback_enabled:
+                    # Standard OSS -> managed fallback. Drops the legacy TranslateGemma
+                    # stopgap (decision #7): TranslateGemma is also self-hosted vLLM, so
+                    # it shared a failure domain with the OSS pretranslation it backed up.
+                    # The managed tier is the OpenAI pretranslation (translate_to_english_with_gpt5_mini),
+                    # which was the pre-OSS primary.
                     try:
-                        logger.info("Falling back to TranslateGemma pretranslation for session_id=%s", session_id)
                         with trace.stage(
-                            "pretranslation_fallback",
+                            "pretranslation",
                             as_type="generation",
                             input=trace.metadata.get("query"),
-                            metadata={"provider": "translategemma", "source_lang": requested_source_lang},
+                            metadata={
+                                "provider": _pretrans_provider_label,
+                                "source_lang": requested_source_lang,
+                                "pipeline_variant": pipeline_variant,
+                            },
+                            model=_pretrans_model,
                         ):
-                            processing_query = await translate_to_english_with_structured_fallback(
-                                text=query,
-                                source_lang=requested_source_lang,
+                            processing_query = await execute_with_fallback(
+                                pipeline="pretranslation",
+                                session_id=session_id,
+                                variant=pipeline_variant,
+                                run=lambda a: (
+                                    translate_to_english_with_oss_vllm(
+                                        text=query, source_lang=requested_source_lang
+                                    )
+                                    if a.kind == "oss"
+                                    else translate_to_english_with_gpt5_mini(
+                                        text=query, source_lang=requested_source_lang
+                                    )
+                                ),
                             )
                         trace.set_pretranslation(
                             text=processing_query,
-                            provider="translategemma",
-                            fallback_used=True,
+                            provider=_pretrans_provider_label,
+                            fallback_used=False,
                         )
                         history_user_text = processing_query or _canonical_history_user_text("low_confidence")
-                    except Exception as fallback_error:
+                    except Exception as e:
                         logger.error(
-                            "TranslateGemma pretranslation fallback failed for session_id=%s error=%s",
+                            "pretranslation failed (all tiers) for session_id=%s source_lang=%s error=%s",
                             session_id,
-                            fallback_error,
+                            requested_source_lang,
+                            e,
                         )
                         processing_query = ""
                         trace.set_pretranslation(
@@ -1317,6 +1303,74 @@ async def stream_voice_message(
                             fallback_used=True,
                         )
                         history_user_text = _canonical_history_user_text("pretranslation_failed")
+                else:
+                    try:
+                        with trace.stage(
+                            "pretranslation",
+                            as_type="generation",
+                            input=trace.metadata.get("query"),
+                            metadata={
+                                "provider": _pretrans_provider_label,
+                                "source_lang": requested_source_lang,
+                                "pipeline_variant": pipeline_variant,
+                            },
+                            model=_pretrans_model,
+                        ):
+                            if is_oss:
+                                processing_query = await translate_to_english_with_oss_vllm(
+                                    text=query,
+                                    source_lang=requested_source_lang,
+                                )
+                            else:
+                                processing_query = await translate_to_english_with_gpt5_mini(
+                                    text=query,
+                                    source_lang=requested_source_lang,
+                                )
+                        trace.set_pretranslation(
+                            text=processing_query,
+                            provider=_pretrans_provider_label,
+                            fallback_used=False,
+                        )
+                        history_user_text = processing_query or _canonical_history_user_text("low_confidence")
+                    except Exception as e:
+                        logger.error(
+                            "OpenAI pretranslation failed for session_id=%s source_lang=%s model=%s error=%s",
+                            session_id,
+                            requested_source_lang,
+                            OPENAI_PRETRANSLATION_MODEL,
+                            e,
+                        )
+                        try:
+                            logger.info("Falling back to TranslateGemma pretranslation for session_id=%s", session_id)
+                            with trace.stage(
+                                "pretranslation_fallback",
+                                as_type="generation",
+                                input=trace.metadata.get("query"),
+                                metadata={"provider": "translategemma", "source_lang": requested_source_lang},
+                            ):
+                                processing_query = await translate_to_english_with_structured_fallback(
+                                    text=query,
+                                    source_lang=requested_source_lang,
+                                )
+                            trace.set_pretranslation(
+                                text=processing_query,
+                                provider="translategemma",
+                                fallback_used=True,
+                            )
+                            history_user_text = processing_query or _canonical_history_user_text("low_confidence")
+                        except Exception as fallback_error:
+                            logger.error(
+                                "TranslateGemma pretranslation fallback failed for session_id=%s error=%s",
+                                session_id,
+                                fallback_error,
+                            )
+                            processing_query = ""
+                            trace.set_pretranslation(
+                                text=processing_query,
+                                provider="failed",
+                                fallback_used=True,
+                            )
+                            history_user_text = _canonical_history_user_text("pretranslation_failed")
 
             else:
                 history_user_text = query
