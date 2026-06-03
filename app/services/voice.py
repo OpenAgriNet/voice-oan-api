@@ -1844,10 +1844,10 @@ async def stream_voice_message(
 
 
                 if settings.fallback_enabled:
-                    # OSS -> managed first-token commit. Eager-start the agent as a task so
-                    # it runs in parallel with the moderation gate (latency preserved). On a
-                    # pre-first-token OSS failure we silently swap to managed; a post-first-
-                    # token failure can't swap (caller already heard audio) -> canned line.
+                    # OSS -> managed first-token commit. A pre-first-token OSS failure
+                    # silently swaps to managed; a post-first-token failure can't swap
+                    # (caller already heard audio) -> canned line. The agent stream is
+                    # driven from a single task (see below) for anyio task-affinity.
                     _fb_holder: dict = {}
 
                     async def _make_stream(attempt):
@@ -1868,16 +1868,25 @@ async def stream_voice_message(
                         variant=pipeline_variant,
                         make_stream=_make_stream,
                     ).__aiter__()
-                    # Eager start: kick the first-token pull now, concurrent with moderation.
-                    _first_pull = asyncio.create_task(_src.__anext__())
 
+                    # Pull the first token in THIS task — pydantic-ai's anyio stream
+                    # must be advanced from a single task (a separate create_task would
+                    # cross task boundaries and break its cancel scope). Parallelism is
+                    # preserved because the moderation check is already running on its
+                    # own background task (moderation_task), overlapping the agent.
+                    _NO_FIRST = object()
+                    _first_chunk = _NO_FIRST
+                    _stream_error = None
+                    try:
+                        _first_chunk = await _src.__anext__()
+                    except StopAsyncIteration:
+                        _first_chunk = _NO_FIRST  # empty stream (no tokens), not an error
+                    except Exception as _e:  # pre-first-token: OSS + managed both failed
+                        _stream_error = _e
+
+                    # Moderation gate — resolve before emitting anything to the caller.
                     _verdict = await _resolve_moderation()
                     if _verdict is not None and _verdict.rejected:
-                        _first_pull.cancel()
-                        try:
-                            await _first_pull
-                        except BaseException:
-                            pass
                         try:
                             await _src.aclose()
                         except Exception:
@@ -1887,30 +1896,39 @@ async def stream_voice_message(
                                 yield _c
                         return
 
-                    async def _committed_stream():
-                        try:
-                            _first = await _first_pull
-                        except StopAsyncIteration:
-                            return
-                        yield _first
-                        async for _c in _src:
-                            yield _c
-
-                    try:
-                        async for _out in _consume_agent_text(_committed_stream()):
-                            yield _out
-                    except Exception as _stream_err:
+                    if _stream_error is not None:
                         logger.error(
-                            "Voice agent stream failed after first token; session_id=%s process_id=%s error=%s",
-                            session_id, process_id, _stream_err,
+                            "Voice agent stream failed before first token; session_id=%s process_id=%s error=%s",
+                            session_id, process_id, _stream_error,
                         )
                         if not await _request_is_stale("after_stream_error"):
                             _trouble = TRANSLATION_TROUBLE_MESSAGE.get(
                                 requested_target_lang, TRANSLATION_TROUBLE_MESSAGE["en"],
                             )
                             yield _emit(_trouble)
-                    _agent_output = _agent_output.strip()
-                    new_messages = _fb_holder.get("new_messages", [])
+                        new_messages = _fb_holder.get("new_messages", [])
+                    else:
+                        async def _committed_stream():
+                            if _first_chunk is not _NO_FIRST:
+                                yield _first_chunk
+                            async for _c in _src:
+                                yield _c
+
+                        try:
+                            async for _out in _consume_agent_text(_committed_stream()):
+                                yield _out
+                        except Exception as _post_err:
+                            logger.error(
+                                "Voice agent stream failed after first token; session_id=%s process_id=%s error=%s",
+                                session_id, process_id, _post_err,
+                            )
+                            if not await _request_is_stale("after_stream_error"):
+                                _trouble = TRANSLATION_TROUBLE_MESSAGE.get(
+                                    requested_target_lang, TRANSLATION_TROUBLE_MESSAGE["en"],
+                                )
+                                yield _emit(_trouble)
+                        _agent_output = _agent_output.strip()
+                        new_messages = _fb_holder.get("new_messages", [])
                 else:
                     async with active_agent.run_stream(
                         user_prompt=user_message,
