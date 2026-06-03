@@ -1,5 +1,4 @@
 """Tool for fetching farmer milk collection and deduction details."""
-import json
 import os
 
 from pydantic import ValidationError
@@ -9,6 +8,54 @@ from agents.tools.farmer_animal_backends import get_farmer_milk_collection_detai
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
+
+
+def _num(value) -> str:
+    """Render a numeric field compactly, dropping a trailing .0 (e.g. 2.0 -> '2')."""
+    if value is None:
+        return "unknown"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+_SHIFT_LABELS = {"M": "morning", "E": "evening"}
+
+
+def _format_milk_collection_summary(response) -> str:
+    """Deterministic plain-text summary for the voice agent.
+
+    The voice agent runs on a small OSS model and speaks its answer aloud, so
+    it gets a flat, labelled, per-record list (one record per line) instead of
+    raw JSON or a markdown table. Each field is named so the model cannot
+    confuse quantity with fat/SNF/amount when several records are present.
+    """
+    lines: list[str] = []
+
+    if response.milk:
+        lines.append(f"Milk collection records ({len(response.milk)}):")
+        for i, r in enumerate(response.milk, 1):
+            shift = _SHIFT_LABELS.get((r.shift or "").upper(), r.shift or "unknown")
+            lines.append(
+                f"  {i}. Date {r.date or 'unknown'}, {shift} shift: "
+                f"quantity {_num(r.qty)} liters, "
+                f"fat {_num(r.fat)}, SNF {_num(r.snf)}, "
+                f"amount {_num(r.amount)} rupees."
+            )
+    else:
+        lines.append("No milk collection records for the selected date range.")
+
+    if response.deduction:
+        lines.append(f"Deduction records ({len(response.deduction)}):")
+        for i, d in enumerate(response.deduction, 1):
+            lines.append(
+                f"  {i}. Date {d.date or 'unknown'}, "
+                f"{d.account_name or 'account'}: amount {_num(d.amount)} rupees."
+            )
+    else:
+        lines.append("No deductions for the selected date range.")
+
+    return "\n".join(lines)
 
 
 async def get_farmer_milk_collection_details(
@@ -78,5 +125,15 @@ async def get_farmer_milk_collection_details(
         )
         return "Milk collection lookup failed. Unable to fetch details at the moment."
 
-    formatted = json.dumps(response.model_dump(by_alias=True), indent=2, ensure_ascii=False)
+    logger.info(
+        "Milk collection lookup succeeded: union=%s society=%s farmer=%s from=%s to=%s milk_records=%s deductions=%s",
+        union_code,
+        society_code,
+        farmer_code,
+        fromdate,
+        todate,
+        len(response.milk),
+        len(response.deduction),
+    )
+    formatted = _format_milk_collection_summary(response)
     return f"Milk collection details fetched successfully:\n\n{formatted}"
