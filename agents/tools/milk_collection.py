@@ -2,7 +2,9 @@
 import os
 
 from pydantic import ValidationError
+from pydantic_ai import RunContext
 
+from agents.deps import FarmerAccount, FarmerContext
 from app.models.milk_collection import FarmerMilkCollectionRequestModel
 from agents.tools.farmer_animal_backends import get_farmer_milk_collection_details_api
 from helpers.utils import get_logger
@@ -58,7 +60,50 @@ def _format_milk_collection_summary(response) -> str:
     return "\n".join(lines)
 
 
+async def _fetch_one_account(
+    account: FarmerAccount,
+    fromdate: str,
+    todate: str,
+    token: str,
+):
+    """Fetch milk/deduction for one account. Returns the response, or None on failure.
+
+    Dates are validated once by the caller before fan-out, so a per-account
+    failure here is always an upstream/API issue, not a date problem.
+    """
+    request = FarmerMilkCollectionRequestModel(
+        unionCode=account.union_code or "",
+        societyCode=account.society_code or "",
+        farmerCode=account.farmer_code or "",
+        fromdate=fromdate,
+        todate=todate,
+    )
+    response = await get_farmer_milk_collection_details_api(request, token)
+    logger.info(
+        "Milk collection lookup: union=%s society=%s farmer=%s from=%s to=%s ok=%s milk=%s ded=%s",
+        account.union_code, account.society_code, account.farmer_code, fromdate, todate,
+        response is not None,
+        len(response.milk) if response else 0,
+        len(response.deduction) if response else 0,
+    )
+    return response
+
+
+def _account_label(account: FarmerAccount, multi: bool) -> str:
+    """Header for an account's section, only shown when fanning out over >1 account."""
+    if not multi:
+        return ""
+    parts = []
+    if account.society_name:
+        parts.append(account.society_name)
+    if account.farmer_code:
+        parts.append(f"farmer code {account.farmer_code}")
+    label = ", ".join(parts) if parts else f"account {account.farmer_code or '?'}"
+    return f"Account — {label}:"
+
+
 async def get_farmer_milk_collection_details(
+    ctx: RunContext[FarmerContext],
     union_code: str,
     society_code: str,
     farmer_code: str,
@@ -66,74 +111,87 @@ async def get_farmer_milk_collection_details(
     todate: str,
 ) -> str:
     """
-    Fetch milk collection and deduction details for a farmer.
+    Fetch milk collection and deduction details for the signed-in farmer.
+
+    A single mobile number can have more than one account (for example a
+    separate cow account and buffalo account). This tool automatically looks
+    up every account on the caller's mobile and reports them together, so you
+    do not need to pick one. The codes you pass are only a fallback used when
+    no farmer accounts are available in context.
 
     Args:
-        union_code: Union code for the farmer from farmer context.
-        society_code: Society code for the farmer from farmer context.
-        farmer_code: Farmer code for the farmer from farmer context.
+        ctx: The run context (automatically provided).
+        union_code: Union code from farmer context (fallback only).
+        society_code: Society code from farmer context (fallback only).
+        farmer_code: Farmer code from farmer context (fallback only).
         fromdate: Start date in YYYY-MM-DD format (ISO).
         todate: End date in YYYY-MM-DD format (ISO).
 
     Returns:
-        str: Formatted milk collection and deduction details, or a clear failure message.
+        str: Formatted milk collection and deduction details across all of the
+             farmer's accounts, or a clear failure message.
     """
-    logger.info(
-        "Milk collection tool invoked: union=%s society=%s farmer=%s fromdate=%s todate=%s",
-        union_code,
-        society_code,
-        farmer_code,
-        fromdate,
-        todate,
-    )
-
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
         logger.error("PASHUGPT_TOKEN is not set")
         return "Milk collection lookup failed. Service is not configured."
 
+    # Prefer the structured accounts from context (every account on the mobile).
+    # Fall back to the LLM-supplied codes only when context has none.
+    accounts = list(ctx.deps.farmer_accounts) if ctx.deps and ctx.deps.farmer_accounts else []
+    if not accounts:
+        accounts = [
+            FarmerAccount(
+                union_code=union_code,
+                society_code=society_code,
+                farmer_code=farmer_code,
+            )
+        ]
+    logger.info(
+        "Milk collection tool invoked: accounts=%s from=%s to=%s (llm_codes=%s/%s/%s)",
+        len(accounts), fromdate, todate, union_code, society_code, farmer_code,
+    )
+
+    # Validate the date range once — it is the same for every account, so a bad
+    # date is a single clear failure rather than a per-account error.
     try:
-        request = FarmerMilkCollectionRequestModel(
-            unionCode=union_code,
-            societyCode=society_code,
-            farmerCode=farmer_code,
+        FarmerMilkCollectionRequestModel(
+            unionCode=accounts[0].union_code or "",
+            societyCode=accounts[0].society_code or "",
+            farmerCode=accounts[0].farmer_code or "",
             fromdate=fromdate,
             todate=todate,
-        )
-        request.validate_date_range()
+        ).validate_date_range()
     except (ValidationError, ValueError) as e:
-        logger.info(
-            "Milk collection lookup validation failed: union=%s society=%s farmer=%s fromdate=%s todate=%s error=%s",
-            union_code,
-            society_code,
-            farmer_code,
-            fromdate,
-            todate,
-            e,
-        )
+        logger.info("Milk collection date validation failed: from=%s to=%s error=%s", fromdate, todate, e)
         return f"Milk collection lookup failed. {e}"
 
-    response = await get_farmer_milk_collection_details_api(request, token)
-    if response is None:
-        logger.info(
-            "Milk collection API failed: union=%s society=%s farmer=%s fromdate=%s todate=%s",
-            union_code,
-            society_code,
-            farmer_code,
-            fromdate,
-            todate,
-        )
+    multi = len(accounts) > 1
+    sections: list[str] = []
+    any_success = False
+    total_milk = 0
+
+    for account in accounts:
+        result = await _fetch_one_account(account, fromdate, todate, token)
+        if result is None:
+            sections.append(
+                (_account_label(account, multi) + "\n" if multi else "")
+                + "Unable to fetch milk collection details for this account right now."
+            )
+            continue
+
+        any_success = True
+        total_milk += len(result.milk)
+        summary = _format_milk_collection_summary(result)
+        label = _account_label(account, multi)
+        sections.append(f"{label}\n{summary}" if label else summary)
+
+    if not any_success:
         return "Milk collection lookup failed. Unable to fetch details at the moment."
 
+    body = "\n\n".join(sections)
     logger.info(
-        "Milk collection lookup succeeded: union=%s society=%s farmer=%s from=%s to=%s milk_records=%s deductions=%s",
-        union_code,
-        society_code,
-        farmer_code,
-        fromdate,
-        todate,
-        len(response.milk),
-        len(response.deduction),
+        "Milk collection aggregate: accounts=%s any_success=%s total_milk_records=%s",
+        len(accounts), any_success, total_milk,
     )
-    formatted = _format_milk_collection_summary(response)
-    return f"Milk collection details fetched successfully:\n\n{formatted}"
+    return f"Milk collection details fetched successfully:\n\n{body}"
