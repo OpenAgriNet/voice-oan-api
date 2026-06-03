@@ -10,7 +10,7 @@ from pydantic_ai import RunContext
 from agents.deps import FarmerContext
 from agents.models.ai_call import AICallRequestModel, AISpecies
 from agents.tools.farmer_animal_backends import create_ai_call_api
-from app.core.cache import cache
+from app.core.cache import cache, try_reserve, release_reservation
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -60,20 +60,6 @@ async def create_ai_call(
         logger.info("AI call blocked: query failed moderation; session=%s", session_id)
         return "This helpline only handles dairy farming and animal husbandry questions."
 
-    # Session-based cooldown: one booking per session per 30 minutes
-    if session_id:
-        cache_key = session_id
-        try:
-            existing = await cache.get(cache_key, namespace=AI_CALL_CACHE_NAMESPACE)
-            if existing:
-                logger.info("AI call already booked for session %s, skipping", session_id)
-                return (
-                    "This session already has an active artificial insemination booking. "
-                    "Please try again later or contact your society for assistance."
-                )
-        except Exception as e:
-            logger.warning("Failed to check AI call cooldown: %s", e)
-
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
         logger.error("PASHUGPT_TOKEN is not set")
@@ -86,8 +72,25 @@ async def create_ai_call(
         userId=user_id,
         species=species,
     )
+
+    # Atomic reservation immediately before the write: first caller wins; a
+    # concurrent/duplicate submit OR a fallback re-run for the same session
+    # short-circuits instead of double-booking (Redis SET NX, shared across
+    # containers). Released below if the booking API itself fails.
+    _reserved = False
+    if session_id:
+        if not await try_reserve(session_id, AI_CALL_CACHE_NAMESPACE, AI_CALL_COOLDOWN_TTL):
+            logger.info("AI call already booked/in-flight for session %s, skipping", session_id)
+            return (
+                "This session already has an active artificial insemination booking. "
+                "Please try again later or contact your society for assistance."
+            )
+        _reserved = True
+
     response = await create_ai_call_api(request, token)
     if response is None:
+        if _reserved:
+            await release_reservation(session_id, AI_CALL_CACHE_NAMESPACE)
         logger.info("AI call API failed for session=%s", session_id)
         return "Artificial insemination call booking failed. Unable to create booking at the moment."
 

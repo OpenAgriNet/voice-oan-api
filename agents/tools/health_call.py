@@ -9,7 +9,7 @@ from agents.deps import FarmerContext
 from agents.models.ai_call import AISpecies
 from agents.models.health_call import HealthCallRequestModel, HealthCaseType
 from agents.tools.farmer_animal_backends import create_health_call_api
-from app.core.cache import cache
+from app.core.cache import cache, try_reserve, release_reservation
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -61,19 +61,6 @@ async def create_health_call(
         logger.info("Health call blocked: query failed moderation; session=%s", session_id)
         return "This helpline only handles dairy farming and animal husbandry questions."
 
-    # Session cooldown: one booking per session; also idempotent on agent re-run.
-    if session_id:
-        try:
-            existing = await cache.get(session_id, namespace=HEALTH_CALL_CACHE_NAMESPACE)
-            if existing:
-                logger.info("Health call already booked for session %s, skipping", session_id)
-                return (
-                    "This session already has an active health call booking. "
-                    "Please try again later or contact your society for assistance."
-                )
-        except Exception as e:
-            logger.warning("Failed to check health call cooldown: %s", e)
-
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
         logger.error("PASHUGPT_TOKEN is not set")
@@ -88,8 +75,24 @@ async def create_health_call(
         remark=remark,
     )
 
+    # Atomic reservation immediately before the write: first caller wins; a
+    # concurrent/duplicate submit OR a fallback re-run for the same session
+    # short-circuits instead of double-booking (Redis SET NX, shared across
+    # containers). Released below if the booking API itself fails.
+    _reserved = False
+    if session_id:
+        if not await try_reserve(session_id, HEALTH_CALL_CACHE_NAMESPACE, HEALTH_CALL_COOLDOWN_TTL):
+            logger.info("Health call already booked/in-flight for session %s, skipping", session_id)
+            return (
+                "This session already has an active health call booking. "
+                "Please try again later or contact your society for assistance."
+            )
+        _reserved = True
+
     response = await create_health_call_api(request, token)
     if response is None:
+        if _reserved:
+            await release_reservation(session_id, HEALTH_CALL_CACHE_NAMESPACE)
         logger.info(
             "Health call API failed: session=%s union=%s society=%s farmer=%s species=%s case_type=%s",
             session_id,
