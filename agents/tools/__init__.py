@@ -49,7 +49,7 @@ BASE_TOOLS = [
     ),
     Tool(
         _with_nudge_signal(get_farmer_milk_collection_details),
-        takes_ctx=False,
+        takes_ctx=True,
         docstring_format='auto',
         require_parameter_descriptions=True,
     ),
