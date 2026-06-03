@@ -3,6 +3,21 @@ from typing import Optional, Literal
 from pydantic import BaseModel, Field, PrivateAttr
 
 
+class FarmerAccount(BaseModel):
+    """One (union, society, farmer) account tied to the caller's mobile.
+
+    A single mobile can map to several PashuGPT accounts (e.g. a separate
+    cow account and buffalo account). Milk-collection lookups fan out over
+    all of these so a farmer's data is never missed just because the agent
+    happened to pick the wrong account's codes.
+    """
+    union_code: Optional[str] = None
+    society_code: Optional[str] = None
+    farmer_code: Optional[str] = None
+    farmer_name: Optional[str] = None
+    society_name: Optional[str] = None
+
+
 class FarmerContext(BaseModel):
     """Context for the voice agent.
 
@@ -27,6 +42,10 @@ class FarmerContext(BaseModel):
     ai_technician_info: str = Field(default="", description="Pre-built internal AI technician context string.")
     signed_in: bool = Field(default=False, description="Whether the session is signed in/authenticated for farmer-specific tools.")
     mobile: Optional[str] = Field(default=None, description="Normalized mobile number when available.")
+    farmer_accounts: list[FarmerAccount] = Field(
+        default_factory=list,
+        description="All (union, society, farmer) accounts on the caller's mobile, for multi-account fan-out.",
+    )
 
     # Handle to the per-turn content-moderation task, which now runs concurrently
     # with the agent (see app.services.voice). Side-effecting tools await it via
