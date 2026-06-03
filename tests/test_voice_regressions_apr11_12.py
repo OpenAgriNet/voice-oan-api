@@ -111,6 +111,8 @@ def _set_voice_monkeypatches(
     signed_in_run_stream_override=None,
     normalize_phone_override=None,
     farmer_data_override=None,
+    moderation_override=None,
+    non_meaningful_override=None,
 ):
     from agents import voice as voice_agent_module
     from app.services import voice as voice_module
@@ -141,6 +143,24 @@ def _set_voice_monkeypatches(
             return "મને તમારો પ્રશ્ન સમજાયો નથી. કૃપા કરીને ફરીથી પૂછો."
         return text_en
 
+    async def _check_moderation(*args, **kwargs):
+        from app.services.moderation import ModerationVerdict
+
+        return ModerationVerdict(
+            category="in_scope",
+            reason="test allow",
+            failed_open=False,
+        )
+
+    async def _check_non_meaningful_streak(*args, **kwargs):
+        from app.services.non_meaningful import NonMeaningfulVerdict
+
+        return NonMeaningfulVerdict(
+            five_consecutive_non_meaningful=False,
+            reason="test allow",
+            failed_open=False,
+        )
+
     def _capture_tool_call_event(event):
         if tool_event_box is not None:
             tool_event_box["event"] = event
@@ -162,7 +182,19 @@ def _set_voice_monkeypatches(
     monkeypatch.setattr(voice_module, "send_nudge_message_raya", _send_nudge_message_raya)
     monkeypatch.setattr(voice_module, "_render_text_for_caller", _render_text_for_caller)
     monkeypatch.setattr(voice_module, "set_tool_call_nudge_event", _capture_tool_call_event)
+    monkeypatch.setattr(
+        voice_module,
+        "check_moderation",
+        moderation_override if moderation_override is not None else _check_moderation,
+    )
+    monkeypatch.setattr(
+        voice_module,
+        "check_non_meaningful_streak",
+        non_meaningful_override if non_meaningful_override is not None else _check_non_meaningful_streak,
+    )
     monkeypatch.setattr(voice_module.settings, "nudge_timeout_seconds", 0.02, raising=False)
+    monkeypatch.setattr(voice_module.settings, "voice_non_meaningful_timeout_seconds", 0.05, raising=False)
+    monkeypatch.setattr(voice_module.settings, "voice_non_meaningful_gate_timeout_seconds", 0.01, raising=False)
     return voice_module
 
 
@@ -182,6 +214,8 @@ async def _collect_stream(
     signed_in_run_stream_override=None,
     normalize_phone_override=None,
     farmer_data_override=None,
+    moderation_override=None,
+    non_meaningful_override=None,
 ):
     history_store: dict[str, list] = {}
     voice_module = _set_voice_monkeypatches(
@@ -194,6 +228,8 @@ async def _collect_stream(
         signed_in_run_stream_override=signed_in_run_stream_override,
         normalize_phone_override=normalize_phone_override,
         farmer_data_override=farmer_data_override,
+        moderation_override=moderation_override,
+        non_meaningful_override=non_meaningful_override,
     )
     chunks: list[str] = []
     async for chunk in voice_module.stream_voice_message(
@@ -1150,3 +1186,112 @@ class TestMultiTurnFlows:
 
         assert "feedback" not in second_output.lower()
         assert all("કેટલો ઉપયોગી" not in getattr(part, "content", "") for msg in second_history for part in getattr(msg, "parts", []))
+
+    def test_non_meaningful_five_turn_streak_emits_goodbye(self, monkeypatch):
+        from app.services.non_meaningful import NonMeaningfulVerdict
+
+        captured_turns = {"value": []}
+
+        async def _non_meaningful_true(user_turns, source_lang):
+            captured_turns["value"] = user_turns
+            return NonMeaningfulVerdict(
+                five_consecutive_non_meaningful=True,
+                reason="five filler turns",
+                failed_open=False,
+            )
+
+        history = []
+        for filler in ["હા", "ઓકે", "હમ્મ", "બરાબર"]:
+            history.extend(_make_agent_messages(filler, "સમજાયું."))
+
+        output, saved_history = asyncio.run(
+            _collect_stream(
+                query="હા",
+                session_id="multiturn-non-meaningful-hangup",
+                history=history,
+                monkeypatch=monkeypatch,
+                response_stream=_FakeResponseStream(
+                    chunks=["This should not stream"],
+                    new_messages=_make_agent_messages("yes", "This should not stream"),
+                ),
+                source_lang="gu",
+                target_lang="en",
+                non_meaningful_override=_non_meaningful_true,
+            )
+        )
+
+        assert output.strip() == "Goodbye."
+        assert len(captured_turns["value"]) == 5
+        saved_text = " ".join(
+            getattr(part, "content", "")
+            for msg in saved_history
+            for part in getattr(msg, "parts", [])
+            if isinstance(getattr(part, "content", None), str)
+        )
+        assert "Goodbye." in saved_text
+
+    def test_non_meaningful_timeout_fails_open_and_streams_agent_output(self, monkeypatch):
+        from app.services import voice as voice_module
+
+        async def _slow_non_meaningful(*args, **kwargs):
+            await asyncio.sleep(0.2)
+            raise AssertionError("should be canceled before finishing")
+
+        monkeypatch.setattr(voice_module.settings, "voice_non_meaningful_gate_timeout_seconds", 0.01, raising=False)
+
+        output, _ = asyncio.run(
+            _collect_stream(
+                query="My cow has fever",
+                session_id="multiturn-non-meaningful-timeout",
+                history=[],
+                monkeypatch=monkeypatch,
+                response_stream=_FakeResponseStream(
+                    chunks=["Please contact a veterinarian."],
+                    new_messages=_make_agent_messages("My cow has fever", "Please contact a veterinarian."),
+                ),
+                source_lang="en",
+                target_lang="en",
+                non_meaningful_override=_slow_non_meaningful,
+            )
+        )
+
+        assert "Please contact a veterinarian." in output
+        assert "Goodbye." not in output
+
+    def test_moderation_reject_still_wins_over_non_meaningful(self, monkeypatch):
+        from app.services.moderation import ModerationVerdict
+        from app.services.non_meaningful import NonMeaningfulVerdict
+
+        async def _moderation_reject(*args, **kwargs):
+            return ModerationVerdict(
+                category="irrelevant",
+                reason="off topic",
+                failed_open=False,
+            )
+
+        async def _non_meaningful_true(*args, **kwargs):
+            return NonMeaningfulVerdict(
+                five_consecutive_non_meaningful=True,
+                reason="five filler turns",
+                failed_open=False,
+            )
+
+        output, _ = asyncio.run(
+            _collect_stream(
+                query="movie recommendation please",
+                session_id="multiturn-moderation-still-works",
+                history=[],
+                monkeypatch=monkeypatch,
+                response_stream=_FakeResponseStream(
+                    chunks=["This should never be emitted"],
+                    new_messages=_make_agent_messages("movie recommendation please", "This should never be emitted"),
+                ),
+                source_lang="en",
+                target_lang="en",
+                moderation_override=_moderation_reject,
+                non_meaningful_override=_non_meaningful_true,
+            )
+        )
+
+        assert "Goodbye." not in output
+        assert "This helpline answers questions about animal health, dairy, and farming." in output
