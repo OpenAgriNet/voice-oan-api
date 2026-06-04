@@ -9,9 +9,15 @@ from agents.deps import FarmerContext
 from agents.models.ai_call import AISpecies
 from agents.models.health_call import HealthCallRequestModel, HealthCaseType
 from agents.tools.farmer_animal_backends import create_health_call_api
+from app.core.cache import cache, try_reserve, release_reservation
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
+
+# One booking per session per 30 min (mirrors create_ai_call). Also makes this
+# tool idempotent against an agent re-run (OSS->managed streaming fallback).
+HEALTH_CALL_COOLDOWN_TTL = 60 * 30  # 30 minutes
+HEALTH_CALL_CACHE_NAMESPACE = "health_call_booked"
 
 
 async def create_health_call(
@@ -69,8 +75,24 @@ async def create_health_call(
         remark=remark,
     )
 
+    # Atomic reservation immediately before the write: first caller wins; a
+    # concurrent/duplicate submit OR a fallback re-run for the same session
+    # short-circuits instead of double-booking (Redis SET NX, shared across
+    # containers). Released below if the booking API itself fails.
+    _reserved = False
+    if session_id:
+        if not await try_reserve(session_id, HEALTH_CALL_CACHE_NAMESPACE, HEALTH_CALL_COOLDOWN_TTL):
+            logger.info("Health call already booked/in-flight for session %s, skipping", session_id)
+            return (
+                "This session already has an active health call booking. "
+                "Please try again later or contact your society for assistance."
+            )
+        _reserved = True
+
     response = await create_health_call_api(request, token)
     if response is None:
+        if _reserved:
+            await release_reservation(session_id, HEALTH_CALL_CACHE_NAMESPACE)
         logger.info(
             "Health call API failed: session=%s union=%s society=%s farmer=%s species=%s case_type=%s",
             session_id,
@@ -81,6 +103,18 @@ async def create_health_call(
             case_type.value,
         )
         return "Health call booking failed.\n\nUnable to create health call at the moment."
+
+    # Mark this session as booked so a re-run (or retry) does not double-book.
+    if session_id:
+        try:
+            await cache.set(
+                session_id,
+                {"ticket": response.ticket_number, "species": species.value},
+                ttl=HEALTH_CALL_COOLDOWN_TTL,
+                namespace=HEALTH_CALL_CACHE_NAMESPACE,
+            )
+        except Exception as e:
+            logger.warning("Failed to set health call cooldown: %s", e)
 
     ticket_number = response.ticket_number
     logger.info(
