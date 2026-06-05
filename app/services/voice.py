@@ -144,14 +144,6 @@ def _langfuse_kv_tags(**key_values: object) -> list[str]:
     return tags
 
 
-def _sse_encode(text: str) -> str:
-    """Format a payload as one SSE event (see docs/VOICE_API_DOCUMENTATION.md)."""
-    lines = (text or "").splitlines()
-    if not lines:
-        return "data: \n\n"
-    return "".join(f"data: {line}\n" for line in lines) + "\n"
-
-
 # Default trim history configuration for voice endpoints
 def _trim_voice_history(history: list) -> list:
     """
@@ -227,6 +219,7 @@ async def _run_voice_agent(
             )
         return VoiceAgentRun(response=response, langfuse_model=_langfuse_azure_model())
 
+
 async def stream_voice_message(
     query: str,
     session_id: str,
@@ -296,8 +289,8 @@ async def stream_voice_message(
         trimmed_history = _trim_voice_history(history)
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
-        # One-shot SSE: clients expect `data: ...\n\n` (not raw text). Use `run()` so tool loops
-        # finish reliably on OpenAI-compatible vLLM; `run_stream`/`get_output` can omit text there.
+        # Plain-text one-shot response via run(), not run_stream(). On pydantic-ai 0.2.4
+        # with vLLM (e.g. Qwen), run_stream omits final text after tool-call loops.
         final_text = ""
         new_messages: list = []
         lf_client = get_langfuse()
@@ -347,12 +340,10 @@ async def stream_voice_message(
                 session_id,
                 len(final_text),
             )
-            yield _sse_encode(final_text)
+            yield final_text
         except Exception:
             logger.exception("Voice agent run failed for session %s", session_id)
-            yield _sse_encode(
-                "क्षमा करा, प्रतिसाद तयार करता आला नाही. कृपया पुन्हा प्रयत्न करा."
-            )
+            yield "क्षमा करा, प्रतिसाद तयार करता आला नाही. कृपया पुन्हा प्रयत्न करा."
 
         messages = [
             *history,
