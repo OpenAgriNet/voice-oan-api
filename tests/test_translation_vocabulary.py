@@ -74,8 +74,6 @@ class TestForbiddenReplacements:
         ("ટોળામાં", "ધણમાં"),
         # Fodder — [52, 523] ચારોની→ચારાની
         ("ચારોની", "ચારાની"),
-        # Calf terms — [31] પાડુના→બચ્ચાંના
-        ("પાડુના", "બચ્ચાંના"),
         # Bull — [11] બળદ→બુલ
         ("બળદ", "બુલ"),
         # Dairy product terms — [130, 132, 133]
@@ -453,10 +451,10 @@ class TestIdentityPhrases:
     """
 
     @pytest.mark.parametrize("wrong_phrase, correct_phrase, feedback_ids", [
-        # [377, 430, 419] "આવી છું" → "બોલું છું"
-        ("અમૂલ એ.આઈ.માંથી આવી છું", "અમૂલ એ.આઈ.માંથી બોલું છું", [377, 430, 419]),
-        # [378] Long intro → short intro
-        ("દૂધાળાં પશુઓ માટે મદદ કરવા આવી છું", "તમારા પશુઓ માટે શું મદદ કરી શકું", [378]),
+        # [377, 430, 419] "આવી છું" → "બોલી રહી છું"
+        ("અમૂલ એ.આઈ.માંથી આવી છું", "અમૂલ એ.આઈ.માંથી બોલી રહી છું", [377, 430, 419]),
+        # [378] Long intro → short intro (feminine self-reference)
+        ("દૂધાળાં પશુઓ માટે મદદ કરવા આવી છું", "તમારા પશુઓ માટે શું મદદ કરી શકતી", [378]),
     ])
     def test_identity_phrase_documented(self, wrong_phrase, correct_phrase, feedback_ids):
         """Document preferred introduction phrasing from feedback #{feedback_ids}."""
@@ -515,3 +513,56 @@ class TestMissingQuantityRepair:
         result = normalize_gu("લીલો ચારો તરીકે બરબા આપો.")
         assert "બરસીમ" in result
         assert "બરબા" not in result
+
+
+class TestSarlabenFeminineSelfReference:
+    """Bounded guardrails for Sarlaben first-person Gujarati phrasing."""
+
+    @pytest.mark.parametrize(
+        "text, expected, forbidden",
+        [
+            ("હું મદદ કરી શકું નથી.", "શકતી નથી", "શકું નથી"),
+            ("હું મદદ કરી શકું છું.", "શકતી છું", "શકું છું"),
+            ("હું કાલે ફરીથી કરું.", "કરૂં", "કરું"),
+            ("હું કાલે ફરી આવું છું.", "આવી છું", "આવું છું"),
+        ],
+    )
+    def test_self_reference_forms_are_feminized(self, text, expected, forbidden):
+        result = normalize_gu(text)
+        assert expected in result
+        assert forbidden not in result
+
+    def test_non_self_reference_quote_is_not_rewritten(self):
+        text = "ખેડૂતે કહ્યું: 'હું મદદ કરી શકું નથી.'"
+        result = normalize_gu(text)
+        assert "શકું નથી" in result
+        assert "શકતી નથી" not in result
+
+    def test_caller_address_stripping_and_feminine_guard_compose(self):
+        text = "મેડમ, હું મદદ કરી શકું નથી."
+        result = normalize_gu(text)
+        assert "મેડમ" not in result
+        assert "શકતી નથી" in result
+        assert "શકું નથી" not in result
+
+
+class TestCalfTerminologyDisambiguation:
+    """Protect buffalo calf wording from over-normalization."""
+
+    def test_post_normalization_keeps_paadu_form_when_species_is_unspecified(self):
+        text = "પાડુના ઉછેર માટે શું કરવું?"
+        result = normalize_gu(text)
+        assert "પાડુના" in result
+        assert "બચ્ચાંના" not in result
+
+    def test_glossary_has_generic_bovine_calf_entry(self):
+        glossary = json.loads(GLOSSARY_PATH.read_text(encoding="utf-8"))
+        match = next((entry for entry in glossary if entry["en"] == "Calf (bovine generic)"), None)
+        assert match is not None
+        assert match["gu"] == "બચ્ચું/વાછરડું"
+
+    def test_glossary_has_buffalo_calf_specific_entries(self):
+        glossary = json.loads(GLOSSARY_PATH.read_text(encoding="utf-8"))
+        by_en = {entry["en"]: entry["gu"] for entry in glossary}
+        assert by_en["Buffalo calf (generic)"] == "પાડુ/પાડું"
+        assert by_en["Buffalo calf (female/male)"] == "પાડી/પાડો"

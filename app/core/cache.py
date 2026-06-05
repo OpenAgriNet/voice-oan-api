@@ -44,6 +44,32 @@ def build_cache_key(key: str, namespace: str | None = None) -> str:
         return f"{settings.redis_key_prefix}{namespace}:{key}"
     return f"{settings.redis_key_prefix}{key}"
 
+
+async def try_reserve(key: str, namespace: str, ttl: int) -> bool:
+    """Atomically reserve a key (Redis SET NX). Returns True if newly reserved
+    (caller owns it and should proceed), False if a reservation already exists
+    (caller should skip). On a cache error, returns True (proceed UNGUARDED) — a
+    booking must not be blocked by a transient cache blip. Makes side-effecting
+    tools safe against concurrent duplicate submits + fallback re-runs across
+    containers (shared Redis)."""
+    try:
+        await cache.add(key, True, ttl=ttl, namespace=namespace)
+        return True
+    except ValueError:
+        return False
+    except Exception as e:  # cache unavailable -> fail-open on the guard
+        logger.warning("Reservation add failed (%s:%s): %s; proceeding unguarded", namespace, key, str(e))
+        return True
+
+
+async def release_reservation(key: str, namespace: str) -> None:
+    """Release a reservation so a genuine retry can proceed (e.g. the booking API
+    call failed). Best-effort."""
+    try:
+        await cache.delete(key, namespace=namespace)
+    except Exception as e:
+        logger.warning("Reservation release failed (%s:%s): %s", namespace, key, str(e))
+
 logger.info(
     f"Cache configured with Redis at {settings.redis_host}:{settings.redis_port} "
     f"(DB: {settings.redis_db}, Prefix: {settings.redis_key_prefix}, "

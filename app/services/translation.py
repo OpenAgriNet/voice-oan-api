@@ -73,7 +73,7 @@ def _get_oss_pretranslation_client() -> AsyncOpenAI:
 GU_PREFERRED_TRANSLATION_RULES = [
     "Use farmer-preferred Gujarati livestock terms.",
     "Address the caller respectfully with gender-neutral 'આપ' forms; never infer the caller's gender.",
-    "Sarlaben must always use feminine self-reference in Gujarati.",
+    "Sarlaben must always use feminine self-reference in Gujarati (e.g. શકતી છું, કરૂં, આપી શકતી છું — never શકું, કરું, આવું).",
     "Keep the tone professional, cordial, and detached; do not become overly familiar or chatty.",
     "Do not translate English address markers such as sister, brother, bhai, ben, madam, or sir into caller labels like બહેન, ભાઈ, મેડમ, or સાહેબ. Use respectful gender-neutral 'આપ' wording instead.",
     "If the English source mentions 'sister' because the caller addressed Sarlaben, do not call the caller બહેન. Omit the address marker or render it as a neutral reference to સરલાબેન only when necessary.",
@@ -167,8 +167,40 @@ GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?<![^\s,।.!?])બ(?:હેન|ેન)(?=\s*[,।!?]|\s|$)"), ""),
     # "સાહેબ" as caller address
     (re.compile(r"(?<![^\s,।.!?])સ(?:ા)?હ(?:ે)?બ(?=\s*[,।!?]|\s|$)"), ""),
+    # "સર" as caller address
+    (re.compile(r"(?<![^\s,।.!?])સર(?=\s*[,।!?]|\s|$)"), ""),
     # "મેડમ" / "મૅડમ" / "મૅડ" as caller address
     (re.compile(r"(?<![^\s,।.!?])મ(?:ે|ૅ|ૅ)ડ(?:મ|)(?=\s*[,।!?]|\s|$)"), ""),
+]
+
+# Enforce feminine first-person self-reference in Gujarati assistant output.
+# This runs on every Gujarati assistant response, so keep it narrow:
+# explicit sentence-level "હું ... " forms only, no blanket token rewrites.
+GU_FEMININE_SELF_REFERENCE_REPLACEMENTS: list[tuple[re.Pattern, str]] = [
+    (
+        re.compile(
+            r"(^|[,।.!?]\s+)\s*હું(?P<body>[^.!?\n]{0,80}?)શકું\s+ન(?:થી|હીં|હિ)(?=\s|[,।.!?]|$)"
+        ),
+        r"\1હું\g<body>શકતી નથી",
+    ),
+    (
+        re.compile(
+            r"(^|[,।.!?]\s+)\s*હું(?P<body>[^.!?\n]{0,80}?)શકું\s+છું(?=\s|[,।.!?]|$)"
+        ),
+        r"\1હું\g<body>શકતી છું",
+    ),
+    (
+        re.compile(
+            r"(^|[,।.!?]\s+)\s*હું(?P<body>[^.!?\n]{0,80}?)કરું(?=\s|[,।.!?]|$)"
+        ),
+        r"\1હું\g<body>કરૂં",
+    ),
+    (
+        re.compile(
+            r"(^|[,।.!?]\s+)\s*હું(?P<body>[^.!?\n]{0,80}?)આવું\s+છું(?=\s|[,।.!?]|$)"
+        ),
+        r"\1હું\g<body>આવી છું",
+    ),
 ]
 
 GU_WORD_BOUNDARY_START = r"(?<![\u0A80-\u0AFF])"
@@ -251,6 +283,12 @@ def _post_normalize_gu_translation(
     # Strip gendered address terms (ભાઈ, બહેન, સાહેબ, મેડમ, સર) directed at
     # the caller before the text reaches TTS.
     for pat, repl in GU_GENDER_NEUTRAL_POST:
+        out = pat.sub(repl, out)
+
+    # -- Feminine self-reference guard --------------------------------------
+    # Runs on all Gujarati assistant output; patterns must remain
+    # self-reference-safe and deterministic.
+    for pat, repl in GU_FEMININE_SELF_REFERENCE_REPLACEMENTS:
         out = pat.sub(repl, out)
 
     # -- Scaffold collapse: "Label: value\nLabel: value" → spoken flow ------

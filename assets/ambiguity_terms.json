@@ -478,6 +478,17 @@
   },
   {
     "gu_terms": [
+      "પાડુ",
+      "પાડું",
+      "padu",
+      "paduu",
+      "padoo"
+    ],
+    "type": "hardcode",
+    "rule": "'પાડુ/પાડું' may refer to a calf in farmer speech, often buffalo but sometimes cow-context usage exists. Do not force a species unless context is explicit. If nearby context indicates buffalo (e.g., ભેંસ), translate as buffalo calf. If species is missing and species choice is NOT required for the current response, use neutral 'calf'. Ask a short cow-vs-buffalo clarification only when species-specific advice (dose, breeding timing, breed-specific guidance, or service booking) is needed."
+  },
+  {
+    "gu_terms": [
       "ભેંસ",
       "ભેંસને",
       "ભેંસો",

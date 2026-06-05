@@ -113,7 +113,7 @@ def _set_identity_monkeypatches(monkeypatch, *, response_stream: _FakeResponseSt
     monkeypatch.setattr(voice_module, "update_message_history", _update_message_history)
     monkeypatch.setattr(voice_module, "send_nudge_message_raya", _send_nudge_message_raya)
     monkeypatch.setattr(voice_module, "_render_text_for_caller", _render_text_for_caller)
-    monkeypatch.setattr(voice_module, "get_timeout_nudge_message", lambda lang_code="gu": "હું જવાબ લઈને પાછી આવું છું, કૃપા કરીને થોડી રાહ જુઓ.")
+    monkeypatch.setattr(voice_module, "get_timeout_nudge_message", lambda lang_code="gu": "હું જવાબ લઈને પાછી આવી રહી છું, કૃપા કરીને થોડી રાહ જુઓ.")
     monkeypatch.setattr(voice_module, "get_tool_nudge_message", lambda lang_code="gu": "હું તપાસી રહી છું, કૃપા કરીને થોડી રાહ જુઓ.")
     monkeypatch.setattr(voice_module.settings, "nudge_timeout_seconds", 0.02, raising=False)
 

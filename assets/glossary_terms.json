@@ -565,9 +565,9 @@
     "transliteration": "Pado"
   },
   {
-    "en": "buffalo calf (male/female)",
-    "gu": "પાડું",
-    "transliteration": "buffalo calf (male/female)"
+    "en": "Buffalo calf (generic)",
+    "gu": "પાડુ/પાડું",
+    "transliteration": "padu / padu"
   },
   {
     "en": "Bull",
@@ -625,9 +625,9 @@
     "transliteration": "કેલ્શિયમ સારવાર"
   },
   {
-    "en": "Calf",
-    "gu": "પાડુ/વાછરડું",
-    "transliteration": "Lavaru / Vachardu"
+    "en": "Calf (bovine generic)",
+    "gu": "બચ્ચું/વાછરડું",
+    "transliteration": "bachchu / vachharadu"
   },
   {
     "en": "Calf (female)",
@@ -1410,7 +1410,7 @@
     "transliteration": "Padi / Bhenso"
   },
   {
-    "en": "Female/Male Calf",
+    "en": "Buffalo calf (female/male)",
     "gu": "પાડી/પાડો",
     "transliteration": "padi / pado"
   },
@@ -3001,8 +3001,8 @@
   },
   {
     "en": "Retained placenta",
-    "gu": "માટી ન ખસવી",
-    "transliteration": "mati na khasavi"
+    "gu": "મેલી ન પડવી",
+    "transliteration": "meli na padvi"
   },
   {
     "en": "Retained Placenta (RP)",
