@@ -55,7 +55,7 @@ from app.services.stt_signals import (
     count_consecutive_stt_signals,
 )
 from app.services.moderation import ModerationVerdict, check_moderation
-from app.services.fallback import execute_with_fallback, stream_with_fallback
+from app.services.fallback import execute_with_fallback, stream_with_fallback, with_first_token_deadline
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
@@ -1889,7 +1889,7 @@ async def stream_voice_message(
                     # driven from a single task (see below) for anyio task-affinity.
                     _fb_holder: dict = {}
 
-                    async def _make_stream(attempt):
+                    async def _raw_stream(attempt):
                         async with active_agent.run_stream(
                             user_prompt=user_message,
                             message_history=model_input_history,
@@ -1900,6 +1900,14 @@ async def stream_voice_message(
                             async for _c in rs.stream_text(delta=True, debounce_by=0):
                                 yield _c
                             _fb_holder["new_messages"] = rs.new_messages()
+
+                    async def _make_stream(attempt):
+                        # Bound time-to-first-token (attempt.timeout) so a silent OSS
+                        # hang swaps to managed before the caller hears anything; the
+                        # deadline disarms after the first token, so a long mid-stream
+                        # gap (tool round-trip) keeps the model's 600s read-timeout.
+                        async for _c in with_first_token_deadline(attempt, _raw_stream(attempt)):
+                            yield _c
 
                     _src = stream_with_fallback(
                         pipeline="chat",
