@@ -464,7 +464,9 @@ async def weather_forecast(ctx: RunContext[FarmerContext], latitude: float, long
     """    
     try:
         # Send nudge message asynchronously without blocking
-        nudge_message = get_nudge_message("weather_forecast", ctx.deps.lang_code)
+        nudge_message = get_nudge_message(
+            "weather_forecast", ctx.deps.nudge_lang_code(), ctx.deps.session_id
+        )
         result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
         logger.info(f"Nudge message sent: {result}")
 
@@ -510,7 +512,9 @@ async def weather_historical(ctx: RunContext[FarmerContext], latitude: float, lo
     """    
     try:
         if ctx.deps.provider == "RAYA":
-            nudge_message = get_nudge_message("weather_historical", ctx.deps.lang_code)
+            nudge_message = get_nudge_message(
+                "weather_historical", ctx.deps.nudge_lang_code(), ctx.deps.session_id
+            )
             result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
             logger.info(f"Nudge message sent: {result}")
         # Send nudge message asynchronously without blocking

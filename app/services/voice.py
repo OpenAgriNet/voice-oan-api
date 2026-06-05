@@ -234,12 +234,14 @@ async def stream_voice_message(
     """Async generator for streaming chat messages."""
     # Generate a unique content ID for this query
     content_id = f"query_{session_id}_{len(history)//2 + 1}"
+    # Fallback scopes hold-message dedup to this request when the client omits process_id.
+    effective_process_id = process_id or content_id
     deps = FarmerContext(query=query,
                          lang_code=source_lang,
                          target_lang=target_lang,
                          provider=provider,
                          session_id=session_id,
-                         process_id=process_id
+                         process_id=effective_process_id
                          )
 
     tags = [
@@ -391,13 +393,14 @@ async def get_voice_message_with_translation(
         logger.info(f"Translated query: {translated_query}")
 
         # Use Marathi for the agent since we translated the query to `mr`
+        effective_process_id = process_id or f"query_{session_id}_{len(history)//2 + 1}"
         deps = FarmerContext(
             query=translated_query,
             lang_code='mr',
             target_lang='mr',
             provider=provider,
             session_id=session_id,
-            process_id=process_id
+            process_id=effective_process_id
         )
         if lf_obs is not None:
             deps.langfuse_trace_id = getattr(lf_obs, "trace_id", None)
