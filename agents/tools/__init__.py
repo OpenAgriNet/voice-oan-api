@@ -36,7 +36,7 @@ def _trace_tool(fn, *, name: str):
 TOOLS = [
     Tool(
         _trace_tool(search_terms, name="search_terms"),
-        takes_ctx=False,
+        takes_ctx=True,
     ),
     Tool(
         _trace_tool(search_documents, name="search_documents"),
