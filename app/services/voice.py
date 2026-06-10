@@ -277,6 +277,13 @@ _HISTORY_MARKERS = {
     "moderation_reject": "[moderation-rejected]",
 }
 
+# Markers that are dropped from the non-meaningful window entirely (neither
+# counted nor streak-breaking). Excluded turns are skipped, so "5 consecutive
+# non-meaningful turns" means consecutive among *eligible* turns — a
+# pretranslation/moderation system turn in the middle does not reset the streak.
+# fragment / unclear / no-audio / stt markers are intentionally NOT excluded:
+# they represent genuinely unclear caller turns and should count toward a
+# hangup (the prompt documents them as non-meaningful system markers).
 _NON_MEANINGFUL_EXCLUDED_TURNS = frozenset(
     {
         #_HISTORY_MARKERS["fragment"],
@@ -1643,6 +1650,16 @@ async def stream_voice_message(
                         if not done:
                             for pending_task in pending:
                                 pending_task.cancel()
+                            # Reap the cancellation. asyncio.wait() does not await
+                            # the pending task for us, so without this the classifier
+                            # task lingers cancelled-but-unawaited on the normal agent
+                            # success path (which never calls the reaper), risking a
+                            # "Task was destroyed but it is pending" warning.
+                            for pending_task in pending:
+                                try:
+                                    await pending_task
+                                except asyncio.CancelledError:
+                                    pass
                             _non_meaningful_verdict = NonMeaningfulVerdict(
                                 five_consecutive_non_meaningful=False,
                                 reason="gate timeout",

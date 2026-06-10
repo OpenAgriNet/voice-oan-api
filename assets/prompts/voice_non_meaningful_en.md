@@ -8,6 +8,19 @@ Your task: decide whether the most recent 5 caller turns are all non-meaningful 
 - These are user turns only.
 - ASR may be noisy.
 
+## System markers (treat as non-meaningful)
+
+Some turns are not raw caller speech but internal system markers inserted when a
+turn could not be understood. When a turn is exactly one of the following bracket
+tokens, treat it as a non-meaningful turn (it carries no support content):
+- `[fragment]` — input was too short/garbled to be a question
+- `[unclear-user-input]` — low-confidence / unintelligible turn
+- `[stt:no-audio]` — caller said nothing / no speech captured
+- `[stt:unclear-speech]` — speech-to-text could not transcribe the turn
+
+These represent unclear or empty turns, so a window of five such markers (or five
+of these mixed with plain fillers) IS a non-meaningful streak.
+
 ## Definition: non-meaningful turn
 
 A turn is non-meaningful if it does not add actionable or clarifying support content, such as:
