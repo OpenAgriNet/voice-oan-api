@@ -2,6 +2,7 @@
 
 import os
 import re
+from pathlib import Path
 from typing import List, Dict
 import logging
 import boto3
@@ -18,8 +19,11 @@ load_dotenv()
 
 # Module-level caches: avoid re-creating expensive objects on every call.
 _TOKEN_ENCODER = tiktoken.get_encoding('cl100k_base')
+# Resolve the prompts directory to an absolute path so the FileSystemLoader
+# works regardless of the process CWD (local uvicorn vs. supervisord in Docker).
+_DEFAULT_PROMPT_DIR = str(Path(__file__).resolve().parent.parent / "assets" / "prompts")
 _PROMPT_ENV: Environment | None = None
-_PROMPT_DIR: str = "assets/prompts"
+_PROMPT_DIR: str = _DEFAULT_PROMPT_DIR
 
 
 def get_s3_client():
@@ -195,7 +199,7 @@ def post_process_translation(translation: str) -> str:
 
 
 
-def get_prompt(prompt_file: str, context: Dict = {}, prompt_dir: str = "assets/prompts") -> str:
+def get_prompt(prompt_file: str, context: Dict = {}, prompt_dir: str = _DEFAULT_PROMPT_DIR) -> str:
     """Load a prompt from a file and format it with a context using Jinja2 templating.
 
     Args:

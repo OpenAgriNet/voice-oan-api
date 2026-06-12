@@ -1,5 +1,6 @@
 import json
 import asyncio
+from pathlib import Path
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -7,9 +8,20 @@ from pydantic_ai import ModelRetry, RunContext
 from rapidfuzz import fuzz
 
 from agents.deps import FarmerContext
+from helpers.utils import get_logger
 
-# Load term pairs from JSON file with UTF-8 encoding
-term_pairs = json.load(open('assets/glossary_terms.json', 'r', encoding='utf-8'))
+logger = get_logger(__name__)
+
+# Load term pairs from JSON file with UTF-8 encoding. Use an absolute path
+# derived from __file__ so this works regardless of the process CWD (which
+# differs between local uvicorn and the supervisord-launched container).
+_GLOSSARY_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "glossary_terms.json"
+try:
+    with open(_GLOSSARY_PATH, "r", encoding="utf-8") as _f:
+        term_pairs = json.load(_f)
+except FileNotFoundError:
+    logger.error(f"glossary_terms.json not found at {_GLOSSARY_PATH}; search_terms disabled")
+    term_pairs = []
 
 MAX_SEARCH_TERMS_CALLS = 5
 

@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+from pathlib import Path
 from datetime import datetime, timezone
 from helpers.utils import get_logger
 import httpx
@@ -10,9 +11,15 @@ from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from langfuse import observe
 logger = get_logger(__name__)
 
-# Load scheme list once at module level
-with open('assets/scheme_list.json', 'r', encoding='utf-8') as _f:
-    SCHEME_LIST = json.load(_f)
+# Load scheme list once at module level. Use an absolute path derived from
+# __file__ so this works regardless of the process CWD.
+_SCHEME_LIST_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "scheme_list.json"
+try:
+    with open(_SCHEME_LIST_PATH, "r", encoding="utf-8") as _f:
+        SCHEME_LIST = json.load(_f)
+except FileNotFoundError:
+    logger.error(f"scheme_list.json not found at {_SCHEME_LIST_PATH}; scheme tools will return errors")
+    SCHEME_LIST = []
 
 _scheme_codes_set = {s["scheme_code"] for s in SCHEME_LIST}
 STATE_SCHEMES = {s["scheme_code"] for s in SCHEME_LIST if s.get("type") == "state"}

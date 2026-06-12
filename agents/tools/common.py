@@ -2,6 +2,7 @@ import os
 import json
 import random
 import asyncio
+from pathlib import Path
 import httpx
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
@@ -17,8 +18,22 @@ _last_nudge_by_session: dict[tuple[str, str], str] = {}
 _nudge_sent_this_turn: set[str] = set()
 _nudge_turn_locks: dict[str, asyncio.Lock] = {}
 
-# NOTE: No need to cache right now.
-# Loading a small json and finding the message for the tool and language code should be very fast anyway now.
+# Load nudge messages once at import time so a missing file (or wrong CWD on
+# the server) surfaces at startup rather than on every tool call. Using an
+# absolute path derived from __file__ also makes this resilient to the
+# working directory the process happens to be launched from.
+_NUDGE_MESSAGES_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "nudge_messages.json"
+try:
+    with open(_NUDGE_MESSAGES_PATH, "r", encoding="utf-8") as _f:
+        _NUDGE_DATA: dict = json.load(_f)
+except FileNotFoundError:
+    logger.error(f"nudge_messages.json not found at {_NUDGE_MESSAGES_PATH}; nudge messages disabled")
+    _NUDGE_DATA = {}
+
+_NUDGE_FALLBACK = ""
+
+# Bounded LRU for stale turn keys so _nudge_sent_this_turn doesn't grow without bound.
+_NUDGE_TURN_MAX = 10_000
 
 
 def _turn_key(session_id: str, process_id: str | None) -> str:
@@ -37,14 +52,18 @@ def get_nudge_message(
     session_id: str | None = None,
 ) -> str:
     """Get a nudge message for a specific tool and action in the specified language.
-    Load json and then return the message for the tool and language code.
+    The JSON is loaded once at module import. If the tool/language combo is missing,
+    returns an empty string so callers can still proceed.
     If the message is a list (e.g. mr variants), one is chosen at random.
     When session_id is set, the last message used for that session+tool is skipped
     so consecutive tool calls in the same session get a different hold line.
     """
-    with open('assets/nudge_messages.json', 'r') as f:
-        nudge_data = json.load(f)
-    message = nudge_data[tool][lang_code]
+    tool_messages = _NUDGE_DATA.get(tool) if _NUDGE_DATA else None
+    if not tool_messages:
+        return _NUDGE_FALLBACK
+    message = tool_messages.get(lang_code) or tool_messages.get("en") or _NUDGE_FALLBACK
+    if not message:
+        return _NUDGE_FALLBACK
     if not isinstance(message, list):
         return message
 
@@ -73,6 +92,11 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
         prefix = f"{session_id}:"
         for stale in [k for k in list(_nudge_sent_this_turn) if k.startswith(prefix) and k != key]:
             _nudge_sent_this_turn.discard(stale)
+        # Bound the set so it doesn't grow without bound across many sessions.
+        if len(_nudge_sent_this_turn) > _NUDGE_TURN_MAX:
+            # Drop ~10% of the oldest entries (FIFO).
+            for stale in list(_nudge_sent_this_turn)[: _NUDGE_TURN_MAX // 10]:
+                _nudge_sent_this_turn.discard(stale)
 
     try:
         nudge_url = settings.nudge_api_url
