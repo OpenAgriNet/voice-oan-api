@@ -167,8 +167,10 @@ GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?<![^\s,।.!?])બ(?:હેન|ેન)(?=\s*[,।!?]|\s|$)"), ""),
     # "સાહેબ" as caller address
     (re.compile(r"(?<![^\s,।.!?])સ(?:ા)?હ(?:ે)?બ(?=\s*[,।!?]|\s|$)"), ""),
-    # "સર" as caller address
-    (re.compile(r"(?<![^\s,।.!?])સર(?=\s*[,।!?]|\s|$)"), ""),
+    # NOTE: do NOT add a bare "સર" strip here. TranslateGemma transliterates
+    # Sarlaben with a space ("સર લાબેન"), so any standalone-સર pattern clobbers
+    # her name and TTS speaks only "લાબેન" (removed in #127, regressed in #154).
+    # The translation prompt rules already discourage 'સર' as a caller label.
     # "મેડમ" / "મૅડમ" / "મૅડ" as caller address
     (re.compile(r"(?<![^\s,।.!?])મ(?:ે|ૅ|ૅ)ડ(?:મ|)(?=\s*[,।!?]|\s|$)"), ""),
 ]
@@ -280,7 +282,7 @@ def _post_normalize_gu_translation(
     out = re.sub(rf"([:：]\s*){_GU_PLACEHOLDER_RE}(?=\s|$)", r"\1", out)
 
     # -- Gender-neutral caller-address guard --------------------------------
-    # Strip gendered address terms (ભાઈ, બહેન, સાહેબ, મેડમ, સર) directed at
+    # Strip gendered address terms (ભાઈ, બહેન, સાહેબ, મેડમ) directed at
     # the caller before the text reaches TTS.
     for pat, repl in GU_GENDER_NEUTRAL_POST:
         out = pat.sub(repl, out)
