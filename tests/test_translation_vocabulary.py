@@ -545,6 +545,20 @@ class TestSarlabenFeminineSelfReference:
         assert "શકતી નથી" in result
         assert "શકું નથી" not in result
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # TranslateGemma transliterates Sarlaben with a space/comma; any
+            # bare-સર strip clobbers her name and TTS speaks only "લાબેન"
+            # (removed in #127, regressed in #154 — do not re-add).
+            "નમસ્તે, હું સર લાબેન છું.",
+            "સર લાબેન તમારી મદદ કરશે.",
+            "સર, તમારા પશુ વિશે જણાવો.",
+        ],
+    )
+    def test_sir_is_never_stripped(self, text):
+        assert "સર" in normalize_gu(text)
+
 
 class TestCalfTerminologyDisambiguation:
     """Protect buffalo calf wording from over-normalization."""
