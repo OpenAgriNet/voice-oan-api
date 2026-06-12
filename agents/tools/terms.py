@@ -1,4 +1,5 @@
 import json
+import asyncio
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -86,32 +87,26 @@ async def search_terms(
     if not 0 <= similarity_threshold <= 1:
         raise ValueError("similarity_threshold must be between 0 and 1")
 
-    matches = []
     text = text.lower()
+    lang = language
+    pairs = TERM_PAIRS
 
-    for term_pair in TERM_PAIRS:
-        max_score = 0
+    def _fuzzy_match() -> list[tuple[TermPair, float]]:
+        matches = []
+        for term_pair in pairs:
+            max_score = 0
+            if lang in [None, Language.ENGLISH]:
+                max_score = max(max_score, fuzz.ratio(text, term_pair.en.lower()) / 100.0)
+            if lang in [None, Language.MARATHI]:
+                max_score = max(max_score, fuzz.ratio(text, term_pair.mr.lower()) / 100.0)
+            if lang in [None, Language.TRANSLITERATION]:
+                max_score = max(max_score, fuzz.ratio(text, term_pair.transliteration.lower()) / 100.0)
+            if max_score >= similarity_threshold:
+                matches.append((term_pair, max_score))
+        matches.sort(key=lambda x: x[1], reverse=True)
+        return matches
 
-        # Check English term if no language specified or language is English
-        if language in [None, Language.ENGLISH]:
-            en_score = fuzz.ratio(text, term_pair.en.lower()) / 100.0
-            max_score = max(max_score, en_score)
-
-        # Check Marathi term if no language specified or language is Marathi
-        if language in [None, Language.MARATHI]:
-            mr_score = fuzz.ratio(text, term_pair.mr.lower()) / 100.0
-            max_score = max(max_score, mr_score)
-
-        # Check transliteration if no language specified or language is transliteration
-        if language in [None, Language.TRANSLITERATION]:
-            tr_score = fuzz.ratio(text, term_pair.transliteration.lower()) / 100.0
-            max_score = max(max_score, tr_score)
-
-        if max_score >= similarity_threshold:
-            matches.append((term_pair, max_score))
-
-    # Sort by score descending
-    matches.sort(key=lambda x: x[1], reverse=True)
+    matches = await asyncio.to_thread(_fuzzy_match)
 
     if len(matches) > 0:
         matches = matches[:max_results]

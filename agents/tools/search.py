@@ -2,6 +2,7 @@
 Marqo client implementation for vector search.
 """
 import os
+import asyncio
 import re
 import marqo
 from typing import Optional, Literal
@@ -66,21 +67,19 @@ async def search_documents(
         nudge_message = get_nudge_message(
             "search_documents", ctx.deps.nudge_lang_code(), ctx.deps.session_id
         )
-        result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-        logger.info(f"Nudge message sent: {result}")
+        result = asyncio.create_task(
+            send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+        )
 
         # Initialize Marqo client
         endpoint_url = os.getenv('MARQO_ENDPOINT_URL')
         if not endpoint_url:
             raise ValueError("Marqo endpoint URL is required")
-        
+
         index_name = os.getenv('MARQO_INDEX_NAME', 'sunbird-va-index')
         if not index_name:
             raise ValueError("Marqo index name is required")
-        
-        client = marqo.Client(url=endpoint_url)
-        logger.info(f"Searching for '{query}' in index '{index_name}'")
-        
+
         # Default to all types if none specified
         if type is None:
             filter_string = f"type:video OR type:document"
@@ -88,8 +87,9 @@ async def search_documents(
             filter_string = f"type:{type}"
 
         filter_string = f"({filter_string})"
-            
-        # Perform search
+
+        # Perform search — Marqo client is sync, run in a thread so the event loop
+        # stays free and parallel tool calls can interleave.
         search_params = {
             "q": query,
             "limit": top_k,
@@ -100,16 +100,21 @@ async def search_documents(
                 "rankingMethod": "rrf",
                 "alpha": 0.5,
                 "rrfK": 60,
-            },        
+            },
         }
-        
-        results = client.index(index_name).search(**search_params)['hits']
-        
+
+        def _do_search():
+            client = marqo.Client(url=endpoint_url)
+            logger.info(f"Searching for '{query}' in index '{index_name}'")
+            return client.index(index_name).search(**search_params)['hits']
+
+        results = await asyncio.to_thread(_do_search)
+
         if len(results) == 0:
             return f"No results found for `{query}`"
-        else:            
+        else:
             search_hits = [SearchHit(**hit) for hit in results]
-            
+
             # Convert back to dict format for compatibility
             document_string = '\n\n----\n\n'.join([str(document) for document in search_hits])
             return "> Search Results for `" + query + "`\n\n" + document_string

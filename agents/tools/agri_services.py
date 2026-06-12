@@ -1,4 +1,5 @@
 import os
+import asyncio
 import uuid
 import json
 from datetime import datetime
@@ -286,7 +287,8 @@ async def agri_services(latitude: float, longitude: float, category_code: Litera
             logger.error("BAP_ENDPOINT environment variable not set")
             return "Agricultural services configuration error."
 
-        response = requests.post(
+        response = await asyncio.to_thread(
+            requests.post,
             bap_endpoint,
             json=payload,
             timeout=(10, 15)

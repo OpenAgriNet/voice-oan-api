@@ -16,6 +16,11 @@ import pytz
 
 load_dotenv()
 
+# Module-level caches: avoid re-creating expensive objects on every call.
+_TOKEN_ENCODER = tiktoken.get_encoding('cl100k_base')
+_PROMPT_ENV: Environment | None = None
+_PROMPT_DIR: str = "assets/prompts"
+
 
 def get_s3_client():
     """Get S3 client."""
@@ -39,11 +44,12 @@ def get_logger(name):
     """Get logger object."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    ch = logging.StreamHandler()
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        ch = logging.StreamHandler()
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
     return logger
 
 def count_tokens_str(doc: str) -> int:
@@ -55,8 +61,7 @@ def count_tokens_str(doc: str) -> int:
         int: number of tokens in the string
 
     """
-    encoder = tiktoken.get_encoding('cl100k_base')
-    return len(encoder.encode(doc, disallowed_special=()))
+    return len(_TOKEN_ENCODER.encode(doc, disallowed_special=()))
 
 
 def count_tokens_for_part(part) -> int:
@@ -205,14 +210,18 @@ def get_prompt(prompt_file: str, context: Dict = {}, prompt_dir: str = "assets/p
     if not prompt_file.endswith(".md"):
         prompt_file += ".md"
 
-    # Create Jinja2 environment
-    env = Environment(
-        loader=FileSystemLoader(prompt_dir),
-        autoescape=False  # We don't want HTML escaping for our prompts
-    )
+    # Reuse a single Jinja2 Environment per prompt_dir — Environment creation
+    # walks the loader directory and is surprisingly expensive.
+    global _PROMPT_ENV, _PROMPT_DIR
+    if _PROMPT_ENV is None or _PROMPT_DIR != prompt_dir:
+        _PROMPT_ENV = Environment(
+            loader=FileSystemLoader(prompt_dir),
+            autoescape=False,
+        )
+        _PROMPT_DIR = prompt_dir
 
     # Get the template
-    template = env.get_template(prompt_file)
+    template = _PROMPT_ENV.get_template(prompt_file)
 
     # Render the template with the context
     prompt = template.render(**context) if context else template.render()

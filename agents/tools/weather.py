@@ -1,4 +1,5 @@
 import os
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from helpers.utils import get_logger, get_today_date_str
@@ -463,12 +464,13 @@ async def weather_forecast(ctx: RunContext[FarmerContext], latitude: float, long
         str: The weather forecast for the specific location
     """    
     try:
-        # Send nudge message asynchronously without blocking
+        # Send nudge message in background — don't block the tool on the vendor round-trip
         nudge_message = get_nudge_message(
             "weather_forecast", ctx.deps.nudge_lang_code(), ctx.deps.session_id
         )
-        result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-        logger.info(f"Nudge message sent: {result}")
+        asyncio.create_task(
+            send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+        )
 
         payload  = WeatherRequest(latitude=latitude, longitude=longitude, days=days, request_type="forecast").get_payload()
         async with httpx.AsyncClient() as client:
@@ -515,8 +517,9 @@ async def weather_historical(ctx: RunContext[FarmerContext], latitude: float, lo
             nudge_message = get_nudge_message(
                 "weather_historical", ctx.deps.nudge_lang_code(), ctx.deps.session_id
             )
-            result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-            logger.info(f"Nudge message sent: {result}")
+            result = asyncio.create_task(
+                send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+            )
         # Send nudge message asynchronously without blocking
         payload  = WeatherRequest(latitude=latitude, longitude=longitude, days=days, request_type="historical").get_payload()
         async with httpx.AsyncClient() as client:

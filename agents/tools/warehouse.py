@@ -1,4 +1,5 @@
 import os
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from helpers.utils import get_logger
@@ -318,8 +319,9 @@ async def warehouse_data(ctx: RunContext[FarmerContext], latitude: float, longit
             nudge_message = get_nudge_message(
                 "warehouse_data", ctx.deps.nudge_lang_code(), ctx.deps.session_id
             )
-            result = await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-            logger.info(f"Nudge message sent: {result}")
+            result = asyncio.create_task(
+                send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+            )
             
         payload = WarehouseRequest(latitude=latitude, longitude=longitude).get_payload()
         async with httpx.AsyncClient() as client:

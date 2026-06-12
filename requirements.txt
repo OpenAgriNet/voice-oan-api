@@ -16,7 +16,7 @@ requests
 
 # LLM
 openai
-pydantic==2.11.4
+pydantic==2.12.5
 tiktoken
 tenacity
 
@@ -32,19 +32,18 @@ python-decouple
 
 openpyxl
 
-### Pydantic AI (Updated to resolve conflicts)
-pydantic-ai==0.2.4
+### Pydantic AI (slim + openai only; full pydantic-ai pulls all provider extras)
+pydantic-ai-slim[openai]==1.80.0
 asgiref
 
 # Web Server
 gunicorn
-uvicorn[standard]==0.34.3  # ASGI server
+uvicorn[standard]==0.35  # ASGI server
 uvicorn-worker
 
 # FastAPI and dependencies
-fastapi[standard]==0.115.6
-starlette
-httpx
+fastapi[standard]==0.135.2
+httpx>=0.28.1
 
 # Search and Data
 marqo==3.11.0
@@ -58,6 +57,7 @@ cryptography
 boto3
 # Geospatial
 mapbox
+filelock  # required by cachecontrol.FileCache (used in agents/tools/maps.py)
 
 
 # Async utilities

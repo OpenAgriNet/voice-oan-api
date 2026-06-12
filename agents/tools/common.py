@@ -83,19 +83,20 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
         if process_id:
             payload["process_id"] = process_id
 
-        response = httpx.post(
-            nudge_url,
-            json=payload,
-            headers={"Content-Type": "application/json"},
-            timeout=5
-        )
+        async with httpx.AsyncClient() as _client:
+            response = await _client.post(
+                nudge_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=5
+            )
 
         if response.status_code == 200:
             logger.info(f"Nudge message sent successfully: {message}")
         else:
             logger.warning(f"Failed to send nudge message. Status: {response.status_code}")
 
-    except httpx.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Error sending nudge message: {e}")
     except Exception as e:
         logger.error(f"Unexpected error sending nudge message: {e}")

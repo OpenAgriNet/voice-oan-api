@@ -1,4 +1,5 @@
 import os
+import asyncio
 import uuid
 import json
 from datetime import datetime, timezone
@@ -380,13 +381,13 @@ class ContactRequest(BaseModel):
 # -----------------------
 # Helper Functions
 # -----------------------
-def _get_village_code_from_admin_api(latitude: float, longitude: float) -> Optional[str]:
+async def _get_village_code_from_admin_api(latitude: float, longitude: float) -> Optional[str]:
     """Get village code from administrative information API.
-    
+
     Args:
         latitude: Latitude of the location
         longitude: Longitude of the location
-        
+
     Returns:
         Optional[str]: Village code if found, None otherwise
     """
@@ -397,7 +398,8 @@ def _get_village_code_from_admin_api(latitude: float, longitude: float) -> Optio
             logger.error("BAP_ENDPOINT environment variable not set")
             return None
 
-        response = requests.post(
+        response = await asyncio.to_thread(
+            requests.post,
             bap_endpoint,
             json=payload,
             timeout=(10, 15)
@@ -452,7 +454,7 @@ async def contact_agricultural_staff(latitude: float, longitude: float) -> str:
     """
     try:
         # First, get the village code from administrative information
-        village_code = _get_village_code_from_admin_api(latitude, longitude)
+        village_code = await _get_village_code_from_admin_api(latitude, longitude)
         
         if not village_code:
             logger.warning("Could not retrieve village code for the given coordinates")
@@ -467,7 +469,8 @@ async def contact_agricultural_staff(latitude: float, longitude: float) -> str:
             logger.error("BAP_ENDPOINT environment variable not set")
             return "Agricultural staff details configuration error."
 
-        response = requests.post(
+        response = await asyncio.to_thread(
+            requests.post,
             bap_endpoint,
             json=payload,
             timeout=(10, 15)

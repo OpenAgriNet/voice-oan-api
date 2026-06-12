@@ -8,20 +8,20 @@ from agents.models import LLM_MODEL
 from agents.tools import TOOLS
 from pydantic_ai.settings import ModelSettings
 from agents.deps import FarmerContext
-from app.langfuse_pydantic_ai import langfuse_event_stream_handler
 
 logger = get_logger(__name__)
 
 load_dotenv()
 
 agrinet_vllm_settings = ModelSettings(
-    temperature=1.0,
-    top_p=0.95,
-    presence_penalty=1.5,
+    temperature=0.7,
+    top_p=0.9,
+    presence_penalty=0.0,
+    max_tokens=200,
     parallel_tool_calls=True,
-    timeout=60,
+    timeout=30,
     extra_body={
-        "top_k": 20,
+        "top_k": -1,
         "min_p": 0.0,
         "repetition_penalty": 1.0,
         "chat_template_kwargs": {"enable_thinking": False},
@@ -45,10 +45,9 @@ voice_agent = Agent(
     instrument=False,
     output_type=str,
     deps_type=FarmerContext,
-    retries=3,
+    retries=1,
     tools=TOOLS,
-    end_strategy="exhaustive",
-    event_stream_handler=langfuse_event_stream_handler,
+    end_strategy="early",
     model_settings=agrinet_vllm_settings,
 )
 

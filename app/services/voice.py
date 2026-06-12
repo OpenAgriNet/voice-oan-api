@@ -148,18 +148,20 @@ def _langfuse_kv_tags(**key_values: object) -> list[str]:
 def _trim_voice_history(history: list) -> list:
     """
     Helper function to trim history with standard voice endpoint settings.
-    
-    Args:
-        history: Message history to trim
-        
-    Returns:
-        Trimmed message history
+
+    Voice replies are short (2–3 sentences), so a small history window keeps
+    prefill latency low. Tool calls/results from earlier turns are stripped
+    because the model rarely needs to see them on the next user turn — the
+    final answer is what the user heard.
+    Bump via VOICE_HISTORY_MAX_TOKENS if needed.
     """
+    import os
+    budget = int(os.getenv("VOICE_HISTORY_MAX_TOKENS", "4_000").replace("_", ""))
     return trim_history(
         history,
-        max_tokens=80_000,
+        max_tokens=budget,
         include_system_prompts=True,
-        include_tool_calls=True
+        include_tool_calls=False,
     )
 
 
@@ -220,6 +222,54 @@ async def _run_voice_agent(
         return VoiceAgentRun(response=response, langfuse_model=_langfuse_azure_model())
 
 
+async def _stream_voice_agent(
+    *,
+    user_prompt: str,
+    message_history: list,
+    deps: FarmerContext,
+    usage_limits: Any = agrinet_vllm_usage_limits,
+):
+    """
+    Async context manager wrapper for voice_agent.run_stream with Azure fallback.
+
+    Yields the run_stream response context manager.
+    Raises UsageLimitExceeded if both vLLM and Azure fail.
+    """
+    try:
+        async with voice_agent.run_stream(
+            user_prompt=user_prompt,
+            message_history=message_history,
+            deps=deps,
+            usage_limits=usage_limits,
+        ) as response_stream:
+            yield response_stream
+    except UsageLimitExceeded as exc:
+        if AZURE_LLM_MODEL is None:
+            raise
+        reduced_history = trim_history(
+            message_history,
+            max_tokens=8_000,
+            include_system_prompts=False,
+            include_tool_calls=False,
+        )
+        logger.warning(
+            "Usage limit exceeded on vLLM (%s); retrying on Azure %s "
+            "(history %s -> %s messages)",
+            exc,
+            AZURE_FALLBACK_DEPLOYMENT,
+            len(message_history),
+            len(reduced_history),
+        )
+        with voice_agent.override(model=AZURE_LLM_MODEL):
+            async with voice_agent.run_stream(
+                user_prompt=user_prompt,
+                message_history=reduced_history,
+                deps=deps,
+                usage_limits=usage_limits,
+            ) as response_stream:
+                yield response_stream
+
+
 async def stream_voice_message(
     query: str,
     session_id: str,
@@ -232,9 +282,11 @@ async def stream_voice_message(
     user_info: Optional[dict] = None,
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming chat messages."""
-    # Generate a unique content ID for this query
+    import time
+    import re as _re
+    t_total_start = time.perf_counter()
+
     content_id = f"query_{session_id}_{len(history)//2 + 1}"
-    # Fallback scopes hold-message dedup to this request when the client omits process_id.
     effective_process_id = process_id or content_id
     deps = FarmerContext(query=query,
                          lang_code=source_lang,
@@ -261,102 +313,190 @@ async def stream_voice_message(
     with traced_voice_request(
         trace_name="voice",
         session_id=session_id,
-        # Avoid sending PII to Langfuse by default.
         user_id=None,
         tags=tags,
         observation_name="voice-agent-stream",
         trace_input=query,
     ) as lf_obs:
         if lf_obs is not None:
-            # Make tool observations robust to async context loss by explicitly
-            # passing the trace context via deps.
             deps.langfuse_trace_id = getattr(lf_obs, "trace_id", None)
             deps.langfuse_root_observation_id = getattr(lf_obs, "id", None)
 
+        # --- Stage 1: history fetch is already done by caller; log it ---
+        t_prep_start = time.perf_counter()
+
         message_pairs = "\n\n".join(format_message_pairs(history, 3))
-        logger.info(f"Message pairs: {message_pairs}")
+        logger.debug(f"Message pairs: {message_pairs}")
 
         user_message = deps.get_user_message()
-        logger.info(f"Running agent with user message: {user_message}")
+        logger.debug(f"Running agent with user message: {user_message}")
 
-        # Clean message history to remove orphaned tool calls BEFORE passing to OpenAI API
+        # --- Stage 2: clean + trim history ---
+        t_clean_start = time.perf_counter()
         cleaned_history = clean_message_history_for_openai(history)
         if len(cleaned_history) != len(history):
             logger.warning(f"Cleaned {len(history) - len(cleaned_history)} orphaned tool calls from history")
-            # Update the history in cache with cleaned version
             await update_message_history(session_id, cleaned_history)
             history = cleaned_history
+        logger.info(f"[TIMING] clean_hist={int((time.perf_counter()-t_clean_start)*1000)}ms msgs={len(history)}")
 
-        # Run the main agent
+        t_trim_start = time.perf_counter()
         trimmed_history = _trim_voice_history(history)
-        logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
+        logger.info(
+            f"[TIMING] trim_hist={int((time.perf_counter()-t_trim_start)*1000)}ms "
+            f"hist_msgs={len(trimmed_history)} hist_bytes={sum(len(str(m)) for m in trimmed_history)}"
+        )
 
-        # Plain-text one-shot response via run(), not run_stream(). On pydantic-ai 0.2.4
-        # with vLLM (e.g. Qwen), run_stream omits final text after tool-call loops.
-        final_text = ""
+        logger.info(
+            f"[TIMING] prep_done={int((time.perf_counter()-t_prep_start)*1000)}ms "
+            f"hist_msgs={len(trimmed_history)}"
+        )
+
+        is_bhili = source_lang == 'bhb' or target_lang == 'bhb'
+
+        full_output = ""
+        request_tokens = 0
+        response_tokens = 0
         new_messages: list = []
-        lf_client = get_langfuse()
         model_used = _langfuse_vllm_model()
-        try:
-            if lf_obs is not None and lf_client is not None:
-                with lf_client.start_as_current_observation(
-                    as_type="generation",
-                    name=_langfuse_vllm_model(),
-                    model=_langfuse_vllm_model(),
-                    input={"user_prompt": user_message},
-                ) as lf_gen:
-                    agent_run = await _run_voice_agent(
-                        user_prompt=user_message,
-                        message_history=trimmed_history,
-                        deps=deps,
-                    )
-                    model_used = agent_run.langfuse_model
-                    response = agent_run.response
-                    raw_out = getattr(response, "output", None)
-                    final_text = "" if raw_out is None else str(raw_out)
-                    new_messages = (
-                        response.new_messages() if hasattr(response, "new_messages") else []
-                    )
-                    lf_gen.update(
-                        output=final_text,
-                        model=model_used,
-                        usage_details=_langfuse_usage_details(response),
-                    )
-                    _langfuse_record_model_used(lf_client, lf_obs, lf_gen, tags, model_used)
-            else:
-                agent_run = await _run_voice_agent(
-                    user_prompt=user_message,
-                    message_history=trimmed_history,
-                    deps=deps,
-                )
-                model_used = agent_run.langfuse_model
-                response = agent_run.response
-                raw_out = getattr(response, "output", None)
-                final_text = "" if raw_out is None else str(raw_out)
-                new_messages = (
-                    response.new_messages() if hasattr(response, "new_messages") else []
-                )
 
-            logger.info(
-                "Voice agent finished for session %s, output_len=%s",
-                session_id,
-                len(final_text),
-            )
-            yield final_text
+        # Per-round timing accumulators
+        round_num = 0
+        first_token_logged = False
+        chars_yielded = 0
+        total_agent_time_ms = 0
+        t_agent_start = time.perf_counter()
+        t_first_delta_global = None
+
+        try:
+            async for response_stream in _stream_voice_agent(
+                user_prompt=user_message,
+                message_history=trimmed_history,
+                deps=deps,
+            ):
+                round_num += 1
+                t_round_start = time.perf_counter()
+
+                # --- Stage 3: wait for first token from this LLM round ---
+                t_round_llm_start = time.perf_counter()
+                round_first_token = False
+                round_chars = 0
+
+                model_used = _infer_langfuse_model_from_response(response_stream)
+
+                if is_bhili:
+                    # Translate-and-yield: split on sentence end so we don't wait for \n\n
+                    buffer = ""
+                    async for chunk in response_stream.stream_text(delta=True):
+                        if not round_first_token:
+                            t_first_delta = time.perf_counter()
+                            round_first_token = True
+                            if not first_token_logged:
+                                t_first_delta_global = t_first_delta
+                                logger.info(
+                                    f"[TIMING] llm_ttft={int((t_first_delta-t_agent_start)*1000)}ms "
+                                    f"(first delta after first model token, round={round_num})"
+                                )
+                                first_token_logged = True
+                            logger.info(
+                                f"[TIMING] round{round_num}_ttft={int((t_first_delta-t_round_llm_start)*1000)}ms "
+                                f"(from round {round_num} start)"
+                            )
+                        buffer += chunk
+                        # Yield on sentence boundaries (., !, ?, ।) instead of \n\n
+                        while True:
+                            m = _re.search(r"([\.\!\?।])", buffer)
+                            if not m:
+                                break
+                            end = m.end()
+                            sentence = buffer[:end]
+                            buffer = buffer[end:]
+                            translated = await translation_service.translate_text(
+                                sentence, "mr", "bhb"
+                            )
+                            full_output += translated
+                            chars_yielded += len(translated)
+                            round_chars += len(translated)
+                            yield translated
+                    if buffer.strip():
+                        translated_tail = await translation_service.translate_text(
+                            buffer, "mr", "bhb"
+                        )
+                        full_output += translated_tail
+                        chars_yielded += len(translated_tail)
+                        round_chars += len(translated_tail)
+                        yield translated_tail
+                else:
+                    async for chunk in response_stream.stream_text(delta=True):
+                        if not round_first_token:
+                            t_first_delta = time.perf_counter()
+                            round_first_token = True
+                            if not first_token_logged:
+                                t_first_delta_global = t_first_delta
+                                logger.info(
+                                    f"[TIMING] llm_ttft={int((t_first_delta-t_agent_start)*1000)}ms "
+                                    f"(first delta after first model token, round={round_num})"
+                                )
+                                first_token_logged = True
+                            logger.info(
+                                f"[TIMING] round{round_num}_ttft={int((t_first_delta-t_round_llm_start)*1000)}ms "
+                                f"(from round {round_num} start)"
+                            )
+                        full_output += chunk
+                        chars_yielded += len(chunk)
+                        round_chars += len(chunk)
+                        yield chunk
+
+                t_round_end = time.perf_counter()
+                round_ms = int((t_round_end - t_round_start) * 1000)
+                total_agent_time_ms += round_ms
+                logger.info(
+                    f"[TIMING] round{round_num}_total={round_ms}ms "
+                    f"chars={round_chars} ttft_logged={round_first_token}"
+                )
+                new_messages = response_stream.new_messages()
+
+                try:
+                    usage = response_stream.usage()
+                    request_tokens = usage.request_tokens or 0
+                    response_tokens = usage.response_tokens or 0
+                    logger.info(f"[TIMING] round{round_num}_tokens req={request_tokens} resp={response_tokens}")
+                except Exception:
+                    pass  # Usage unavailable — tokens reported as 0
+
+        except UsageLimitExceeded:
+            logger.exception("Usage limit exceeded even after Azure fallback for session %s", session_id)
+            yield "क्षमा करा, प्रतिसाद तयार करता आला नाही. कृपया पुन्हा प्रयत्न करा."
         except Exception:
             logger.exception("Voice agent run failed for session %s", session_id)
             yield "क्षमा करा, प्रतिसाद तयार करता आला नाही. कृपया पुन्हा प्रयत्न करा."
+
+        finally:
+            t_total = time.perf_counter() - t_total_start
+            post_stream_ms = int((t_total * 1000) - total_agent_time_ms)
+            logger.info(
+                f"[TIMING] total={int(t_total*1000)}ms session={session_id} "
+                f"chars={chars_yielded} rounds={round_num} "
+                f"agent_time_ms={total_agent_time_ms} post_stream_ms={post_stream_ms}"
+            )
+            if lf_obs is not None:
+                lf_obs.update(
+                    output=full_output,
+                    metadata={
+                        "model": model_used,
+                        "request_tokens": request_tokens,
+                        "response_tokens": response_tokens,
+                        "rounds": round_num,
+                    },
+                )
 
         messages = [
             *history,
             *new_messages,
         ]
 
-        logger.info(f"Updating message history for session {session_id} with {len(messages)} messages")
+        logger.debug(f"Updating message history for session {session_id} with {len(messages)} messages")
         await update_message_history(session_id, messages)
-
-        if lf_obs is not None:
-            lf_obs.update(output=final_text)
 
 
 async def get_voice_message_with_translation(
