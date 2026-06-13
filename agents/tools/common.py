@@ -114,9 +114,22 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
         if response.status_code == 200:
             logger.info(f"Nudge message sent successfully: {message}")
         else:
-            logger.warning(f"Failed to send nudge message. Status: {response.status_code}")
+            # Log response body to help debugging non-200 responses from the nudge service
+            body = None
+            try:
+                body = response.text
+            except Exception:
+                body = "<could not read response body>"
+            logger.warning(
+                "Failed to send nudge message. Status: %s; url=%s; payload=%s; body=%s",
+                response.status_code,
+                nudge_url,
+                json.dumps(payload, ensure_ascii=False),
+                body,
+            )
 
     except httpx.RequestError as e:
-        logger.error(f"Error sending nudge message: {e}")
+        # Include full stack trace and request details to aid debugging network errors
+        logger.exception("Error sending nudge message (network error). url=%s payload=%s", nudge_url, json.dumps(payload, ensure_ascii=False))
     except Exception as e:
-        logger.error(f"Unexpected error sending nudge message: {e}")
+        logger.exception("Unexpected error sending nudge message. url=%s payload=%s", nudge_url, json.dumps(payload, ensure_ascii=False))

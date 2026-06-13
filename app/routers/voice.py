@@ -54,5 +54,5 @@ async def voice_endpoint(
                 provider=request.provider,
                 process_id=request.process_id,
             ),
-            media_type='text/event-stream'
-        ) 
+            media_type='text/plain; charset=utf-8'
+        )
