@@ -5,10 +5,19 @@ from app.utils import _get_message_history
 from app.models.requests import ChatRequest
 from helpers.utils import get_logger
 import uuid
+import asyncio
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["voice"])
+
+_session_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_session_lock(session_id: str) -> asyncio.Lock:
+    if session_id not in _session_locks:
+        _session_locks[session_id] = asyncio.Lock()
+    return _session_locks[session_id]
 
 @router.get("/")
 async def voice_endpoint(
@@ -27,18 +36,23 @@ async def voice_endpoint(
         f"provider: {request.provider}, process_id: {request.process_id}, query: {request.query}"
     )
     
-    history = await _get_message_history(session_id, target_lang=request.target_lang)
-    logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
-        
-    return StreamingResponse(
-        stream_voice_message(
-            query=request.query,
-            session_id=session_id,
-            source_lang=request.source_lang,
-            target_lang=request.target_lang,
-            history=history,
-            provider=request.provider,
-            process_id=request.process_id,
-        ),
-        media_type='text/event-stream'
-    ) 
+    lock = _get_session_lock(session_id)
+    if lock.locked():
+        logger.info(f"Request queued for session {session_id} (another request in progress)")
+    
+    async with lock:
+        history = await _get_message_history(session_id, target_lang=request.target_lang)
+        logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
+            
+        return StreamingResponse(
+            stream_voice_message(
+                query=request.query,
+                session_id=session_id,
+                source_lang=request.source_lang,
+                target_lang=request.target_lang,
+                history=history,
+                provider=request.provider,
+                process_id=request.process_id,
+            ),
+            media_type='text/event-stream'
+        ) 

@@ -1,5 +1,4 @@
 import os
-import asyncio
 import uuid
 from datetime import datetime
 from helpers.utils import get_logger
@@ -272,13 +271,10 @@ async def mandi_prices(ctx: RunContext[FarmerContext], latitude: float, longitud
         str: The mandi prices for the specific location
     """
     try:
-        # Send nudge message asynchronously without blocking
         nudge_message = get_nudge_message(
             "mandi_prices", ctx.deps.nudge_lang_code(), ctx.deps.session_id
         )
-        result = asyncio.create_task(
-            send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-        )
+        await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
 
         # Get the mandi prices
         payload = MandiRequest(latitude=latitude, longitude=longitude).get_payload()

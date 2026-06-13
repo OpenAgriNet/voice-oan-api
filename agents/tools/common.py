@@ -14,7 +14,8 @@ logger = get_logger(__name__)
 # Per-session last nudge per tool — avoids repeating the same hold line back-to-back.
 _last_nudge_by_session: dict[tuple[str, str], str] = {}
 
-# One hold message per turn (session + process_id), including parallel tool calls.
+# One hold message per turn (session only). Concurrent requests for the same session
+# share this lock, so only one nudge is sent per turn regardless of process_id.
 _nudge_sent_this_turn: set[str] = set()
 _nudge_turn_locks: dict[str, asyncio.Lock] = {}
 
@@ -37,7 +38,7 @@ _NUDGE_TURN_MAX = 10_000
 
 
 def _turn_key(session_id: str, process_id: str | None) -> str:
-    return f"{session_id}:{process_id or ''}"
+    return session_id
 
 
 def _turn_lock(key: str) -> asyncio.Lock:
@@ -89,12 +90,7 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
             logger.info(f"Skipping duplicate hold message for turn {key}")
             return
         _nudge_sent_this_turn.add(key)
-        prefix = f"{session_id}:"
-        for stale in [k for k in list(_nudge_sent_this_turn) if k.startswith(prefix) and k != key]:
-            _nudge_sent_this_turn.discard(stale)
-        # Bound the set so it doesn't grow without bound across many sessions.
         if len(_nudge_sent_this_turn) > _NUDGE_TURN_MAX:
-            # Drop ~10% of the oldest entries (FIFO).
             for stale in list(_nudge_sent_this_turn)[: _NUDGE_TURN_MAX // 10]:
                 _nudge_sent_this_turn.discard(stale)
 

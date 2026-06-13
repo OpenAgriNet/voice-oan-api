@@ -63,13 +63,10 @@ async def search_documents(
         search_results: Formatted string with search results
     """
     try:
-        # Send nudge message asynchronously without blocking
         nudge_message = get_nudge_message(
             "search_documents", ctx.deps.nudge_lang_code(), ctx.deps.session_id
         )
-        result = asyncio.create_task(
-            send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-        )
+        await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
 
         # Initialize Marqo client
         endpoint_url = os.getenv('MARQO_ENDPOINT_URL')

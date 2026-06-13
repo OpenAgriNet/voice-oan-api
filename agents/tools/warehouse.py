@@ -1,5 +1,4 @@
 import os
-import asyncio
 import uuid
 from datetime import datetime, timezone
 from helpers.utils import get_logger
@@ -314,14 +313,11 @@ async def warehouse_data(ctx: RunContext[FarmerContext], latitude: float, longit
         str: The warehouse data for the specific location
     """
     try:
-        # Send nudge message asynchronously without blocking
         if ctx.deps.provider == "RAYA":
             nudge_message = get_nudge_message(
                 "warehouse_data", ctx.deps.nudge_lang_code(), ctx.deps.session_id
             )
-            result = asyncio.create_task(
-                send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
-            )
+            await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
             
         payload = WarehouseRequest(latitude=latitude, longitude=longitude).get_payload()
         async with httpx.AsyncClient() as client:
