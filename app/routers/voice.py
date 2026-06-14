@@ -6,6 +6,7 @@ from app.models.requests import ChatRequest
 from helpers.utils import get_logger
 import uuid
 import asyncio
+from typing import AsyncGenerator
 
 logger = get_logger(__name__)
 
@@ -18,6 +19,18 @@ def _get_session_lock(session_id: str) -> asyncio.Lock:
     if session_id not in _session_locks:
         _session_locks[session_id] = asyncio.Lock()
     return _session_locks[session_id]
+
+
+async def _locked_stream(
+    lock: asyncio.Lock,
+    generator: AsyncGenerator[str, None],
+    session_id: str,
+) -> AsyncGenerator[str, None]:
+    """Hold the session lock for the entire lifetime of the stream."""
+    async with lock:
+        async for chunk in generator:
+            yield chunk
+
 
 @router.get("/")
 async def voice_endpoint(
@@ -40,11 +53,12 @@ async def voice_endpoint(
     if lock.locked():
         logger.info(f"Request queued for session {session_id} (another request in progress)")
     
-    async with lock:
-        history = await _get_message_history(session_id, target_lang=request.target_lang)
-        logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
-            
-        return StreamingResponse(
+    history = await _get_message_history(session_id, target_lang=request.target_lang)
+    logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
+        
+    return StreamingResponse(
+        _locked_stream(
+            lock,
             stream_voice_message(
                 query=request.query,
                 session_id=session_id,
@@ -54,5 +68,7 @@ async def voice_endpoint(
                 provider=request.provider,
                 process_id=request.process_id,
             ),
-            media_type='text/plain; charset=utf-8'
-        )
+            session_id,
+        ),
+        media_type='text/plain; charset=utf-8'
+    )

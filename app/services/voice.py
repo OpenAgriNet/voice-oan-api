@@ -387,7 +387,7 @@ async def stream_voice_message(
                 if is_bhili:
                     # Translate-and-yield: split on sentence end so we don't wait for \n\n
                     buffer = ""
-                    async for chunk in response_stream.stream_text(delta=True):
+                    async for chunk in response_stream.stream_text(delta=True, debounce_by=None):
                         if not round_first_token:
                             t_first_delta = time.perf_counter()
                             round_first_token = True
@@ -427,7 +427,7 @@ async def stream_voice_message(
                         round_chars += len(translated_tail)
                         yield translated_tail
                 else:
-                    async for chunk in response_stream.stream_text(delta=True):
+                    async for chunk in response_stream.stream_text(delta=True, debounce_by=None):
                         if not round_first_token:
                             t_first_delta = time.perf_counter()
                             round_first_token = True

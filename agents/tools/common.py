@@ -33,6 +33,17 @@ except FileNotFoundError:
 
 _NUDGE_FALLBACK = ""
 
+# Shared async HTTP client — avoids per-request TLS handshake overhead.
+_nudge_http_client: httpx.AsyncClient | None = None
+
+
+def _get_nudge_client() -> httpx.AsyncClient:
+    global _nudge_http_client
+    if _nudge_http_client is None or _nudge_http_client.is_closed:
+        _nudge_http_client = httpx.AsyncClient(timeout=15)
+    return _nudge_http_client
+
+
 # Bounded LRU for stale turn keys so _nudge_sent_this_turn doesn't grow without bound.
 _NUDGE_TURN_MAX = 10_000
 
@@ -103,13 +114,12 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
         if process_id:
             payload["process_id"] = process_id
 
-        async with httpx.AsyncClient() as _client:
-            response = await _client.post(
-                nudge_url,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=5
-            )
+        _client = _get_nudge_client()
+        response = await _client.post(
+            nudge_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
 
         if response.status_code == 200:
             logger.info(f"Nudge message sent successfully: {message}")
@@ -129,7 +139,14 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
             )
 
     except httpx.RequestError as e:
-        # Include full stack trace and request details to aid debugging network errors
-        logger.exception("Error sending nudge message (network error). url=%s payload=%s", nudge_url, json.dumps(payload, ensure_ascii=False))
+        logger.error(
+            "Nudge request failed — type=%s repr=%s url=%s payload=%s",
+            type(e).__name__, repr(e), nudge_url, json.dumps(payload, ensure_ascii=False),
+            exc_info=True,
+        )
     except Exception as e:
-        logger.exception("Unexpected error sending nudge message. url=%s payload=%s", nudge_url, json.dumps(payload, ensure_ascii=False))
+        logger.error(
+            "Unexpected nudge error — type=%s repr=%s url=%s payload=%s",
+            type(e).__name__, repr(e), nudge_url, json.dumps(payload, ensure_ascii=False),
+            exc_info=True,
+        )
