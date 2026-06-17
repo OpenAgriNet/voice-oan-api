@@ -17,6 +17,15 @@ logger = get_logger(__name__)
 
 DocumentType = Literal['video', 'document']
 
+_marqo_client: Optional[marqo.Client] = None
+
+def _get_marqo_client(endpoint_url: str) -> marqo.Client:
+    global _marqo_client
+    if _marqo_client is None:
+        _marqo_client = marqo.Client(url=endpoint_url)
+        logger.info(f"Initialized Marqo client at {endpoint_url}")
+    return _marqo_client
+
 class SearchHit(BaseModel):
     """Individual search hit from elasticsearch"""
     name: str
@@ -101,7 +110,7 @@ async def search_documents(
         }
 
         def _do_search():
-            client = marqo.Client(url=endpoint_url)
+            client = _get_marqo_client(endpoint_url)
             logger.info(f"Searching for '{query}' in index '{index_name}'")
             return client.index(index_name).search(**search_params)['hits']
 
