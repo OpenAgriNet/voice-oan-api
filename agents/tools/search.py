@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry, RunContext
 from helpers.utils import get_logger
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya
+from agents.tools.common import get_nudge_message, send_nudge_message_raya, notify_slack_error
 
 
 logger = get_logger(__name__)
@@ -115,4 +115,5 @@ async def search_documents(
             return "> Search Results for `" + query + "`\n\n" + document_string
     except Exception as e:
         logger.error(f"Error searching documents: {e} for query: {query}")
+        await notify_slack_error("search", e, {"query": query})
         raise ModelRetry(f"Error searching documents, please try again")

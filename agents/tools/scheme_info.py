@@ -8,6 +8,7 @@ from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from langfuse import observe
+from agents.tools.common import notify_slack_error
 logger = get_logger(__name__)
 
 # Load scheme list once at module level
@@ -329,16 +330,19 @@ async def get_scheme_info(scheme_code: str) -> str:
                 
     except httpx.TimeoutException as e:
         logger.error(f"Scheme API request timed out: {str(e)}")
+        await notify_slack_error("scheme_info", e)
         return "Scheme request timed out. Please try again later."
-    
+
     except httpx.RequestError as e:
         logger.error(f"Scheme API request failed: {e}")
+        await notify_slack_error("scheme_info", e)
         return f"Scheme request failed: {str(e)}"
-    
+
     except UnexpectedModelBehavior as e:
         logger.warning("Scheme request exceeded retry limit")
         return "Scheme data is temporarily unavailable. Please try again later."
     except Exception as e:
         logger.error(f"Error getting scheme data: {e}")
+        await notify_slack_error("scheme_info", e)
         raise ModelRetry(f"Unexpected error in scheme request. {str(e)}") 
 

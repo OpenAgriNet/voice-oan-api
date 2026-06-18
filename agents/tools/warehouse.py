@@ -7,7 +7,7 @@ from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya
+from agents.tools.common import get_nudge_message, send_nudge_message_raya, notify_slack_error
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -338,16 +338,19 @@ async def warehouse_data(ctx: RunContext[FarmerContext], latitude: float, longit
                 
     except httpx.TimeoutException as e:
         logger.error(f"Warehouse API request timed out: {str(e)}")
+        await notify_slack_error("warehouse", e)
         return "Warehouse request timed out. Please try again later."
-    
+
     except httpx.RequestError as e:
         logger.error(f"Warehouse API request failed: {e}")
+        await notify_slack_error("warehouse", e)
         return f"Warehouse request failed: {str(e)}"
-    
+
     except UnexpectedModelBehavior as e:
         logger.warning("Warehouse request exceeded retry limit")
         return "Warehouse data is temporarily unavailable. Please try again later."
     except Exception as e:
         logger.error(f"Error getting warehouse data: {e}")
+        await notify_slack_error("warehouse", e)
         raise ModelRetry(f"Unexpected error in warehouse request. {str(e)}")
         
