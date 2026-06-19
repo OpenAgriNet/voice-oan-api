@@ -8,6 +8,7 @@ from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from dotenv import load_dotenv
+from agents.tools.common import notify_slack_error
 
 load_dotenv()
 
@@ -486,15 +487,18 @@ async def contact_agricultural_staff(latitude: float, longitude: float) -> str:
         parsed = ContactResponse.model_validate(response_data)
         return str(parsed)
 
-    except requests.Timeout:
+    except requests.Timeout as e:
         logger.error("Agricultural staff Details API request timed out")
+        await notify_slack_error("staff_contact", e)
         return "Agricultural staff details request timed out."
     except requests.RequestException as e:
         logger.error(f"Agricultural staff Details API request failed: {e}")
+        await notify_slack_error("staff_contact", e)
         return f"Agricultural staff details request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Agricultural staff details request exceeded retry limit")
         return "Agricultural staff details are temporarily unavailable. Please try again later."
     except Exception as e:
         logger.error(f"Error getting agricultural staff details: {e}")
+        await notify_slack_error("staff_contact", e)
         raise ModelRetry(f"Unexpected error in officer details request. {str(e)}")

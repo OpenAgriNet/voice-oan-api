@@ -8,6 +8,7 @@ from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any, Literal
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from dotenv import load_dotenv
+from agents.tools.common import notify_slack_error
 
 load_dotenv()
 
@@ -305,17 +306,20 @@ async def agri_services(latitude: float, longitude: float, category_code: Litera
         parsed = AgriServicesResponse.model_validate(response_data)
         return str(parsed)
 
-    except requests.Timeout:
+    except requests.Timeout as e:
         logger.error("Agricultural Services API request timed out")
+        await notify_slack_error("agri_services", e)
         return "Agricultural services request timed out."
     except requests.RequestException as e:
         logger.error(f"Agricultural Services API request failed: {e}")
+        await notify_slack_error("agri_services", e)
         return f"Agricultural services request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Agricultural services request exceeded retry limit")
         return "Agricultural services are temporarily unavailable. Please try again later."
     except Exception as e:
         logger.error(f"Error getting agricultural services: {e}")
+        await notify_slack_error("agri_services", e)
         raise ModelRetry(f"Unexpected error in agricultural services request. {str(e)}")
 
 

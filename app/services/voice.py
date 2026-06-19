@@ -236,19 +236,19 @@ async def get_voice_message_with_translation(
         observation_name="voice-bhili-agent",
         trace_input=query,
     ) as lf_obs:
-        logger.info(f"Translating query from `bhb` to `en` (Bhashini)")
+        logger.info(f"Translating query from `bhb` to `mr` (Bhashini)")
         translated_query = await translation_service.translate_text(
             text=query,
             source_lang='bhb',
-            target_lang='en'
+            target_lang='mr'
         )
         logger.info(f"Translated query: {translated_query}")
 
-        # Use English as the source_lang for the agent since we translated the query
+        # Use Marathi as the source_lang for the agent since we translated the query
         deps = FarmerContext(
             query=translated_query,
-            lang_code='en',
-            target_lang='en',
+            lang_code='mr',
+            target_lang='mr',
             provider=provider,
             session_id=session_id,
             process_id=process_id
@@ -316,10 +316,10 @@ async def get_voice_message_with_translation(
         if response.output:
             # Always translate back to source_lang, even if source_lang is 'mr'
             # (translation service will handle no-op case)
-            logger.info(f"Translating response from `en` (English) to `bhb` (Bhashini)")
+            logger.info(f"Translating response from `mr` (Marathi) to `bhb` (Bhashini)")
             translated_response = await translation_service.translate_text(
                 text=text_response,
-                source_lang='en',
+                source_lang='mr',
                 target_lang='bhb'
             )
             logger.info(f"Successfully translated response to `bhb`. Length: {len(translated_response)} chars")

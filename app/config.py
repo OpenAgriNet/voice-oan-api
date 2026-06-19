@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     mapbox_api_token: Optional[str] = None
 
+    # Slack Alerts
+    slack_webhook_url: Optional[str] = None
+
     # AWS Configuration
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None

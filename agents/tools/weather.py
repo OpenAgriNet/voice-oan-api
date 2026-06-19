@@ -9,7 +9,7 @@ from dateutil import parser
 from dateutil.parser import ParserError
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya
+from agents.tools.common import get_nudge_message, send_nudge_message_raya, notify_slack_error
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -485,17 +485,20 @@ async def weather_forecast(ctx: RunContext[FarmerContext], latitude: float, long
                 
             return str(weather_response)
                 
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as e:
         logger.error("Weather API request timed out")
+        await notify_slack_error("weather_forecast", e)
         return "Weather request timed out."
     except httpx.RequestError as e:
         logger.error(f"Weather API request failed: {e}")
+        await notify_slack_error("weather_forecast", e)
         return f"Weather request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Weather request exceeded retry limit")
         return "Weather data is temporarily unavailable. Please try again later."
     except Exception as e:
         logger.error(f"Error getting weather forecast: {e}")
+        await notify_slack_error("weather_forecast", e)
         raise ModelRetry(f"Unexpected error in weather forecast. {str(e)}")
 
 async def weather_historical(ctx: RunContext[FarmerContext], latitude: float, longitude: float, days: int = 5) -> str:
@@ -533,15 +536,18 @@ async def weather_historical(ctx: RunContext[FarmerContext], latitude: float, lo
                 
             return str(weather_response)
                 
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as e:
         logger.error("Weather API request timed out")
+        await notify_slack_error("weather_historical", e)
         return "Weather request timed out."
     except httpx.RequestError as e:
         logger.error(f"Weather API request failed: {e}")
+        await notify_slack_error("weather_historical", e)
         return f"Weather request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Weather request exceeded retry limit")
         return "Weather data is temporarily unavailable. Please try again later."
     except Exception as e:
         logger.error(f"Error getting weather historical data: {e}")
+        await notify_slack_error("weather_historical", e)
         raise ModelRetry(f"Unexpected error in weather historical data. {str(e)}")

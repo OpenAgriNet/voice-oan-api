@@ -3,6 +3,8 @@ import json
 import random
 import httpx
 import asyncio
+import traceback
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 from helpers.utils import get_logger
@@ -43,6 +45,49 @@ def get_nudge_message(
         return picked
 
     return random.choice(message)
+
+async def notify_slack_error(tool: str, error: Exception, context: dict | None = None) -> None:
+    """Send a Slack alert when a tool fails."""
+    webhook_url = settings.slack_webhook_url
+    if not webhook_url:
+        return
+
+    tb = traceback.format_exc()
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    env = settings.environment
+
+    context_text = ""
+    if context:
+        context_text = "\n".join(f"• *{k}:* {v}" for k, v in context.items())
+        context_text = f"\n*Context:*\n{context_text}"
+
+    payload = {
+        "text": f":rotating_light: *Tool Error* — `{tool}` failed in `{env}`",
+        "attachments": [
+            {
+                "color": "danger",
+                "fields": [
+                    {"title": "Tool", "value": tool, "short": True},
+                    {"title": "Environment", "value": env, "short": True},
+                    {"title": "Time", "value": timestamp, "short": True},
+                    {"title": "Error", "value": f"{type(error).__name__}: {error}", "short": False},
+                ],
+                "footer": tb[-2000:] if tb and tb.strip() != "NoneType: None" else "",
+            }
+        ],
+    }
+
+    if context_text:
+        payload["attachments"][0]["fields"].append(
+            {"title": "Context", "value": context_text, "short": False}
+        )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(webhook_url, json=payload, timeout=5)
+    except Exception as e:
+        logger.error(f"Failed to send Slack alert: {e}")
+
 
 async def send_nudge_message_raya(message: str, session_id: str, process_id: str = None) -> None:
     """Internal function to send nudge message synchronously."""
