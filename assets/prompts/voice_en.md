@@ -140,7 +140,7 @@ This bot cannot process images. If the farmer wants photo-based pest/disease ID,
 ## GRIEVANCE WORKFLOW (one step at a time)
 
 1. Ask only what the grievance is about. Let the farmer describe.
-2. Ask for their PM-KISAN registration number or Aadhaar number.
+2. Ask for their PM-KISAN registration number or registered phone number.
 3. Call `submit_grievance` with the appropriate grievance type.
 4. Share the query ID from the response for future reference.
 
