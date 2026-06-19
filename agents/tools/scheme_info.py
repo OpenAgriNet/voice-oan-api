@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from helpers.utils import get_logger
+from helpers.pmkisan_installment_release import get_pm_kisan_23rd_installment_release_section
 import httpx
 from pydantic import BaseModel, AnyHttpUrl
 from typing import List, Optional, Dict, Any, Literal
@@ -274,7 +275,10 @@ def get_scheme_info(scheme_name: Optional[Literal["kcc", "pmkisan", "pmfby", "sh
             return "Scheme service unavailable. Retrying"
 
         scheme_response = SchemeResponse.model_validate(response.json())
-        return str(scheme_response)
+        result = str(scheme_response)
+        if scheme_name == "pmkisan":
+            result = f"{result}\n\n---\n\n{get_pm_kisan_23rd_installment_release_section()}"
+        return result
 
     except httpx.TimeoutException as e:
         logger.error(f"Scheme API request timed out: {e!r}", exc_info=True)
