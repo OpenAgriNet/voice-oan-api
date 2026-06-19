@@ -42,6 +42,7 @@ def decrypt_aes_gcm(encrypted_data: str, key: bytes, iv: bytes) -> str:
         Decrypted plaintext
     """
     aesgcm = AESGCM(key)
-    ciphertext = base64.b64decode(encrypted_data)
+    padded = encrypted_data + "=" * (-len(encrypted_data) % 4)
+    ciphertext = base64.b64decode(padded)
     plaintext = aesgcm.decrypt(iv, ciphertext, None)
     return plaintext.decode('utf-8')
