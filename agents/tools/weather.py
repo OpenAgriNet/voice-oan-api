@@ -359,21 +359,20 @@ async def weather_forecast(latitude: float, longitude: float) -> str:
     Returns:
         str: The weather forecast for the specific location
     """    
-    try:
+    try:        
         payload = WeatherRequest(latitude=latitude, longitude=longitude).get_payload()
-
+        
         bap_endpoint = os.getenv("BAP_ENDPOINT")
         if not bap_endpoint:
             logger.error("BAP_ENDPOINT is not set")
             return "Weather service configuration error. BAP_ENDPOINT is not set."
         search_url = bap_endpoint.rstrip("/") + "/search"
         logger.info(f"Weather API search URL: {search_url}")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                search_url,
-                json=payload,
-                timeout=httpx.Timeout(20.0, read=30.0)
-            )
+        response = httpx.post(
+            search_url,
+            json=payload,
+            timeout=httpx.Timeout(20.0, read=30.0)
+        )
         if response.status_code != 200:
             logger.error(
                 "Weather API returned status %s for URL %s — response: %s",
@@ -386,7 +385,7 @@ async def weather_forecast(latitude: float, longitude: float) -> str:
         data = response.json()
         weather_response = WeatherResponse.model_validate(data)
         return str(weather_response)
-
+                
     except httpx.TimeoutException:
         logger.error("Weather API request timed out", exc_info=True)
         return "Weather request timed out. Please try again."
