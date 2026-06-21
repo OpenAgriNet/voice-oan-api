@@ -72,10 +72,10 @@ async def search_documents(
         search_results: Formatted string with search results
     """
     try:
-        nudge_message = get_nudge_message(
-            "search_documents", ctx.deps.nudge_lang_code(), ctx.deps.session_id
-        )
-        await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+        # nudge_message = get_nudge_message(
+        #     "search_documents", ctx.deps.nudge_lang_code(), ctx.deps.session_id
+        # )
+        # await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
 
         # Initialize Marqo client
         endpoint_url = os.getenv('MARQO_ENDPOINT_URL')

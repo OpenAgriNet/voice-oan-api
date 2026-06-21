@@ -463,10 +463,10 @@ async def weather_forecast(ctx: RunContext[FarmerContext], latitude: float, long
         str: The weather forecast for the specific location
     """    
     try:
-        nudge_message = get_nudge_message(
-            "weather_forecast", ctx.deps.nudge_lang_code(), ctx.deps.session_id
-        )
-        await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+        # nudge_message = get_nudge_message(
+        #     "weather_forecast", ctx.deps.nudge_lang_code(), ctx.deps.session_id
+        # )
+        # await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
 
         payload  = WeatherRequest(latitude=latitude, longitude=longitude, days=days, request_type="forecast").get_payload()
         async with httpx.AsyncClient() as client:
@@ -509,11 +509,11 @@ async def weather_historical(ctx: RunContext[FarmerContext], latitude: float, lo
         str: The historical weather data for the specific location
     """    
     try:
-        if ctx.deps.provider == "RAYA":
-            nudge_message = get_nudge_message(
-                "weather_historical", ctx.deps.nudge_lang_code(), ctx.deps.session_id
-            )
-            await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
+        # if ctx.deps.provider == "RAYA":
+        #     nudge_message = get_nudge_message(
+        #         "weather_historical", ctx.deps.nudge_lang_code(), ctx.deps.session_id
+        #     )
+        #     await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
         payload  = WeatherRequest(latitude=latitude, longitude=longitude, days=days, request_type="historical").get_payload()
         async with httpx.AsyncClient() as client:
             response = await client.post(os.getenv("BAP_ENDPOINT"),
