@@ -6,6 +6,7 @@ from app.models.requests import ChatRequest
 from app.auth.jwt_auth import decode_token_claims
 from app.services.identity import user_id_from_claims, to_memory_user_id
 from app.config import settings
+from app.services import call_timeout
 from fastapi.security.utils import get_authorization_scheme_param
 from helpers.utils import get_logger
 import uuid
@@ -29,11 +30,19 @@ async def _locked_stream(
     lock: asyncio.Lock,
     generator: AsyncGenerator[str, None],
     session_id: str,
+    memory_user_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Hold the session lock for the entire lifetime of the stream."""
+    """Hold the session lock for the entire lifetime of the stream.
+
+    When the turn finishes, (re)start the inactivity timer so the call is saved
+    automatically if no further turn arrives (demo/POC fallback for call-ended).
+    """
     async with lock:
-        async for chunk in generator:
-            yield chunk
+        try:
+            async for chunk in generator:
+                yield chunk
+        finally:
+            call_timeout.schedule(session_id, memory_user_id)
 
 
 def _resolve_memory_user_id(http_request: Request, request: ChatRequest) -> str | None:
@@ -77,7 +86,10 @@ async def voice_endpoint(
     """
     session_id = request.session_id or str(uuid.uuid4())
     memory_user_id = _resolve_memory_user_id(http_request, request)
-    
+
+    # New turn arrived — cancel any pending inactivity-based call-end save.
+    call_timeout.cancel(session_id)
+
     logger.info(
         f"Chat request received - session_id: {session_id}, user_id: {request.user_id}, "
         f"source_lang: {request.source_lang}, target_lang: {request.target_lang}, "
@@ -105,6 +117,7 @@ async def voice_endpoint(
                 user_id=memory_user_id,
             ),
             session_id,
+            memory_user_id,
         ),
         media_type='text/plain; charset=utf-8'
     )
