@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 def _build_mem0_config() -> dict:
     from app.config import settings
 
+    embed_model = os.getenv("MEMORY_EMBED_MODEL", "text-embedding-3-small")
+    # text-embedding-3-small = 1536 dims, text-embedding-3-large = 3072 dims
+    embed_dims = int(os.getenv("MEMORY_EMBED_DIMS", "1536"))
+
     config: dict = {
         "vector_store": {
             "provider": "qdrant",
@@ -29,19 +33,24 @@ def _build_mem0_config() -> dict:
                 "collection_name": getattr(settings, "qdrant_collection", "vistaar_farmer_memories"),
                 "host": getattr(settings, "qdrant_host", "localhost"),
                 "port": int(getattr(settings, "qdrant_port", 6333)),
-                "embedding_model_dims": 1024,
+                "embedding_model_dims": embed_dims,
             },
         },
         "embedder": {
-            "provider": "fastembed",
-            "config": {"model": "intfloat/multilingual-e5-large"},
+            "provider": "openai",
+            "config": {
+                "model": embed_model,
+                "embedding_dims": embed_dims,
+                "api_key": getattr(settings, "openai_api_key", None) or os.getenv("OPENAI_API_KEY"),
+            },
         },
     }
 
-    inference_url = getattr(settings, "inference_endpoint_url", None)
+    # Reuse the exact same vLLM endpoint + model as the main voice agent so the
+    # extraction LLM hits a host that actually serves LLM_AGRINET_MODEL_NAME.
+    from agents.models import LLM_AGRINET_MODEL_NAME, _vllm_openai_base_url
 
-    # Reuse the same vLLM model as the main agent for extraction
-    from agents.models import LLM_AGRINET_MODEL_NAME
+    inference_url = _vllm_openai_base_url()
     extraction_model = LLM_AGRINET_MODEL_NAME or os.getenv("LLM_MODEL_NAME") or "agrinet-model"
 
     if inference_url:
@@ -50,7 +59,7 @@ def _build_mem0_config() -> dict:
             "config": {
                 "model": extraction_model,
                 "openai_base_url": inference_url,
-                "api_key": getattr(settings, "inference_api_key", None) or "EMPTY",
+                "api_key": os.getenv("INFERENCE_API_KEY") or "not-required",
             },
         }
 
@@ -70,6 +79,35 @@ def _transcript_to_mem0(history: list[ModelMessage]) -> list[dict]:
     return messages
 
 
+def _patch_mem0_disable_thinking() -> None:
+    """
+    Force the extraction LLM to skip <think> reasoning.
+
+    The shared vLLM serves a Qwen-style reasoning model: without
+    `enable_thinking=False` it streams a long reasoning trace and returns
+    `content=null`, so mem0 extracts no facts. The main voice agent already
+    disables thinking via extra_body; mem0's OpenAI LLM does not, so we wrap it.
+    """
+    try:
+        from mem0.llms.openai import OpenAILLM  # type: ignore
+    except Exception:
+        return
+
+    if getattr(OpenAILLM, "_thinking_patched", False):
+        return
+
+    _orig_generate = OpenAILLM.generate_response
+
+    def _generate_no_think(self, messages, *args, **kwargs):
+        extra_body = dict(kwargs.pop("extra_body", {}) or {})
+        extra_body.setdefault("chat_template_kwargs", {"enable_thinking": False})
+        kwargs["extra_body"] = extra_body
+        return _orig_generate(self, messages, *args, **kwargs)
+
+    OpenAILLM.generate_response = _generate_no_think
+    OpenAILLM._thinking_patched = True
+
+
 class MemoryService:
     def __init__(self) -> None:
         self._client = None
@@ -82,6 +120,7 @@ class MemoryService:
         try:
             from mem0 import Memory  # type: ignore
 
+            _patch_mem0_disable_thinking()
             self._client = Memory.from_config(_build_mem0_config())
             logger.info("MemoryService: mem0 client initialized")
         except Exception:
@@ -98,7 +137,7 @@ class MemoryService:
                 None,
                 lambda: client.search(
                     "crop location language preference",
-                    user_id=user_id,
+                    filters={"user_id": user_id},
                     limit=4,
                 ),
             )
@@ -125,7 +164,7 @@ class MemoryService:
         try:
             results = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: client.search(query, user_id=user_id, limit=top_k),
+                lambda: client.search(query, filters={"user_id": user_id}, limit=top_k),
             )
             memories = results if isinstance(results, list) else results.get("results", [])
             if not memories:

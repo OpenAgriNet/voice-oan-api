@@ -71,4 +71,3 @@ langcodes[data]==3.4.0
 # Long-term farmer memory
 mem0ai
 qdrant-client
-fastembed==0.5.1
