@@ -56,4 +56,7 @@ def get_voice_system_prompt(ctx: RunContext[FarmerContext]) -> str:
     deps = ctx.deps
     target_lang = deps.target_lang if deps.target_lang else 'mr'
     logger.info(f"Target language: {target_lang}")
-    return get_prompt(f'voice_system_{target_lang}', context={'today_date': get_today_date_str()})
+    base_prompt = get_prompt(f'voice_system_{target_lang}', context={'today_date': get_today_date_str()})
+    if deps.user_memories:
+        return f"{base_prompt}\n\n{deps.user_memories}"
+    return base_prompt

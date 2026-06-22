@@ -3,6 +3,7 @@ Tools for the Sunbird VA API.
 """
 from __future__ import annotations
 
+from agents.tools.memory_tool import recall_farmer_context
 from agents.tools.search import search_documents
 from agents.tools.weather import weather_forecast, weather_historical
 from agents.tools.mandi import mandi_prices
@@ -79,8 +80,11 @@ TOOLS = [
     Tool(
         _trace_tool(contact_agricultural_staff, name="contact_agricultural_staff"),
         takes_ctx=False,
-        docstring_format='auto', 
+        docstring_format='auto',
         require_parameter_descriptions=True,
     ),
-
+    Tool(
+        _trace_tool(recall_farmer_context, name="recall_farmer_context"),
+        takes_ctx=True,
+    ),
 ]

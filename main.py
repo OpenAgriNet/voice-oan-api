@@ -3,11 +3,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from contextlib import asynccontextmanager
+import logging
 
 load_dotenv()
 
+logging.getLogger("marqo").setLevel(logging.ERROR)
+
 # Import all routers
-from app.routers import voice, voice_bhili, health
+from app.routers import voice, voice_bhili, health, voice_webhook
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,4 +56,5 @@ async def root():
 
 app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(voice_bhili.router, prefix=settings.api_prefix)
-app.include_router(health.router, prefix=settings.api_prefix) 
+app.include_router(health.router, prefix=settings.api_prefix)
+app.include_router(voice_webhook.router, prefix=settings.api_prefix) 

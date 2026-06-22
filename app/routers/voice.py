@@ -67,6 +67,7 @@ async def voice_endpoint(
                 history=history,
                 provider=request.provider,
                 process_id=request.process_id,
+                user_id=request.user_id,
             ),
             session_id,
         ),

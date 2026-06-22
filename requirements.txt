@@ -67,3 +67,8 @@ pydantic-settings==2.9.1
 python-dateutil
 
 langcodes[data]==3.4.0
+
+# Long-term farmer memory
+mem0ai
+qdrant-client
+fastembed==0.5.1

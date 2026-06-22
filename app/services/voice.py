@@ -288,13 +288,31 @@ async def stream_voice_message(
 
     content_id = f"query_{session_id}_{len(history)//2 + 1}"
     effective_process_id = process_id or content_id
-    deps = FarmerContext(query=query,
-                         lang_code=source_lang,
-                         target_lang=target_lang,
-                         provider=provider,
-                         session_id=session_id,
-                         process_id=effective_process_id
-                         )
+
+    # Resolve effective user_id (skip 'anonymous' placeholder)
+    effective_user_id = user_id if user_id and user_id != 'anonymous' else None
+
+    # Phase 1: profile snapshot at call start (history <= 2 = welcome pair only)
+    user_memories: Optional[str] = None
+    if effective_user_id and len(history) <= 2:
+        try:
+            from app.services.memory import memory_service
+            user_memories = await memory_service.get_profile_summary(effective_user_id)
+            if user_memories:
+                logger.info("Loaded profile snapshot for user %s (%d chars)", effective_user_id, len(user_memories))
+        except Exception:
+            logger.warning("Failed to load profile snapshot for user %s", effective_user_id, exc_info=True)
+
+    deps = FarmerContext(
+        query=query,
+        lang_code=source_lang,
+        target_lang=target_lang,
+        provider=provider,
+        session_id=session_id,
+        process_id=effective_process_id,
+        user_id=effective_user_id,
+        user_memories=user_memories,
+    )
 
     tags = [
         "voice",

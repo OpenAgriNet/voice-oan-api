@@ -80,11 +80,12 @@ def _sanitize_settings_for_azure(model_settings: ModelSettings | None) -> ModelS
 class _AzureSanitizedModel(WrapperModel):
     """Azure fallback wrapper that omits vLLM-specific request settings."""
 
-    async def request(self, messages, model_settings, model_request_parameters):
+    async def request(self, messages, model_settings, model_request_parameters, run_context=None):
         return await self.wrapped.request(
             messages,
             _sanitize_settings_for_azure(model_settings),
             model_request_parameters,
+            run_context,
         )
 
     @asynccontextmanager
@@ -93,11 +94,13 @@ class _AzureSanitizedModel(WrapperModel):
         messages: list[ModelMessage],
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
+        run_context=None,
     ) -> AsyncIterator[StreamedResponse]:
         async with self.wrapped.request_stream(
             messages,
             _sanitize_settings_for_azure(model_settings),
             model_request_parameters,
+            run_context,
         ) as response_stream:
             yield response_stream
 

@@ -25,6 +25,10 @@ class FarmerContext(BaseModel):
     session_id: Optional[str] = Field(default=None, description="The session ID for the user.")
     process_id: Optional[str] = Field(default=None, description="The process ID for tracking and hold messages.")
 
+    # Farmer identity and long-term memory
+    user_id: Optional[str] = Field(default=None, description="Resolved farmer user_id (sha256 of phone). None = skip memory.")
+    user_memories: Optional[str] = Field(default=None, description="Pre-loaded profile snapshot injected at call start.")
+
     # Langfuse trace context (optional). When set, tool spans can be reliably attached
     # even if async context propagation is lost across tasks.
     langfuse_trace_id: Optional[str] = Field(default=None, description="Langfuse trace id (32 hex chars).")

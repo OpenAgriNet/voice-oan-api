@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     llm_model_name: Optional[str] = None
     marqo_index_name: Optional[str] = None
 
+    # Qdrant / Memory Configuration
+    qdrant_host: str = os.getenv("QDRANT_HOST", "localhost")
+    qdrant_port: int = int(os.getenv("QDRANT_PORT", "6333"))
+    qdrant_collection: str = os.getenv("QDRANT_COLLECTION", "vistaar_farmer_memories")
+
     class Config:
         env_file = ".env"
         extra = 'ignore'  # Ignore extra fields from .env

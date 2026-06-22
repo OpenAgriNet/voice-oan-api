@@ -42,12 +42,20 @@ docker run --name marqo -p 8882:8882 \
     marqoai/marqo:latest
 ```
 
-#### 4. Start the Application
+#### 4. Run Qdrant (Vector Memory)
+```bash
+docker run -d --name qdrant --network svanetwork \
+  -p 6333:6333 -p 6334:6334 \
+  -v $(pwd)/qdrant_storage:/qdrant/storage \
+  qdrant/qdrant
+```
+
+#### 5. Start the Application
 ```bash
 docker compose up --build --force-recreate --detach
 ```
 
-#### 5. View Logs
+#### 6. View Logs
 ```bash
 docker logs -f sva_app
 ```
