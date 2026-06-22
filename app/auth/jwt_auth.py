@@ -37,6 +37,26 @@ with open(public_key_path, 'rb') as key_file:
     public_key = serialization.load_pem_public_key(key_file.read())
 logger.info(f"Successfully loaded JWT Public Key from: {public_key_path}")
 
+def decode_token_claims(token: str | None) -> dict | None:
+    """Best-effort JWT decode for identity extraction.
+
+    Returns the claims dict, or None if the token is missing/invalid. Never
+    raises — memory features must degrade gracefully, not break the call.
+    """
+    if not token or public_key is None:
+        return None
+    try:
+        return jwt.decode(
+            token,
+            public_key,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_signature": True, "verify_aud": False, "verify_iss": False},
+        )
+    except Exception as e:
+        logger.warning(f"decode_token_claims failed: {e}")
+        return None
+
+
 async def get_current_user(token: str | None = Depends(oauth2_scheme)):
     """
     FastAPI dependency to get current authenticated user from JWT token.

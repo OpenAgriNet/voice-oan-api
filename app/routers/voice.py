@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, Request, HTTPException, status
 from fastapi.responses import StreamingResponse
 from app.services.voice import stream_voice_message
 from app.utils import _get_message_history
 from app.models.requests import ChatRequest
+from app.auth.jwt_auth import decode_token_claims
+from app.services.identity import user_id_from_claims, to_memory_user_id
+from app.config import settings
+from fastapi.security.utils import get_authorization_scheme_param
 from helpers.utils import get_logger
 import uuid
 import asyncio
@@ -32,16 +36,47 @@ async def _locked_stream(
             yield chunk
 
 
+def _resolve_memory_user_id(http_request: Request, request: ChatRequest) -> str | None:
+    """Resolve the hashed memory user_id from the request.
+
+    Production: the farmer's phone MUST come from a verified JWT (claim pinned by
+    JWT_PHONE_CLAIM, default `sub`); the phone is hashed here so raw phone never
+    reaches Qdrant. A missing/invalid token or absent phone raises 401.
+
+    Development: if no valid JWT phone is present, fall back to the `user_id`
+    query param so local testing works without signing tokens.
+    """
+    scheme, token = get_authorization_scheme_param(http_request.headers.get("Authorization"))
+    if token and scheme.lower() == "bearer":
+        hashed = user_id_from_claims(decode_token_claims(token) or {})
+        if hashed:
+            return hashed
+
+    if settings.environment == "development":
+        # Dev/testing fallback: hash a phone, or use an opaque id as-is.
+        return to_memory_user_id(request.user_id)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="A valid Bearer token containing the farmer phone is required.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 @router.get("/")
 async def voice_endpoint(
+    http_request: Request,
 #    background_tasks: BackgroundTasks,
     request: ChatRequest = Depends(),
 ):
     """
     Chat endpoint that streams responses back to the client.
-    Authentication disabled.
+
+    Auth: enforced in production (JWT Bearer with the farmer phone in the
+    `sub` claim); relaxed in development to allow the `user_id` query param.
     """
     session_id = request.session_id or str(uuid.uuid4())
+    memory_user_id = _resolve_memory_user_id(http_request, request)
     
     logger.info(
         f"Chat request received - session_id: {session_id}, user_id: {request.user_id}, "
@@ -67,7 +102,7 @@ async def voice_endpoint(
                 history=history,
                 provider=request.provider,
                 process_id=request.process_id,
-                user_id=request.user_id,
+                user_id=memory_user_id,
             ),
             session_id,
         ),
