@@ -1090,7 +1090,7 @@ async def stream_voice_message(
     try:
         # Keep the Langfuse root observation open for the full streaming
         # generator so downstream model calls and pydantic-ai spans nest under
-        # this voice_request.
+        # this agent_journey.
         with trace.request_context():
             # Emit the per-session pipeline_variant categorical score from
             # *inside* the trace context (chat #70 fix). score_id is

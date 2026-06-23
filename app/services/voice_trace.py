@@ -226,12 +226,12 @@ class VoiceTrace:
 
         # Langfuse uses the active OTel context. Keeping this context open
         # across the async generator makes moderation, translation, tools, and
-        # pydantic-ai child spans attach to one voice_request trace.
+        # pydantic-ai child spans attach to one agent_journey trace.
         stack = ExitStack()
         try:
             self.root_observation = stack.enter_context(
                 self.langfuse_client.start_as_current_observation(
-                    name="voice_request",
+                    name="agent_journey",
                     as_type="span",
                     input=self.metadata["query"],
                     metadata=self.metadata,
@@ -255,7 +255,7 @@ class VoiceTrace:
                         # pipeline_variant is set on metadata before this opens.
                         f"variant:{self.metadata.get('pipeline_variant') or 'legacy'}",
                     ],
-                    trace_name="voice_request",
+                    trace_name="agent_journey",
                 )
             )
         except Exception as exc:
