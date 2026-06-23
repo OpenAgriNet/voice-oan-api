@@ -288,16 +288,76 @@ class VoiceTrace:
         self.metadata["outcome"] = outcome
 
     def set_moderation(self, verdict: Any | None) -> None:
-        if verdict is None:
-            self.metadata["moderation"] = {"available": False}
-            return
-        self.metadata["moderation"] = {
-            "available": True,
-            "category": getattr(verdict, "category", None),
-            "rejected": bool(getattr(verdict, "rejected", False)),
-            "failed_open": bool(getattr(verdict, "failed_open", False)),
-            "reason": sanitize_text(getattr(verdict, "reason", None)),
+        def _pick(name: str, fallback: Any = None) -> Any:
+            if verdict is None:
+                return fallback
+            value = getattr(verdict, name, fallback)
+            return fallback if value is None else value
+
+        attempts = _pick("attempts", [])
+        fallback_used = _pick("fallback_used", None)
+        if fallback_used is None:
+            fallback_used = bool(
+                isinstance(attempts, list)
+                and len(attempts) > 1
+                and isinstance(attempts[0], dict)
+                and attempts[0].get("status") == "error"
+            )
+
+        payload: dict[str, Any] = {
+            "available": verdict is not None,
+            "requested_tier": _pick("requested_tier"),
+            "requested_provider": _pick("requested_provider"),
+            "requested_model": _pick("requested_model"),
+            "actual_tier": _pick("actual_tier"),
+            "actual_provider": _pick("actual_provider"),
+            "actual_model": _pick("actual_model"),
+            "fallback_used": fallback_used,
+            "attempts": attempts if isinstance(attempts, list) else [],
         }
+        if verdict is not None:
+            payload.update(
+                {
+                    "category": getattr(verdict, "category", None),
+                    "rejected": bool(getattr(verdict, "rejected", False)),
+                    "failed_open": bool(getattr(verdict, "failed_open", False)),
+                    "failed_closed": bool(getattr(verdict, "failed_closed", False)),
+                    "reason": sanitize_text(getattr(verdict, "reason", None)),
+                }
+            )
+        self.metadata["moderation"] = payload
+
+    def record_child_observation(
+        self,
+        *,
+        name: str,
+        as_type: str = "span",
+        input: Any | None = None,
+        output: Any | None = None,
+        metadata: Optional[dict[str, Any]] = None,
+        model: str | None = None,
+        level: str = "DEFAULT",
+        status_message: str | None = None,
+    ) -> None:
+        if not self.enabled or self.langfuse_client is None:
+            return
+        try:
+            with self.langfuse_client.start_as_current_observation(
+                name=name,
+                as_type=as_type,
+                input=input,
+                metadata=metadata,
+                model=model,
+            ) as observation:
+                _safe_update(
+                    observation,
+                    output=output,
+                    metadata=metadata,
+                    level=level,
+                    status_message=status_message,
+                )
+        except Exception as exc:
+            logger.debug("Langfuse child observation failed for %s: %s", name, exc)
 
     def set_pretranslation(
         self,

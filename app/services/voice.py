@@ -67,7 +67,7 @@ from app.services.translation import (
     translate_to_english_with_oss_vllm,
     translate_to_english_with_structured_fallback,
 )
-from app.services.voice_trace import VoiceTrace, create_voice_trace
+from app.services.voice_trace import VoiceTrace, create_voice_trace, sanitize_text
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerAccount, FarmerContext
@@ -1671,6 +1671,8 @@ async def stream_voice_message(
                 if _moderation_resolved:
                     return _moderation_verdict
                 _moderation_resolved = True
+                moderation_status = "ok"
+                moderation_status_message: Optional[str] = None
                 try:
                     _moderation_verdict = await moderation_task
                     done_t = moderation_done_at["t"] or time.monotonic()
@@ -1682,6 +1684,8 @@ async def stream_voice_message(
                 except asyncio.CancelledError:
                     raise
                 except Exception as moderation_error:
+                    moderation_status = "error"
+                    moderation_status_message = str(moderation_error)[:300]
                     done_t = moderation_done_at["t"] or time.monotonic()
                     trace.attach_stage_timing(
                         "moderation",
@@ -1695,7 +1699,46 @@ async def stream_voice_message(
                         moderation_error,
                     )
                     _moderation_verdict = None
+                moderation_duration_ms = (done_t - moderation_started_at) * 1000.0
                 trace.set_moderation(_moderation_verdict)
+                moderation_payload = trace.metadata.get("moderation", {})
+                trace.record_child_observation(
+                    name="moderation",
+                    as_type="generation",
+                    input={
+                        "source_lang": requested_source_lang,
+                        "text": sanitize_text(query),
+                        "recent_history_text": sanitize_text(moderation_recent_history),
+                    },
+                    output=(
+                        {
+                            "category": getattr(_moderation_verdict, "category", None),
+                            "reason": getattr(_moderation_verdict, "reason", None),
+                            "rejected": getattr(_moderation_verdict, "rejected", None),
+                            "failed_open": getattr(_moderation_verdict, "failed_open", None),
+                            "failed_closed": getattr(_moderation_verdict, "failed_closed", None),
+                        }
+                        if _moderation_verdict is not None
+                        else {"available": False}
+                    ),
+                    metadata={
+                        "duration_ms": round(moderation_duration_ms, 2),
+                        "status": moderation_status,
+                        "source_lang": requested_source_lang,
+                        "pipeline_variant": pipeline_variant,
+                        "requested_tier": moderation_payload.get("requested_tier"),
+                        "requested_provider": moderation_payload.get("requested_provider"),
+                        "requested_model": moderation_payload.get("requested_model"),
+                        "actual_tier": moderation_payload.get("actual_tier"),
+                        "actual_provider": moderation_payload.get("actual_provider"),
+                        "actual_model": moderation_payload.get("actual_model"),
+                        "fallback_used": moderation_payload.get("fallback_used"),
+                        "attempts": moderation_payload.get("attempts"),
+                    },
+                    model=moderation_payload.get("actual_model") or moderation_payload.get("requested_model"),
+                    level="ERROR" if moderation_status == "error" else "DEFAULT",
+                    status_message=moderation_status_message,
+                )
                 if _moderation_verdict is not None:
                     logger.info(
                         "Moderation verdict: category=%s rejected=%s failed_open=%s reason=%r session_id=%s process_id=%s",

@@ -302,3 +302,180 @@ def test_pretranslation_context_passthrough_for_oss_and_managed(monkeypatch):
     assert legacy_agent["attempts"][0]["status"] == "ok_no_output"
     assert oss_agent["attempts"][0]["tier"] == "oss"
     assert oss_agent["attempts"][0]["status"] == "ok_no_output"
+
+
+def test_set_moderation_records_requested_vs_actual_fields():
+    from app.services.moderation import ModerationVerdict
+
+    trace = create_voice_trace(
+        session_id="moderation-trace",
+        user_id="user-1",
+        query="help",
+        source_lang="gu",
+        target_lang="en",
+        provider=None,
+        process_id="proc-1",
+    )
+
+    trace.set_moderation(
+        ModerationVerdict(
+            category="in_scope",
+            reason="ok",
+            requested_tier="oss",
+            requested_provider="vllm",
+            requested_model="gemma-test",
+            actual_tier="managed",
+            actual_provider="openai",
+            actual_model="gpt-test",
+            fallback_used=True,
+            attempts=[
+                {"tier": "oss", "status": "error", "error_reason": "connection"},
+                {"tier": "managed", "status": "ok"},
+            ],
+        )
+    )
+
+    payload = trace.metadata["moderation"]
+    assert payload["available"] is True
+    assert payload["category"] == "in_scope"
+    assert payload["requested_tier"] == "oss"
+    assert payload["requested_provider"] == "vllm"
+    assert payload["requested_model"] == "gemma-test"
+    assert payload["actual_tier"] == "managed"
+    assert payload["actual_provider"] == "openai"
+    assert payload["actual_model"] == "gpt-test"
+    assert payload["fallback_used"] is True
+    assert payload["attempts"][0]["status"] == "error"
+    assert payload["attempts"][1]["status"] == "ok"
+
+
+def test_resolve_moderation_adds_child_observation_and_metadata(monkeypatch):
+    from app.services import voice as voice_module
+    from app.services.moderation import ModerationVerdict
+
+    monkeypatch.setattr(voice_module.settings, "fallback_enabled", True, raising=False)
+    monkeypatch.setattr(voice_module.settings, "enable_voice_nudges", False, raising=False)
+    monkeypatch.setattr(voice_module.settings, "voice_trace_log_summary", False, raising=False)
+
+    async def _update_message_history(*args, **kwargs):
+        return None
+
+    async def _check_moderation(*args, **kwargs):
+        return ModerationVerdict(
+            category="in_scope",
+            reason="ok",
+            requested_tier="oss",
+            requested_provider="vllm",
+            requested_model="gemma-test",
+            actual_tier="managed",
+            actual_provider="openai",
+            actual_model="gpt-test",
+            fallback_used=True,
+            attempts=[
+                {"tier": "oss", "provider": "vllm", "model": "gemma-test", "status": "error", "error_reason": "connection"},
+                {"tier": "managed", "provider": "openai", "model": "gpt-test", "status": "ok"},
+            ],
+        )
+
+    async def _check_non_meaningful_streak(*args, **kwargs):
+        return voice_module.NonMeaningfulVerdict(
+            five_consecutive_non_meaningful=False,
+            reason="ok",
+        )
+
+    class _FakeStream:
+        async def stream_text(self, **kwargs):
+            yield "Answer from model."
+
+        def new_messages(self):
+            return []
+
+    class _FakeAgent:
+        def run_stream(self, **kwargs):
+            return self
+
+        async def __aenter__(self):
+            return _FakeStream()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeObservation:
+        def __init__(self, sink, name, metadata):
+            self._sink = sink
+            self.name = name
+            self.metadata = metadata
+
+        def update(self, **kwargs):
+            self._sink["updates"].append({"name": self.name, **kwargs})
+
+        def end(self):
+            self._sink["ended"].append(self.name)
+
+    class _FakeObservationCM:
+        def __init__(self, sink, name, metadata):
+            self._obs = _FakeObservation(sink, name, metadata)
+
+        def __enter__(self):
+            return self._obs
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeLangfuseClient:
+        def __init__(self):
+            self.sink = {"started": [], "updates": [], "ended": []}
+
+        def start_as_current_observation(self, **kwargs):
+            self.sink["started"].append(kwargs)
+            return _FakeObservationCM(self.sink, kwargs.get("name"), kwargs.get("metadata"))
+
+    monkeypatch.setattr(voice_module, "update_message_history", _update_message_history)
+    monkeypatch.setattr(voice_module, "check_moderation", _check_moderation)
+    monkeypatch.setattr(voice_module, "check_non_meaningful_streak", _check_non_meaningful_streak)
+    monkeypatch.setattr(voice_module, "voice_agent", _FakeAgent())
+    monkeypatch.setattr(voice_module, "voice_agent_signed_in", _FakeAgent())
+
+    trace = create_voice_trace(
+        session_id="moderation-child-span",
+        user_id="user-moderation",
+        query="my cow has fever",
+        source_lang="en",
+        target_lang="en",
+        provider=None,
+        process_id="proc-1",
+    )
+    fake_langfuse = _FakeLangfuseClient()
+    trace.langfuse_client = fake_langfuse
+    trace.enabled = True
+
+    async def _collect():
+        chunks = []
+        async for chunk in voice_module.stream_voice_message(
+            query="my cow has fever",
+            session_id="moderation-child-span",
+            source_lang="en",
+            target_lang="en",
+            user_id="user-moderation",
+            history=[],
+            provider=None,
+            process_id="proc-1",
+            user_info={},
+            owner=None,
+            http_request=None,
+            trace=trace,
+            pipeline_variant="oss",
+        ):
+            chunks.append(chunk)
+        return "".join(chunks)
+
+    output = asyncio.run(_collect())
+
+    assert "Answer from model." in output
+    moderation_payload = trace.metadata["moderation"]
+    assert moderation_payload["requested_tier"] == "oss"
+    assert moderation_payload["actual_tier"] == "managed"
+    assert moderation_payload["fallback_used"] is True
+    assert moderation_payload["attempts"][0]["status"] == "error"
+    assert moderation_payload["attempts"][1]["status"] == "ok"
+    assert any(item.get("name") == "moderation" for item in fake_langfuse.sink["started"])
