@@ -95,7 +95,7 @@ def test_legacy_path_used_when_disabled(monkeypatch):
     monkeypatch.setattr(fb.settings, "fallback_enabled", False)
     sentinel = mod._allow("legacy-was-called", failed_open=True)
 
-    async def fake_legacy(text, source_lang, recent_history_text=""):
+    async def fake_legacy(text, source_lang, recent_history_text="", **kwargs):
         return sentinel
     monkeypatch.setattr(mod, "_check_moderation_legacy", fake_legacy)
 

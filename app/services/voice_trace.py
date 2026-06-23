@@ -305,12 +305,34 @@ class VoiceTrace:
         text: str,
         provider: str,
         fallback_used: bool,
+        requested_tier: Optional[str] = None,
+        requested_provider: Optional[str] = None,
+        requested_model: Optional[str] = None,
+        actual_tier: Optional[str] = None,
+        actual_provider: Optional[str] = None,
+        actual_model: Optional[str] = None,
+        attempts: Optional[list[dict[str, Any]]] = None,
     ) -> None:
-        self.metadata["pretranslation"] = {
+        payload: dict[str, Any] = {
             "text": sanitize_text(text),
             "provider": provider,
             "fallback_used": fallback_used,
         }
+        if requested_tier is not None:
+            payload["requested_tier"] = requested_tier
+        if requested_provider is not None:
+            payload["requested_provider"] = requested_provider
+        if requested_model is not None:
+            payload["requested_model"] = requested_model
+        if actual_tier is not None:
+            payload["actual_tier"] = actual_tier
+        if actual_provider is not None:
+            payload["actual_provider"] = actual_provider
+        if actual_model is not None:
+            payload["actual_model"] = actual_model
+        if attempts is not None:
+            payload["attempts"] = attempts
+        self.metadata["pretranslation"] = payload
 
     def set_farmer_context(
         self,
@@ -329,18 +351,58 @@ class VoiceTrace:
             "technician_info_chars": technician_info_chars,
         }
 
-    def set_agent(self, *, signed_in: bool, output: str, new_messages: Optional[list[Any]] = None) -> None:
+    def set_agent(
+        self,
+        *,
+        signed_in: bool,
+        output: str,
+        new_messages: Optional[list[Any]] = None,
+        requested_tier: Optional[str] = None,
+        requested_provider: Optional[str] = None,
+        requested_model: Optional[str] = None,
+        actual_tier: Optional[str] = None,
+        actual_provider: Optional[str] = None,
+        actual_model: Optional[str] = None,
+        first_token_committed_tier: Optional[str] = None,
+        first_token_committed_provider: Optional[str] = None,
+        first_token_committed_model: Optional[str] = None,
+        fallback_used: Optional[bool] = None,
+        attempts: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
         tool_calls = 0
         for msg in new_messages or []:
             for part in getattr(msg, "parts", None) or []:
                 if getattr(part, "tool_name", None):
                     tool_calls += 1
-        self.metadata["agent"] = {
+        payload: dict[str, Any] = {
             "signed_in": signed_in,
             "output_chars": len(output or ""),
             "new_message_count": len(new_messages or []),
             "tool_call_count": tool_calls,
         }
+        if requested_tier is not None:
+            payload["requested_tier"] = requested_tier
+        if requested_provider is not None:
+            payload["requested_provider"] = requested_provider
+        if requested_model is not None:
+            payload["requested_model"] = requested_model
+        if actual_tier is not None:
+            payload["actual_tier"] = actual_tier
+        if actual_provider is not None:
+            payload["actual_provider"] = actual_provider
+        if actual_model is not None:
+            payload["actual_model"] = actual_model
+        if first_token_committed_tier is not None:
+            payload["first_token_committed_tier"] = first_token_committed_tier
+        if first_token_committed_provider is not None:
+            payload["first_token_committed_provider"] = first_token_committed_provider
+        if first_token_committed_model is not None:
+            payload["first_token_committed_model"] = first_token_committed_model
+        if fallback_used is not None:
+            payload["fallback_used"] = fallback_used
+        if attempts is not None:
+            payload["attempts"] = attempts
+        self.metadata["agent"] = payload
 
     def set_nudge(self, **values: Any) -> None:
         current = self.metadata.setdefault("nudge", {})

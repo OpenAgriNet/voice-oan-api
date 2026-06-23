@@ -239,6 +239,9 @@ async def check_moderation(
     recent_history_text: str = "",
     variant: str = "legacy",
     session_id: str = "",
+    user_id: str = "",
+    process_id: str = "",
+    pipeline_variant: str = "",
 ) -> ModerationVerdict:
     """Classify a caller utterance. Returns a ModerationVerdict.
 
@@ -257,7 +260,15 @@ async def check_moderation(
         return _allow("empty input", failed_open=False)
 
     if not settings.fallback_enabled:
-        return await _check_moderation_legacy(text, source_lang, recent_history_text)
+        return await _check_moderation_legacy(
+            text,
+            source_lang,
+            recent_history_text,
+            session_id=session_id,
+            user_id=user_id,
+            process_id=process_id,
+            pipeline_variant=pipeline_variant,
+        )
 
     async def _run(attempt):
         client, model, _provider = _client_model_for_kind(attempt.kind)
@@ -285,6 +296,11 @@ async def _check_moderation_legacy(
     text: str,
     source_lang: str,
     recent_history_text: str = "",
+    *,
+    session_id: str = "",
+    user_id: str = "",
+    process_id: str = "",
+    pipeline_variant: str = "",
 ) -> ModerationVerdict:
     """Legacy moderation: single global provider (VOICE_MODERATION_PROVIDER),
     fails OPEN. Used when ``settings.fallback_enabled`` is false."""
