@@ -3,7 +3,7 @@ Typed models for farmer and animal data from PashuGPT APIs.
 Used throughout both chat and voice backends for consistent data handling.
 """
 from datetime import datetime, timezone
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict
 
@@ -19,8 +19,11 @@ class AnimalRecord(BaseModel):
     pregnancyStage: Optional[str] = None
     dateOfBirth: Optional[str] = None
     lactationNo: Optional[Union[int, str]] = None
-    lastBreedingActivity: Optional[str] = None
-    lastHealthActivity: Optional[str] = None
+    # amulpashudhan returns these as nested objects (AI date + bull id, etc.);
+    # herdman returns flat strings. Accept either so the breeding/AI history
+    # survives the cache round-trip intact.
+    lastBreedingActivity: Optional[Any] = None
+    lastHealthActivity: Optional[Any] = None
     lastPD: Optional[str] = None
     lastCalvingDate: Optional[str] = None
     farmerComplaint: Optional[str] = None
@@ -38,6 +41,10 @@ class FarmerRecord(BaseModel):
     totalAnimals: Optional[int] = None
     tagNo: Optional[str] = None
     tagNumbers: Optional[str] = None
+    # Per-animal records (incl. lastBreedingActivity = AI date + bull id),
+    # populated on the cache-refresh path so the voice agent can answer
+    # historical AI questions without an on-request fetch.
+    animals: List[AnimalRecord] = []
 
 
 class FarmerSummary(BaseModel):

@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import nullcontext
 from functools import lru_cache
+import json
 import time
 from typing import AsyncGenerator, Optional, Literal
 import re
@@ -603,6 +604,41 @@ def _extract_farmer_tags(records: list[FarmerRecord]) -> list[str]:
     return tags
 
 
+def _render_breeding_value(value) -> str:
+    """Compact, model-readable form of lastBreedingActivity (amulpashudhan returns
+    a nested object with the AI date + bull id; herdman returns a flat string)."""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _append_animal_records(lines: list[str], envelope: FarmerDataEnvelope) -> None:
+    """Per-animal records (incl. last AI date + bull id) for breeding/AI-history
+    questions. Tags are masked (last 4 digits) so TTS never reads a full tag aloud.
+    Populated by the background cache refresh — absent on a brand-new caller's
+    first turn, present from the next turn on."""
+    blocks: list[str] = []
+    for record in envelope.farmers:
+        for animal in getattr(record, "animals", None) or []:
+            data = animal.model_dump()
+            masked = mask_tag_identifier(data.get("tagNumber") or "")
+            if not masked:
+                continue
+            parts = [f"tag ending {masked}"]
+            if data.get("animalType"):
+                parts.append(f"type={data['animalType']}")
+            breeding = data.get("lastBreedingActivity")
+            if breeding:
+                parts.append(f"last AI/breeding={_render_breeding_value(breeding)}")
+            else:
+                parts.append("no AI records available")
+            blocks.append("- " + ", ".join(parts))
+    if blocks:
+        lines.append("")
+        lines.append("### Per-animal AI / breeding history")
+        lines.extend(blocks)
+
+
 def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
     if envelope is None or not envelope.farmers:
         return ""
@@ -670,6 +706,8 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
             f"- Farmer option {index}: name={farmer_name}, society_name={society_name}, "
             f"farmer_code={farmer_code}, union_code={union_code}, society_code={society_code}"
         )
+
+    _append_animal_records(lines, envelope)
 
     return "\n".join(lines)
 
