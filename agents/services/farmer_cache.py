@@ -19,11 +19,16 @@ from typing import Optional
 from app.core.cache import cache, redis_client, build_cache_key
 from app.config import settings
 from app.observability import start_observation
-from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
+from agents.models.farmer import AnimalRecord, FarmerDataEnvelope, FarmerRecord
 from agents.tools.farmer_animal_backends import (
     GetAITechniciansBySocietyQueryParams,
     get_ai_technicians_by_society_api,
+    fetch_animal_amulpashudhan,
+    fetch_animal_herdman,
+    merge_animal_data,
+    normalize_tag,
     fetch_reason,
+    current_fetch_reason,
 )
 from helpers.utils import get_logger
 
@@ -37,6 +42,10 @@ FARMER_COLD_FETCH_TIMEOUT = 4.0  # bounded blocking fetch for a cold/never-cache
 # Beyond this age a cached record is too stale to serve: the read blocks on a
 # bounded API call instead (falls back to the stale record only if that fails).
 FARMER_MAX_SERVE_STALE_SECONDS = settings.farmer_max_serve_stale_seconds
+# Cap concurrent per-animal API fetches during a background enrichment so a large
+# herd (or a multi-record phone) can't fan out into hundreds of simultaneous
+# outbound calls (socket exhaustion / 429s).
+FARMER_ANIMAL_FETCH_CONCURRENCY = 8
 FARMER_CACHE_NAMESPACE = "farmer"
 FARMER_REFRESH_LOCK_NAMESPACE = "farmer-refresh"
 FARMER_REFRESH_QUEUE_NAMESPACE = "farmer-refresh-queue"
@@ -47,6 +56,19 @@ FARMER_REFRESH_QUEUE_KEY = build_cache_key("pending", namespace=FARMER_REFRESH_Q
 def _cache_key(phone: str) -> str:
     """Build cache key from phone number hash."""
     return hashlib.sha256(phone.encode()).hexdigest()
+
+
+def _record_tags(record: FarmerRecord) -> list[str]:
+    """Raw (unmasked) animal tags from a farmer record."""
+    raw = record.tagNumbers or record.tagNo or ""
+    return [t.strip() for t in str(raw).split(",") if t.strip()]
+
+
+def _record_needs_animals(record: FarmerRecord) -> bool:
+    """True when a farmer has tags but no per-animal records cached yet — e.g. an
+    envelope written before animal enrichment existed. Used to force one
+    background refresh that backfills the breeding/AI history."""
+    return bool(_record_tags(record)) and not record.animals
 
 
 def _refresh_lock_key(phone: str) -> str:
@@ -105,6 +127,12 @@ async def get_cached_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             if envelope.farmers and "aiTechnicians" not in raw:
                 envelope.stale = True
                 envelope.staleReason = "missing_ai_technicians"
+                envelope.refreshAfter = datetime.now(timezone.utc).isoformat()
+            elif any(_record_needs_animals(f) for f in envelope.farmers):
+                # Backfill per-animal records (incl. AI history) for envelopes
+                # cached before animal enrichment existed.
+                envelope.stale = True
+                envelope.staleReason = "missing_animals"
                 envelope.refreshAfter = datetime.now(timezone.utc).isoformat()
             return envelope
     except Exception as e:
@@ -170,6 +198,7 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
     """
     lock_key = _refresh_lock_key(phone)
     acquired = False
+    enqueue_backfill_after_unlock = False
     try:
         acquired = await redis_client.set(lock_key, "1", ex=FARMER_REFRESH_LOCK_TTL, nx=True)
         if not acquired:
@@ -191,7 +220,23 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
         if records:
             envelope = FarmerDataEnvelope.from_records(records, source="api", lookup_status="found")
             envelope.aiTechnicians = await _fetch_ai_technicians(records)
+            # Per-animal enrichment (breeding/AI history) is fetched ONLY in the
+            # background worker — it makes N extra API calls and must never be on
+            # a voice turn. A cold/request-path refresh caches farmer-level data
+            # immediately, then enqueues a background refresh to backfill the
+            # animal records so they are present on the next turn (rather than
+            # waiting for a later read to notice "missing_animals" staleness).
+            if current_fetch_reason() == "background_refresh":
+                await _enrich_records_with_animals(envelope.farmers)
             await set_cached_farmer_data(phone, envelope)
+            # Defer the backfill enqueue until AFTER our refresh lock is released
+            # (see finally): enqueuing while still holding the lock lets a worker
+            # spop the phone, hit the lock-busy branch, and return the
+            # missing_animals envelope without enriching — dropping the job.
+            if current_fetch_reason() != "background_refresh" and any(
+                _record_needs_animals(f) for f in envelope.farmers
+            ):
+                enqueue_backfill_after_unlock = True
             return envelope
 
         # Upstream returned nothing. Never let a transient empty response wipe
@@ -226,6 +271,10 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
                 await redis_client.delete(lock_key)
             except Exception:
                 pass
+        # Lock is now released — safe to enqueue the backfill: a worker that
+        # picks it up will acquire the lock cleanly and run enrichment.
+        if enqueue_backfill_after_unlock:
+            await enqueue_farmer_refresh(phone)
 
 
 async def get_farmer_data_cached_only(phone: str) -> Optional[FarmerDataEnvelope]:
@@ -313,6 +362,72 @@ async def drain_farmer_refresh_queue_once(batch: int = 20) -> int:
         except Exception:
             logger.exception("Background farmer refresh failed for a queued phone")
     return processed
+
+
+async def _fetch_one_animal(tag: str, token1: Optional[str], token3: Optional[str]) -> Optional[AnimalRecord]:
+    """Fetch + merge a single animal (amulpashudhan primary, herdman fallback)."""
+    norm = normalize_tag(tag)
+    if not norm:
+        return None
+    primary = None
+    fallback = None
+    if token1:
+        try:
+            primary = await fetch_animal_amulpashudhan(norm, token1)
+        except Exception as e:
+            logger.warning("amulpashudhan animal fetch failed for tag %s: %s", norm, e)
+    if token3:
+        try:
+            fallback = await fetch_animal_herdman(norm, token3)
+        except Exception as e:
+            logger.warning("herdman animal fetch failed for tag %s: %s", norm, e)
+    merged = merge_animal_data(primary, fallback)
+    if not merged:
+        return None
+    try:
+        return AnimalRecord.model_validate(merged)
+    except Exception as e:
+        logger.warning("Failed to validate animal record for tag %s: %s", norm, e)
+        return None
+
+
+async def _enrich_records_with_animals(records: list[FarmerRecord]) -> None:
+    """Populate each farmer record's `animals` list with per-animal data
+    (incl. lastBreedingActivity = AI date + bull id). Runs only on the background
+    refresh path — never on a voice turn. Mutates `records` in place; best-effort."""
+    token1 = os.getenv("PASHUGPT_TOKEN")
+    token3 = os.getenv("PASHUGPT_TOKEN_3")
+    if not token1 and not token3:
+        return
+
+    # One flat gather across all farmers × tags so the worker fetches the whole
+    # herd concurrently rather than farmer-by-farmer — bounded by a semaphore so
+    # a large herd can't open hundreds of sockets at once.
+    jobs: list[tuple[FarmerRecord, str]] = []
+    for record in records:
+        for tag in _record_tags(record):
+            jobs.append((record, tag))
+    if not jobs:
+        return
+
+    sem = asyncio.Semaphore(FARMER_ANIMAL_FETCH_CONCURRENCY)
+
+    async def _bounded(tag: str) -> Optional[AnimalRecord]:
+        async with sem:
+            return await _fetch_one_animal(tag, token1, token3)
+
+    results = await asyncio.gather(
+        *(_bounded(tag) for _, tag in jobs),
+        return_exceptions=True,
+    )
+    by_record: dict[int, list[AnimalRecord]] = {}
+    for (record, _tag), result in zip(jobs, results):
+        if isinstance(result, AnimalRecord):
+            by_record.setdefault(id(record), []).append(result)
+    for record in records:
+        animals = by_record.get(id(record))
+        if animals:
+            record.animals = animals
 
 
 async def _fetch_ai_technicians(records: list[FarmerRecord]) -> list[dict]:
