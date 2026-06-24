@@ -4,7 +4,8 @@ from app.services.voice import stream_voice_message
 from app.utils import _get_message_history
 from app.models.requests import ChatRequest
 from app.auth.jwt_auth import decode_token_claims
-from app.services.identity import user_id_from_claims, to_memory_user_id
+from app.services.identity import user_id_from_claims, to_memory_user_id, resolve_user_id
+from app.services.memory import memory_service
 from app.config import settings
 from app.services import call_timeout
 from fastapi.security.utils import get_authorization_scheme_param
@@ -70,6 +71,21 @@ def _resolve_memory_user_id(http_request: Request, request: ChatRequest) -> str 
         detail="A valid Bearer token containing the farmer phone is required.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+@router.get("/memories")
+async def list_memories(phone: str):
+    """Read-only: return all long-term memories for a farmer, looked up by phone.
+
+    The phone is hashed here (same logic as call-time) so the raw number never
+    leaves this process and the caller (the memory viewer UI) needs no secrets.
+    Intended for internal POC/demo use — unauthenticated.
+    """
+    user_id = resolve_user_id(phone)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+    items = await memory_service.get_all(user_id)
+    return {"user_id": user_id, "count": len(items), "memories": items}
 
 
 @router.get("/")

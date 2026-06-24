@@ -180,6 +180,32 @@ class MemoryService:
             logger.warning("memory.search failed for user %s", user_id, exc_info=True)
             return ""
 
+    async def get_all(self, user_id: str) -> list[dict]:
+        """Return every stored memory for a user_id (newest first where available).
+
+        Used by the read-only memory viewer to show a farmer's full memory set.
+        """
+        client = self._get_client()
+        if not client or not user_id:
+            return []
+        try:
+            results = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.get_all(filters={"user_id": user_id}, limit=200),
+            )
+            memories = results if isinstance(results, list) else results.get("results", [])
+            return [
+                {
+                    "memory": m.get("memory"),
+                    "created_at": m.get("created_at"),
+                    "updated_at": m.get("updated_at"),
+                }
+                for m in memories
+            ]
+        except Exception:
+            logger.warning("get_all failed for user %s", user_id, exc_info=True)
+            return []
+
     async def extract_and_save(
         self,
         user_id: str,
