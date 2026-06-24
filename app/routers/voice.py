@@ -88,6 +88,20 @@ async def list_memories(phone: str):
     return {"user_id": user_id, "count": len(items), "memories": items}
 
 
+@router.delete("/memories")
+async def delete_memories(phone: str):
+    """Read-write: delete all long-term memories for a farmer, looked up by phone.
+
+    Phone is hashed here (same as call-time). Intended for internal POC/demo
+    cleanup — unauthenticated.
+    """
+    user_id = resolve_user_id(phone)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+    deleted = await memory_service.delete_all(user_id)
+    return {"user_id": user_id, "deleted": deleted}
+
+
 @router.get("/")
 async def voice_endpoint(
     http_request: Request,

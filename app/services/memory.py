@@ -206,6 +206,26 @@ class MemoryService:
             logger.warning("get_all failed for user %s", user_id, exc_info=True)
             return []
 
+    async def delete_all(self, user_id: str) -> int:
+        """Delete every stored memory for a user_id. Returns how many existed before.
+
+        Used by the memory viewer to clear a farmer's memories (demo cleanup).
+        """
+        client = self._get_client()
+        if not client or not user_id:
+            return 0
+        try:
+            before = await self.get_all(user_id)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.delete_all(user_id=user_id),
+            )
+            logger.info("Deleted %s memories for user %s", len(before), user_id)
+            return len(before)
+        except Exception:
+            logger.warning("delete_all failed for user %s", user_id, exc_info=True)
+            return 0
+
     async def extract_and_save(
         self,
         user_id: str,
