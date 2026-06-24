@@ -198,6 +198,7 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
     """
     lock_key = _refresh_lock_key(phone)
     acquired = False
+    enqueue_backfill_after_unlock = False
     try:
         acquired = await redis_client.set(lock_key, "1", ex=FARMER_REFRESH_LOCK_TTL, nx=True)
         if not acquired:
@@ -228,10 +229,14 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             if current_fetch_reason() == "background_refresh":
                 await _enrich_records_with_animals(envelope.farmers)
             await set_cached_farmer_data(phone, envelope)
+            # Defer the backfill enqueue until AFTER our refresh lock is released
+            # (see finally): enqueuing while still holding the lock lets a worker
+            # spop the phone, hit the lock-busy branch, and return the
+            # missing_animals envelope without enriching — dropping the job.
             if current_fetch_reason() != "background_refresh" and any(
                 _record_needs_animals(f) for f in envelope.farmers
             ):
-                await enqueue_farmer_refresh(phone)
+                enqueue_backfill_after_unlock = True
             return envelope
 
         # Upstream returned nothing. Never let a transient empty response wipe
@@ -266,6 +271,10 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
                 await redis_client.delete(lock_key)
             except Exception:
                 pass
+        # Lock is now released — safe to enqueue the backfill: a worker that
+        # picks it up will acquire the lock cleanly and run enrichment.
+        if enqueue_backfill_after_unlock:
+            await enqueue_farmer_refresh(phone)
 
 
 async def get_farmer_data_cached_only(phone: str) -> Optional[FarmerDataEnvelope]:
