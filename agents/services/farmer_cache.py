@@ -42,6 +42,10 @@ FARMER_COLD_FETCH_TIMEOUT = 4.0  # bounded blocking fetch for a cold/never-cache
 # Beyond this age a cached record is too stale to serve: the read blocks on a
 # bounded API call instead (falls back to the stale record only if that fails).
 FARMER_MAX_SERVE_STALE_SECONDS = settings.farmer_max_serve_stale_seconds
+# Cap concurrent per-animal API fetches during a background enrichment so a large
+# herd (or a multi-record phone) can't fan out into hundreds of simultaneous
+# outbound calls (socket exhaustion / 429s).
+FARMER_ANIMAL_FETCH_CONCURRENCY = 8
 FARMER_CACHE_NAMESPACE = "farmer"
 FARMER_REFRESH_LOCK_NAMESPACE = "farmer-refresh"
 FARMER_REFRESH_QUEUE_NAMESPACE = "farmer-refresh-queue"
@@ -218,11 +222,16 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             # Per-animal enrichment (breeding/AI history) is fetched ONLY in the
             # background worker — it makes N extra API calls and must never be on
             # a voice turn. A cold/request-path refresh caches farmer-level data
-            # immediately; the resulting "missing_animals" staleness then triggers
-            # a background refresh that backfills the animal records.
+            # immediately, then enqueues a background refresh to backfill the
+            # animal records so they are present on the next turn (rather than
+            # waiting for a later read to notice "missing_animals" staleness).
             if current_fetch_reason() == "background_refresh":
                 await _enrich_records_with_animals(envelope.farmers)
             await set_cached_farmer_data(phone, envelope)
+            if current_fetch_reason() != "background_refresh" and any(
+                _record_needs_animals(f) for f in envelope.farmers
+            ):
+                await enqueue_farmer_refresh(phone)
             return envelope
 
         # Upstream returned nothing. Never let a transient empty response wipe
@@ -383,7 +392,8 @@ async def _enrich_records_with_animals(records: list[FarmerRecord]) -> None:
         return
 
     # One flat gather across all farmers × tags so the worker fetches the whole
-    # herd concurrently rather than farmer-by-farmer.
+    # herd concurrently rather than farmer-by-farmer — bounded by a semaphore so
+    # a large herd can't open hundreds of sockets at once.
     jobs: list[tuple[FarmerRecord, str]] = []
     for record in records:
         for tag in _record_tags(record):
@@ -391,8 +401,14 @@ async def _enrich_records_with_animals(records: list[FarmerRecord]) -> None:
     if not jobs:
         return
 
+    sem = asyncio.Semaphore(FARMER_ANIMAL_FETCH_CONCURRENCY)
+
+    async def _bounded(tag: str) -> Optional[AnimalRecord]:
+        async with sem:
+            return await _fetch_one_animal(tag, token1, token3)
+
     results = await asyncio.gather(
-        *(_fetch_one_animal(tag, token1, token3) for _, tag in jobs),
+        *(_bounded(tag) for _, tag in jobs),
         return_exceptions=True,
     )
     by_record: dict[int, list[AnimalRecord]] = {}
