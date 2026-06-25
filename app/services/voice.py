@@ -292,16 +292,24 @@ async def stream_voice_message(
     # Resolve effective user_id (skip 'anonymous' placeholder)
     effective_user_id = user_id if user_id and user_id != 'anonymous' else None
 
-    # Phase 1: profile snapshot at call start (history <= 2 = welcome pair only)
+    # Phase 1: profile snapshot at call start (history <= 2 = welcome pair only).
+    # Prefer the structured farmer profile (deterministic, crop-stage aware);
+    # fall back to mem0's semantic summary when no structured profile exists yet.
     user_memories: Optional[str] = None
     if effective_user_id and len(history) <= 2:
         try:
-            from app.services.memory import memory_service
-            user_memories = await memory_service.get_profile_summary(effective_user_id)
-            if user_memories:
-                logger.info("Loaded profile snapshot for user %s (%d chars)", effective_user_id, len(user_memories))
+            from app.services.profile import profile_store
+            user_memories = await profile_store.get_snapshot(effective_user_id)
         except Exception:
-            logger.warning("Failed to load profile snapshot for user %s", effective_user_id, exc_info=True)
+            logger.warning("Failed to load structured profile for user %s", effective_user_id, exc_info=True)
+        if not user_memories:
+            try:
+                from app.services.memory import memory_service
+                user_memories = await memory_service.get_profile_summary(effective_user_id)
+            except Exception:
+                logger.warning("Failed to load profile snapshot for user %s", effective_user_id, exc_info=True)
+        if user_memories:
+            logger.info("Loaded profile snapshot for user %s (%d chars)", effective_user_id, len(user_memories))
 
     deps = FarmerContext(
         query=query,

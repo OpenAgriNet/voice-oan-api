@@ -4,6 +4,7 @@ Tools for the Sunbird VA API.
 from __future__ import annotations
 
 from agents.tools.memory_tool import recall_farmer_context
+from agents.tools.profile_tool import update_farmer_profile, forget_farmer_detail
 from agents.tools.search import search_documents
 from agents.tools.weather import weather_forecast, weather_historical
 from agents.tools.mandi import mandi_prices
@@ -86,5 +87,17 @@ TOOLS = [
     Tool(
         _trace_tool(recall_farmer_context, name="recall_farmer_context"),
         takes_ctx=True,
+    ),
+    Tool(
+        _trace_tool(update_farmer_profile, name="update_farmer_profile"),
+        takes_ctx=True,
+        docstring_format='auto',
+        require_parameter_descriptions=True,
+    ),
+    Tool(
+        _trace_tool(forget_farmer_detail, name="forget_farmer_detail"),
+        takes_ctx=True,
+        docstring_format='auto',
+        require_parameter_descriptions=True,
     ),
 ]

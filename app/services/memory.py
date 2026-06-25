@@ -4,7 +4,7 @@ Farmer long-term memory via mem0 + Qdrant.
 Three operations:
   get_profile_summary  — called at call start, returns 3-4 bullet snapshot
   search               — called by recall_farmer_context tool during call
-  extract_and_save     — called post-call to persist facts from transcript
+  extract_and_save     — called post-call to persist a structured per-call summary
 """
 from __future__ import annotations
 
@@ -66,17 +66,54 @@ def _build_mem0_config() -> dict:
     return config
 
 
-def _transcript_to_mem0(history: list[ModelMessage]) -> list[dict]:
-    """Convert pydantic-ai message history to mem0-compatible [{role, content}] list."""
-    messages = []
+def _transcript_to_text(history: list[ModelMessage]) -> str:
+    """Flatten the message history into a readable transcript for summarization."""
+    lines: list[str] = []
     for msg in history:
         for part in msg.parts:
             kind = getattr(part, "part_kind", "")
             if kind == "user-prompt":
-                messages.append({"role": "user", "content": part.content})
+                lines.append(f"Farmer: {part.content}")
             elif kind == "text":
-                messages.append({"role": "assistant", "content": part.content})
-    return messages
+                lines.append(f"Assistant: {part.content}")
+    return "\n".join(lines)
+
+
+_SUMMARY_SYSTEM = (
+    "You write a structured summary of a single farmer support call, to be stored "
+    "and retrieved on future calls. Output concise plain text with ONLY these "
+    "labeled sections, omitting any that are empty (no extra prose):\n"
+    "Date: <call date>\n"
+    "Topics: <comma-separated topics discussed>\n"
+    "Questions: <what the farmer asked>\n"
+    "Advice: <key advice or answers given>\n"
+    "Crops/Issues: <crops, pests, or problems mentioned>\n"
+    "Follow-up: <anything to check on the next call>\n"
+    "Keep it factual and under 120 words. Do not invent details."
+)
+
+
+def _summarize_call_sync(transcript: str, today: str) -> str:
+    """Blocking call to the vLLM model. Returns a structured call summary, or ''."""
+    from openai import OpenAI
+    from agents.models import LLM_AGRINET_MODEL_NAME, _vllm_openai_base_url
+
+    base_url = _vllm_openai_base_url()
+    model = LLM_AGRINET_MODEL_NAME or os.getenv("LLM_MODEL_NAME") or "agrinet-model"
+    if not base_url:
+        return ""
+
+    client = OpenAI(base_url=base_url, api_key=os.getenv("INFERENCE_API_KEY") or "not-required")
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": _SUMMARY_SYSTEM},
+            {"role": "user", "content": f"Call date: {today}\n\nTranscript:\n{transcript}"},
+        ],
+        temperature=0.0,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+    )
+    return (resp.choices[0].message.content or "").strip()
 
 
 def _patch_mem0_disable_thinking() -> None:
@@ -232,24 +269,58 @@ class MemoryService:
         run_id: str,
         history: list[ModelMessage],
     ) -> None:
-        """Post-call: extract facts from full transcript and persist to Qdrant."""
+        """Post-call: write ONE structured summary of this call to Qdrant.
+
+        Instead of letting mem0 shatter the transcript into unstructured atomic
+        facts, we generate a single structured summary (Topics/Questions/Advice/
+        Follow-up) and store it verbatim (infer=False) as one retrievable, embedded
+        document. The recall tool then searches over coherent per-call summaries.
+        """
         client = self._get_client()
         if not client or not user_id:
             return
-        messages = _transcript_to_mem0(history)
-        if not messages:
+        transcript = _transcript_to_text(history)
+        if not transcript.strip():
             logger.info("extract_and_save: empty transcript for user %s, skipping", user_id)
             return
+
+        from helpers.utils import get_today_date_str
+
+        try:
+            today = get_today_date_str()
+            summary = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _summarize_call_sync(transcript, today)
+            )
+        except Exception:
+            logger.error("call summarization failed for user %s", user_id, exc_info=True)
+            return
+        if not summary:
+            logger.info("extract_and_save: empty summary for user %s, skipping", user_id)
+            return
+
+        logger.info("extract_and_save user=%s summary=%r", user_id, summary)
         try:
             await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: client.add(
-                    messages,
+                    [{"role": "user", "content": summary}],
                     user_id=user_id,
-                    metadata={"run_id": run_id},
+                    metadata={"run_id": run_id, "type": "call_summary", "date": today},
+                    infer=False,
                 ),
             )
-            logger.info("Post-call memory saved for user %s (run %s)", user_id, run_id)
+            logger.info("Structured call summary saved for user %s (run %s)", user_id, run_id)
+        except TypeError:
+            # Older mem0 without infer kwarg: store the summary as-is anyway.
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.add(
+                    [{"role": "user", "content": summary}],
+                    user_id=user_id,
+                    metadata={"run_id": run_id, "type": "call_summary", "date": today},
+                ),
+            )
+            logger.info("Structured call summary saved (no-infer fallback) for user %s", user_id)
         except Exception:
             logger.error("extract_and_save failed for user %s", user_id, exc_info=True)
 

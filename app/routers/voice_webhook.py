@@ -38,10 +38,19 @@ async def _run_post_call_extraction(session_id: str, user_id: str, run_id: str) 
             return
 
         from app.services.memory import memory_service
-        await memory_service.extract_and_save(
-            user_id=user_id,
-            run_id=run_id,
-            history=history,
+        from app.services.profile import profile_store
+
+        # Two structured artifacts per call, in parallel:
+        #   1. update the farmer's durable profile (name, land, crops, ...)
+        #   2. save a structured summary of THIS call for later recall
+        import asyncio
+        await asyncio.gather(
+            profile_store.extract_and_merge(user_id=user_id, history=history),
+            memory_service.extract_and_save(
+                user_id=user_id,
+                run_id=run_id,
+                history=history,
+            ),
         )
     except Exception:
         logger.error(

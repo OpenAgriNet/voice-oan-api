@@ -102,6 +102,31 @@ async def delete_memories(phone: str):
     return {"user_id": user_id, "deleted": deleted}
 
 
+@router.get("/profile")
+async def get_profile(phone: str):
+    """Read-only: return the structured farmer profile, looked up by phone.
+
+    Phone is hashed here (same as call-time). Internal POC/demo use.
+    """
+    user_id = resolve_user_id(phone)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+    from app.services.profile import profile_store
+    profile = await profile_store.get(user_id)
+    return {"user_id": user_id, "profile": profile.model_dump() if profile else None}
+
+
+@router.delete("/profile")
+async def delete_profile(phone: str):
+    """Delete the structured farmer profile, looked up by phone. POC/demo cleanup."""
+    user_id = resolve_user_id(phone)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+    from app.services.profile import profile_store
+    deleted = await profile_store.delete(user_id)
+    return {"user_id": user_id, "deleted": deleted}
+
+
 @router.get("/")
 async def voice_endpoint(
     http_request: Request,
