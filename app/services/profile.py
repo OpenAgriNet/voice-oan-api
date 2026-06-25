@@ -8,8 +8,9 @@ worth loading deterministically at the start of every call:
     crop(s), land, irrigation, soil, location, preferred mandi, language,
     livestock, schemes, and open follow-up threads.
 
-Storage: one JSON document per hashed user_id in Redis (via the shared aiocache
-instance), with NO TTL so profiles persist across calls. No new dependency.
+Storage: one point per hashed user_id in a dedicated Qdrant collection
+(separate from mem0's memory collection). Looked up by id only — no embeddings,
+no vector search — so durable profile data stays out of Redis memory.
 
 Lifecycle:
   load + render_snapshot   — call start, injected into the system prompt
@@ -22,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import uuid
 from datetime import date, datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
@@ -32,7 +34,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_NAMESPACE = "farmer_profile"
+# Profiles live in their own Qdrant collection (NOT in Redis, and NOT in mem0's
+# memory collection). We only ever point-lookup by user_id, so each profile is
+# one Qdrant point with a deterministic UUID id and a placeholder vector — no
+# embeddings, no similarity search. The structured profile sits in the payload.
+_PROFILE_COLLECTION = os.getenv("QDRANT_PROFILE_COLLECTION", "vistaar_farmer_profiles")
+_PROFILE_ID_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")  # fixed seed
+_PLACEHOLDER_VECTOR = [0.0]  # 1-dim; never used for search, only to satisfy Qdrant
 
 
 # --------------------------------------------------------------------------- #
@@ -317,31 +325,78 @@ def _extract_partial_sync(transcript: str) -> dict:
 # --------------------------------------------------------------------------- #
 class ProfileStore:
     def __init__(self) -> None:
-        self._cache = None
+        self._client = None
+        self._init_attempted = False
 
-    def _get_cache(self):
-        if self._cache is None:
-            from app.core.cache import cache
-            self._cache = cache
-        return self._cache
+    def _get_client(self):
+        """Lazily create the Qdrant client and ensure the profile collection exists."""
+        if self._init_attempted:
+            return self._client
+        self._init_attempted = True
+        try:
+            from qdrant_client import QdrantClient
+            from qdrant_client.models import Distance, VectorParams
+            from app.config import settings
+
+            client = QdrantClient(
+                host=getattr(settings, "qdrant_host", "localhost"),
+                port=int(getattr(settings, "qdrant_port", 6333)),
+            )
+            existing = {c.name for c in client.get_collections().collections}
+            if _PROFILE_COLLECTION not in existing:
+                client.create_collection(
+                    collection_name=_PROFILE_COLLECTION,
+                    vectors_config=VectorParams(size=1, distance=Distance.DOT),
+                )
+                logger.info("ProfileStore: created Qdrant collection %s", _PROFILE_COLLECTION)
+            self._client = client
+            logger.info("ProfileStore: Qdrant client initialized")
+        except Exception:
+            logger.warning("ProfileStore: init failed — profile disabled", exc_info=True)
+        return self._client
+
+    @staticmethod
+    def _point_id(user_id: str) -> str:
+        """Deterministic Qdrant point id (UUID) from the hashed user_id."""
+        return str(uuid.uuid5(_PROFILE_ID_NAMESPACE, user_id))
 
     async def get(self, user_id: str) -> Optional[FarmerProfile]:
         if not user_id:
             return None
+        client = self._get_client()
+        if not client:
+            return None
         try:
-            raw = await self._get_cache().get(user_id, namespace=_NAMESPACE)
-            if not raw:
+            records = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.retrieve(
+                    collection_name=_PROFILE_COLLECTION,
+                    ids=[self._point_id(user_id)],
+                    with_payload=True,
+                ),
+            )
+            if not records:
                 return None
-            return FarmerProfile(**raw)
+            return FarmerProfile(**records[0].payload)
         except Exception:
             logger.warning("profile.get failed for user %s", user_id, exc_info=True)
             return None
 
     async def save(self, profile: FarmerProfile) -> None:
+        client = self._get_client()
+        if not client:
+            return
         try:
-            # ttl=None => persist with no expiry (overrides the 24h cache default).
-            await self._get_cache().set(
-                profile.user_id, profile.model_dump(), namespace=_NAMESPACE, ttl=None
+            from qdrant_client.models import PointStruct
+
+            point = PointStruct(
+                id=self._point_id(profile.user_id),
+                vector=_PLACEHOLDER_VECTOR,
+                payload=profile.model_dump(),
+            )
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.upsert(collection_name=_PROFILE_COLLECTION, points=[point]),
             )
         except Exception:
             logger.warning("profile.save failed for user %s", profile.user_id, exc_info=True)
@@ -400,9 +455,18 @@ class ProfileStore:
     async def delete(self, user_id: str) -> bool:
         if not user_id:
             return False
+        client = self._get_client()
+        if not client:
+            return False
         try:
             existed = await self.get(user_id) is not None
-            await self._get_cache().delete(user_id, namespace=_NAMESPACE)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.delete(
+                    collection_name=_PROFILE_COLLECTION,
+                    points_selector=[self._point_id(user_id)],
+                ),
+            )
             return existed
         except Exception:
             logger.warning("profile.delete failed for user %s", user_id, exc_info=True)
