@@ -56,7 +56,7 @@ from app.services.stt_signals import (
     count_consecutive_stt_signals,
 )
 from app.services.moderation import ModerationVerdict, check_moderation
-from app.services.fallback import execute_with_fallback, stream_with_fallback, with_first_token_deadline
+from app.services.fallback import classify, execute_with_fallback, stream_with_fallback, with_first_token_deadline
 from app.services.non_meaningful import NonMeaningfulVerdict, check_non_meaningful_streak
 from app.services.translation import (
     INDIAN_LANGUAGES,
@@ -68,7 +68,7 @@ from app.services.translation import (
     translate_to_english_with_oss_vllm,
     translate_to_english_with_structured_fallback,
 )
-from app.services.voice_trace import VoiceTrace, create_voice_trace
+from app.services.voice_trace import VoiceTrace, create_voice_trace, sanitize_text
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerAccount, FarmerContext
@@ -1128,7 +1128,7 @@ async def stream_voice_message(
     try:
         # Keep the Langfuse root observation open for the full streaming
         # generator so downstream model calls and pydantic-ai spans nest under
-        # this voice_request.
+        # this agent_journey.
         with trace.request_context():
             # Emit the per-session pipeline_variant categorical score from
             # *inside* the trace context (chat #70 fix). score_id is
@@ -1390,6 +1390,9 @@ async def stream_voice_message(
                     recent_history_text=moderation_recent_history,
                     variant=pipeline_variant,
                     session_id=session_id,
+                    user_id=user_id,
+                    process_id=process_id or "",
+                    pipeline_variant=pipeline_variant,
                 )
             )
             moderation_task.add_done_callback(
@@ -1410,6 +1413,12 @@ async def stream_voice_message(
             if requested_source_lang not in {"en", "english"}:
                 _pretrans_provider_label = "vllm" if is_oss else "openai"
                 _pretrans_model = OSS_PRETRANSLATION_MODEL if is_oss else OPENAI_PRETRANSLATION_MODEL
+                _pretrans_requested_tier = "oss" if is_oss else "managed"
+                _pretranslation_attempts: list[dict[str, object]] = []
+                _pretranslation_actual_tier = _pretrans_requested_tier
+                _pretranslation_actual_provider = _pretrans_provider_label
+                _pretranslation_actual_model = _pretrans_model
+                _pretranslation_fallback_used = False
                 logger.info(
                     "Translation pipeline enabled; pretranslating %s -> en with %s (variant=%s)",
                     requested_source_lang,
@@ -1427,6 +1436,45 @@ async def stream_voice_message(
                     # The managed tier is the OpenAI pretranslation (translate_to_english_with_gpt5_mini),
                     # which was the pre-OSS primary.
                     try:
+                        async def _run_pretranslation_attempt(a):
+                            nonlocal _pretranslation_actual_tier, _pretranslation_actual_provider, _pretranslation_actual_model
+                            attempt_info: dict[str, object] = {
+                                "tier": a.kind,
+                                "provider": a.provider,
+                                "model": a.model_name,
+                                "endpoint": a.endpoint,
+                            }
+                            _pretranslation_attempts.append(attempt_info)
+                            try:
+                                if a.kind == "oss":
+                                    translated = await translate_to_english_with_oss_vllm(
+                                        text=query,
+                                        source_lang=requested_source_lang,
+                                        session_id=session_id,
+                                        user_id=user_id,
+                                        process_id=process_id or "",
+                                        pipeline_variant=pipeline_variant,
+                                    )
+                                else:
+                                    translated = await translate_to_english_with_gpt5_mini(
+                                        text=query,
+                                        source_lang=requested_source_lang,
+                                        session_id=session_id,
+                                        user_id=user_id,
+                                        process_id=process_id or "",
+                                        pipeline_variant=pipeline_variant,
+                                    )
+                            except Exception as _attempt_exc:
+                                attempt_info["status"] = "error"
+                                attempt_info["error_class"] = type(_attempt_exc).__name__
+                                attempt_info["error_reason"] = classify(_attempt_exc).value
+                                raise
+                            attempt_info["status"] = "ok"
+                            _pretranslation_actual_tier = a.kind
+                            _pretranslation_actual_provider = a.provider
+                            _pretranslation_actual_model = a.model_name
+                            return translated
+
                         with trace.stage(
                             "pretranslation",
                             as_type="generation",
@@ -1442,20 +1490,23 @@ async def stream_voice_message(
                                 pipeline="pretranslation",
                                 session_id=session_id,
                                 variant=pipeline_variant,
-                                run=lambda a: (
-                                    translate_to_english_with_oss_vllm(
-                                        text=query, source_lang=requested_source_lang
-                                    )
-                                    if a.kind == "oss"
-                                    else translate_to_english_with_gpt5_mini(
-                                        text=query, source_lang=requested_source_lang
-                                    )
-                                ),
+                                run=_run_pretranslation_attempt,
                             )
+                        _pretranslation_fallback_used = (
+                            len(_pretranslation_attempts) > 1
+                            and _pretranslation_attempts[0].get("status") == "error"
+                        )
                         trace.set_pretranslation(
                             text=processing_query,
                             provider=_pretrans_provider_label,
-                            fallback_used=False,
+                            fallback_used=_pretranslation_fallback_used,
+                            requested_tier=_pretrans_requested_tier,
+                            requested_provider=_pretrans_provider_label,
+                            requested_model=_pretrans_model,
+                            actual_tier=_pretranslation_actual_tier,
+                            actual_provider=_pretranslation_actual_provider,
+                            actual_model=_pretranslation_actual_model,
+                            attempts=_pretranslation_attempts,
                         )
                         history_user_text = processing_query or _canonical_history_user_text("low_confidence")
                     except Exception as e:
@@ -1466,14 +1517,35 @@ async def stream_voice_message(
                             e,
                         )
                         processing_query = ""
+                        _pretranslation_actual_tier = "failed"
+                        _pretranslation_actual_provider = "failed"
+                        _pretranslation_actual_model = "failed"
+                        _pretranslation_fallback_used = (
+                            len(_pretranslation_attempts) > 1
+                            and _pretranslation_attempts[0].get("status") == "error"
+                        )
                         trace.set_pretranslation(
                             text=processing_query,
                             provider="failed",
-                            fallback_used=True,
+                            fallback_used=_pretranslation_fallback_used,
+                            requested_tier=_pretrans_requested_tier,
+                            requested_provider=_pretrans_provider_label,
+                            requested_model=_pretrans_model,
+                            actual_tier=_pretranslation_actual_tier,
+                            actual_provider=_pretranslation_actual_provider,
+                            actual_model=_pretranslation_actual_model,
+                            attempts=_pretranslation_attempts,
                         )
                         history_user_text = _canonical_history_user_text("pretranslation_failed")
                 else:
                     try:
+                        _legacy_primary_attempt = {
+                            "tier": _pretrans_requested_tier,
+                            "provider": _pretrans_provider_label,
+                            "model": _pretrans_model,
+                            "status": "started",
+                        }
+                        _pretranslation_attempts.append(_legacy_primary_attempt)
                         with trace.stage(
                             "pretranslation",
                             as_type="generation",
@@ -1489,19 +1561,41 @@ async def stream_voice_message(
                                 processing_query = await translate_to_english_with_oss_vllm(
                                     text=query,
                                     source_lang=requested_source_lang,
+                                    session_id=session_id,
+                                    user_id=user_id,
+                                    process_id=process_id or "",
+                                    pipeline_variant=pipeline_variant,
                                 )
                             else:
                                 processing_query = await translate_to_english_with_gpt5_mini(
                                     text=query,
                                     source_lang=requested_source_lang,
+                                    session_id=session_id,
+                                    user_id=user_id,
+                                    process_id=process_id or "",
+                                    pipeline_variant=pipeline_variant,
                                 )
+                        _legacy_primary_attempt["status"] = "ok"
+                        _pretranslation_actual_tier = _pretrans_requested_tier
+                        _pretranslation_actual_provider = _pretrans_provider_label
+                        _pretranslation_actual_model = _pretrans_model
                         trace.set_pretranslation(
                             text=processing_query,
                             provider=_pretrans_provider_label,
                             fallback_used=False,
+                            requested_tier=_pretrans_requested_tier,
+                            requested_provider=_pretrans_provider_label,
+                            requested_model=_pretrans_model,
+                            actual_tier=_pretranslation_actual_tier,
+                            actual_provider=_pretranslation_actual_provider,
+                            actual_model=_pretranslation_actual_model,
+                            attempts=_pretranslation_attempts,
                         )
                         history_user_text = processing_query or _canonical_history_user_text("low_confidence")
                     except Exception as e:
+                        _legacy_primary_attempt["status"] = "error"
+                        _legacy_primary_attempt["error_class"] = type(e).__name__
+                        _legacy_primary_attempt["error_reason"] = classify(e).value
                         logger.error(
                             "OpenAI pretranslation failed for session_id=%s source_lang=%s model=%s error=%s",
                             session_id,
@@ -1511,6 +1605,13 @@ async def stream_voice_message(
                         )
                         try:
                             logger.info("Falling back to TranslateGemma pretranslation for session_id=%s", session_id)
+                            _legacy_fallback_attempt = {
+                                "tier": "translategemma",
+                                "provider": "translategemma",
+                                "model": "translategemma",
+                                "status": "started",
+                            }
+                            _pretranslation_attempts.append(_legacy_fallback_attempt)
                             with trace.stage(
                                 "pretranslation_fallback",
                                 as_type="generation",
@@ -1521,23 +1622,47 @@ async def stream_voice_message(
                                     text=query,
                                     source_lang=requested_source_lang,
                                 )
+                            _legacy_fallback_attempt["status"] = "ok"
+                            _pretranslation_actual_tier = "translategemma"
+                            _pretranslation_actual_provider = "translategemma"
+                            _pretranslation_actual_model = "translategemma"
                             trace.set_pretranslation(
                                 text=processing_query,
                                 provider="translategemma",
                                 fallback_used=True,
+                                requested_tier=_pretrans_requested_tier,
+                                requested_provider=_pretrans_provider_label,
+                                requested_model=_pretrans_model,
+                                actual_tier=_pretranslation_actual_tier,
+                                actual_provider=_pretranslation_actual_provider,
+                                actual_model=_pretranslation_actual_model,
+                                attempts=_pretranslation_attempts,
                             )
                             history_user_text = processing_query or _canonical_history_user_text("low_confidence")
                         except Exception as fallback_error:
+                            _legacy_fallback_attempt["status"] = "error"
+                            _legacy_fallback_attempt["error_class"] = type(fallback_error).__name__
+                            _legacy_fallback_attempt["error_reason"] = classify(fallback_error).value
                             logger.error(
                                 "TranslateGemma pretranslation fallback failed for session_id=%s error=%s",
                                 session_id,
                                 fallback_error,
                             )
                             processing_query = ""
+                            _pretranslation_actual_tier = "failed"
+                            _pretranslation_actual_provider = "failed"
+                            _pretranslation_actual_model = "failed"
                             trace.set_pretranslation(
                                 text=processing_query,
                                 provider="failed",
                                 fallback_used=True,
+                                requested_tier=_pretrans_requested_tier,
+                                requested_provider=_pretrans_provider_label,
+                                requested_model=_pretrans_model,
+                                actual_tier=_pretranslation_actual_tier,
+                                actual_provider=_pretranslation_actual_provider,
+                                actual_model=_pretranslation_actual_model,
+                                attempts=_pretranslation_attempts,
                             )
                             history_user_text = _canonical_history_user_text("pretranslation_failed")
 
@@ -1547,6 +1672,13 @@ async def stream_voice_message(
                     text=query,
                     provider="none",
                     fallback_used=False,
+                    requested_tier="none",
+                    requested_provider="none",
+                    requested_model="none",
+                    actual_tier="none",
+                    actual_provider="none",
+                    actual_model="none",
+                    attempts=[],
                 )
 
             # ── Content moderation: deferred gate (runs with the agent) ──────
@@ -1577,6 +1709,8 @@ async def stream_voice_message(
                 if _moderation_resolved:
                     return _moderation_verdict
                 _moderation_resolved = True
+                moderation_status = "ok"
+                moderation_status_message: Optional[str] = None
                 try:
                     _moderation_verdict = await moderation_task
                     done_t = moderation_done_at["t"] or time.monotonic()
@@ -1588,6 +1722,8 @@ async def stream_voice_message(
                 except asyncio.CancelledError:
                     raise
                 except Exception as moderation_error:
+                    moderation_status = "error"
+                    moderation_status_message = str(moderation_error)[:300]
                     done_t = moderation_done_at["t"] or time.monotonic()
                     trace.attach_stage_timing(
                         "moderation",
@@ -1601,7 +1737,46 @@ async def stream_voice_message(
                         moderation_error,
                     )
                     _moderation_verdict = None
+                moderation_duration_ms = (done_t - moderation_started_at) * 1000.0
                 trace.set_moderation(_moderation_verdict)
+                moderation_payload = trace.metadata.get("moderation", {})
+                trace.record_child_observation(
+                    name="moderation",
+                    as_type="generation",
+                    input={
+                        "source_lang": requested_source_lang,
+                        "text": sanitize_text(query),
+                        "recent_history_text": sanitize_text(moderation_recent_history),
+                    },
+                    output=(
+                        {
+                            "category": getattr(_moderation_verdict, "category", None),
+                            "reason": getattr(_moderation_verdict, "reason", None),
+                            "rejected": getattr(_moderation_verdict, "rejected", None),
+                            "failed_open": getattr(_moderation_verdict, "failed_open", None),
+                            "failed_closed": getattr(_moderation_verdict, "failed_closed", None),
+                        }
+                        if _moderation_verdict is not None
+                        else {"available": False}
+                    ),
+                    metadata={
+                        "duration_ms": round(moderation_duration_ms, 2),
+                        "status": moderation_status,
+                        "source_lang": requested_source_lang,
+                        "pipeline_variant": pipeline_variant,
+                        "requested_tier": moderation_payload.get("requested_tier"),
+                        "requested_provider": moderation_payload.get("requested_provider"),
+                        "requested_model": moderation_payload.get("requested_model"),
+                        "actual_tier": moderation_payload.get("actual_tier"),
+                        "actual_provider": moderation_payload.get("actual_provider"),
+                        "actual_model": moderation_payload.get("actual_model"),
+                        "fallback_used": moderation_payload.get("fallback_used"),
+                        "attempts": moderation_payload.get("attempts"),
+                    },
+                    model=moderation_payload.get("actual_model") or moderation_payload.get("requested_model"),
+                    level="ERROR" if moderation_status == "error" else "DEFAULT",
+                    status_message=moderation_status_message,
+                )
                 if _moderation_verdict is not None:
                     logger.info(
                         "Moderation verdict: category=%s rejected=%s failed_open=%s reason=%r session_id=%s process_id=%s",
@@ -1948,6 +2123,15 @@ async def stream_voice_message(
                 sentence_buffer = ""
                 translation_batch: list[str] = []
                 batch_word_count = 0
+                _agent_requested_tier = "oss" if is_oss else "managed"
+                _agent_actual_tier = _agent_requested_tier
+                _agent_actual_provider = request_provider
+                _agent_actual_model = request_model_name
+                _agent_committed_tier: Optional[str] = None
+                _agent_committed_provider: Optional[str] = None
+                _agent_committed_model: Optional[str] = None
+                _agent_fallback_used = False
+                _agent_attempts: list[dict[str, object]] = []
 
                 async def _yield_translated_text(text_to_translate: str) -> AsyncGenerator[str, None]:
                     if not text_to_translate:
@@ -2173,7 +2357,7 @@ async def stream_voice_message(
                     # driven from a single task (see below) for anyio task-affinity.
                     _fb_holder: dict = {}
 
-                    async def _raw_stream(attempt):
+                    async def _raw_stream(attempt, _attempt_info):
                         async with active_agent.run_stream(
                             user_prompt=user_message,
                             message_history=model_input_history,
@@ -2181,17 +2365,49 @@ async def stream_voice_message(
                             usage_limits=usage_limits,
                             model=attempt.model,
                         ) as rs:
+                            _attempt_had_chunk = False
                             async for _c in rs.stream_text(delta=True, debounce_by=0):
+                                if not _attempt_had_chunk:
+                                    _attempt_had_chunk = True
+                                    _attempt_info["committed"] = True
+                                    _attempt_info["status"] = "committed"
                                 yield _c
+                            if _attempt_had_chunk and _attempt_info.get("status") != "error":
+                                _attempt_info["status"] = "ok"
+                            elif _attempt_info.get("status") != "error":
+                                _attempt_info["status"] = "ok_no_output"
                             _fb_holder["new_messages"] = rs.new_messages()
 
                     async def _make_stream(attempt):
+                        nonlocal _agent_actual_tier, _agent_actual_provider, _agent_actual_model
+                        nonlocal _agent_committed_tier, _agent_committed_provider, _agent_committed_model
                         # Bound time-to-first-token (attempt.timeout) so a silent OSS
                         # hang swaps to managed before the caller hears anything; the
                         # deadline disarms after the first token, so a long mid-stream
                         # gap (tool round-trip) keeps the model's 600s read-timeout.
-                        async for _c in with_first_token_deadline(attempt, _raw_stream(attempt)):
-                            yield _c
+                        _attempt_info: dict[str, object] = {
+                            "tier": attempt.kind,
+                            "provider": attempt.provider,
+                            "model": attempt.model_name,
+                            "endpoint": attempt.endpoint,
+                            "status": "started",
+                        }
+                        _agent_attempts.append(_attempt_info)
+                        try:
+                            async for _c in with_first_token_deadline(attempt, _raw_stream(attempt, _attempt_info)):
+                                if _agent_committed_tier is None:
+                                    _agent_committed_tier = attempt.kind
+                                    _agent_committed_provider = attempt.provider
+                                    _agent_committed_model = attempt.model_name
+                                    _agent_actual_tier = attempt.kind
+                                    _agent_actual_provider = attempt.provider
+                                    _agent_actual_model = attempt.model_name
+                                yield _c
+                        except Exception as _attempt_exc:
+                            _attempt_info["status"] = "error"
+                            _attempt_info["error_class"] = type(_attempt_exc).__name__
+                            _attempt_info["error_reason"] = classify(_attempt_exc).value
+                            raise
 
                     _src = stream_with_fallback(
                         pipeline="chat",
@@ -2246,6 +2462,9 @@ async def stream_voice_message(
                         return
 
                     if _stream_error is not None:
+                        _agent_actual_tier = "failed"
+                        _agent_actual_provider = "failed"
+                        _agent_actual_model = "failed"
                         logger.error(
                             "Voice agent stream failed before first token; session_id=%s process_id=%s error=%s",
                             session_id, process_id, _stream_error,
@@ -2306,10 +2525,46 @@ async def stream_voice_message(
                                 async for _c in _non_meaningful_hangup_stream(_non_meaningful):
                                     yield _c
                             return
-                        async for _out in _consume_agent_text(stream_iter):
+                        _attempt_info: dict[str, object] = {
+                            "tier": _agent_requested_tier,
+                            "provider": request_provider,
+                            "model": request_model_name,
+                            "status": "started",
+                        }
+                        _agent_attempts.append(_attempt_info)
+
+                        async def _legacy_stream_with_attempt():
+                            nonlocal _agent_committed_tier, _agent_committed_provider, _agent_committed_model
+                            _attempt_had_chunk = False
+                            try:
+                                async for _chunk in stream_iter:
+                                    if not _attempt_had_chunk:
+                                        _attempt_had_chunk = True
+                                        _attempt_info["committed"] = True
+                                        _attempt_info["status"] = "committed"
+                                        _agent_committed_tier = _agent_requested_tier
+                                        _agent_committed_provider = request_provider
+                                        _agent_committed_model = request_model_name
+                                    yield _chunk
+                            except Exception as _attempt_exc:
+                                _attempt_info["status"] = "error"
+                                _attempt_info["error_class"] = type(_attempt_exc).__name__
+                                _attempt_info["error_reason"] = classify(_attempt_exc).value
+                                raise
+                            if _attempt_had_chunk and _attempt_info.get("status") != "error":
+                                _attempt_info["status"] = "ok"
+                            elif _attempt_info.get("status") != "error":
+                                _attempt_info["status"] = "ok_no_output"
+
+                        async for _out in _consume_agent_text(_legacy_stream_with_attempt()):
                             yield _out
                         _agent_output = _agent_output.strip()
                         new_messages = response_stream.new_messages()
+
+                _agent_fallback_used = (
+                    len(_agent_attempts) > 1
+                    and _agent_attempts[0].get("status") == "error"
+                )
 
                 trace.attach_stage_timing(
                     "agent",
@@ -2317,13 +2572,33 @@ async def stream_voice_message(
                     signed_in=bool(signed_in and mobile),
                     request_limit=usage_limits.request_limit,
                     pipeline_variant=pipeline_variant,
-                    model=request_model_name,
-                    provider=request_provider,
+                    requested_tier=_agent_requested_tier,
+                    requested_model=request_model_name,
+                    requested_provider=request_provider,
+                    actual_tier=_agent_actual_tier,
+                    actual_model=_agent_actual_model,
+                    actual_provider=_agent_actual_provider,
+                    fallback_used=_agent_fallback_used,
+                    first_token_committed_tier=_agent_committed_tier,
+                    first_token_committed_provider=_agent_committed_provider,
+                    first_token_committed_model=_agent_committed_model,
+                    attempts=_agent_attempts,
                 )
                 trace.set_agent(
                     signed_in=bool(signed_in and mobile),
                     output=_agent_output,
                     new_messages=new_messages,
+                    requested_tier=_agent_requested_tier,
+                    requested_provider=request_provider,
+                    requested_model=request_model_name,
+                    actual_tier=_agent_actual_tier,
+                    actual_provider=_agent_actual_provider,
+                    actual_model=_agent_actual_model,
+                    first_token_committed_tier=_agent_committed_tier,
+                    first_token_committed_provider=_agent_committed_provider,
+                    first_token_committed_model=_agent_committed_model,
+                    fallback_used=_agent_fallback_used,
+                    attempts=_agent_attempts,
                 )
 
             # If the LLM called signal_conversation_state("conversation_closing"),

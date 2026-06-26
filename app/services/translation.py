@@ -844,6 +844,10 @@ async def translate_to_english_with_gpt5_mini(
     source_lang: str,
     *,
     max_tokens: int = 1024,
+    session_id: str = "",
+    user_id: str = "",
+    process_id: str = "",
+    pipeline_variant: str = "",
 ) -> str:
     """Translate input text to English using OpenAI for pipeline pre-translation.
 
@@ -860,7 +864,6 @@ async def translate_to_english_with_gpt5_mini(
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
 
     langfuse = _get_langfuse()
-
     try:
         if not langfuse:
             response = await _create_openai_pretranslation_response(
@@ -949,6 +952,10 @@ async def translate_to_english_with_oss_vllm(
     source_lang: str,
     *,
     max_tokens: int = 1024,
+    session_id: str = "",
+    user_id: str = "",
+    process_id: str = "",
+    pipeline_variant: str = "",
 ) -> str:
     """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
 
@@ -969,7 +976,6 @@ async def translate_to_english_with_oss_vllm(
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
 
     langfuse = _get_langfuse()
-
     try:
         if not langfuse:
             response = await _create_oss_pretranslation_response(
@@ -1001,7 +1007,7 @@ async def translate_to_english_with_oss_vllm(
             metadata={
                 "translation_provider": "vllm",
                 "pipeline_stage": "query_pretranslation",
-                "pipeline_variant": "oss",
+                "pipeline_variant": pipeline_variant or "oss",
             },
         ) as observation:
             response = await _create_oss_pretranslation_response(

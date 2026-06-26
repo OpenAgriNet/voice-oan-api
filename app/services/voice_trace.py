@@ -226,12 +226,12 @@ class VoiceTrace:
 
         # Langfuse uses the active OTel context. Keeping this context open
         # across the async generator makes moderation, translation, tools, and
-        # pydantic-ai child spans attach to one voice_request trace.
+        # pydantic-ai child spans attach to one agent_journey trace.
         stack = ExitStack()
         try:
             self.root_observation = stack.enter_context(
                 self.langfuse_client.start_as_current_observation(
-                    name="voice_request",
+                    name="agent_journey",
                     as_type="span",
                     input=self.metadata["query"],
                     metadata=self.metadata,
@@ -255,7 +255,7 @@ class VoiceTrace:
                         # pipeline_variant is set on metadata before this opens.
                         f"variant:{self.metadata.get('pipeline_variant') or 'legacy'}",
                     ],
-                    trace_name="voice_request",
+                    trace_name="agent_journey",
                 )
             )
         except Exception as exc:
@@ -288,16 +288,76 @@ class VoiceTrace:
         self.metadata["outcome"] = outcome
 
     def set_moderation(self, verdict: Any | None) -> None:
-        if verdict is None:
-            self.metadata["moderation"] = {"available": False}
-            return
-        self.metadata["moderation"] = {
-            "available": True,
-            "category": getattr(verdict, "category", None),
-            "rejected": bool(getattr(verdict, "rejected", False)),
-            "failed_open": bool(getattr(verdict, "failed_open", False)),
-            "reason": sanitize_text(getattr(verdict, "reason", None)),
+        def _pick(name: str, fallback: Any = None) -> Any:
+            if verdict is None:
+                return fallback
+            value = getattr(verdict, name, fallback)
+            return fallback if value is None else value
+
+        attempts = _pick("attempts", [])
+        fallback_used = _pick("fallback_used", None)
+        if fallback_used is None:
+            fallback_used = bool(
+                isinstance(attempts, list)
+                and len(attempts) > 1
+                and isinstance(attempts[0], dict)
+                and attempts[0].get("status") == "error"
+            )
+
+        payload: dict[str, Any] = {
+            "available": verdict is not None,
+            "requested_tier": _pick("requested_tier"),
+            "requested_provider": _pick("requested_provider"),
+            "requested_model": _pick("requested_model"),
+            "actual_tier": _pick("actual_tier"),
+            "actual_provider": _pick("actual_provider"),
+            "actual_model": _pick("actual_model"),
+            "fallback_used": fallback_used,
+            "attempts": attempts if isinstance(attempts, list) else [],
         }
+        if verdict is not None:
+            payload.update(
+                {
+                    "category": getattr(verdict, "category", None),
+                    "rejected": bool(getattr(verdict, "rejected", False)),
+                    "failed_open": bool(getattr(verdict, "failed_open", False)),
+                    "failed_closed": bool(getattr(verdict, "failed_closed", False)),
+                    "reason": sanitize_text(getattr(verdict, "reason", None)),
+                }
+            )
+        self.metadata["moderation"] = payload
+
+    def record_child_observation(
+        self,
+        *,
+        name: str,
+        as_type: str = "span",
+        input: Any | None = None,
+        output: Any | None = None,
+        metadata: Optional[dict[str, Any]] = None,
+        model: str | None = None,
+        level: str = "DEFAULT",
+        status_message: str | None = None,
+    ) -> None:
+        if not self.enabled or self.langfuse_client is None:
+            return
+        try:
+            with self.langfuse_client.start_as_current_observation(
+                name=name,
+                as_type=as_type,
+                input=input,
+                metadata=metadata,
+                model=model,
+            ) as observation:
+                _safe_update(
+                    observation,
+                    output=output,
+                    metadata=metadata,
+                    level=level,
+                    status_message=status_message,
+                )
+        except Exception as exc:
+            logger.debug("Langfuse child observation failed for %s: %s", name, exc)
 
     def set_pretranslation(
         self,
@@ -305,12 +365,34 @@ class VoiceTrace:
         text: str,
         provider: str,
         fallback_used: bool,
+        requested_tier: Optional[str] = None,
+        requested_provider: Optional[str] = None,
+        requested_model: Optional[str] = None,
+        actual_tier: Optional[str] = None,
+        actual_provider: Optional[str] = None,
+        actual_model: Optional[str] = None,
+        attempts: Optional[list[dict[str, Any]]] = None,
     ) -> None:
-        self.metadata["pretranslation"] = {
+        payload: dict[str, Any] = {
             "text": sanitize_text(text),
             "provider": provider,
             "fallback_used": fallback_used,
         }
+        if requested_tier is not None:
+            payload["requested_tier"] = requested_tier
+        if requested_provider is not None:
+            payload["requested_provider"] = requested_provider
+        if requested_model is not None:
+            payload["requested_model"] = requested_model
+        if actual_tier is not None:
+            payload["actual_tier"] = actual_tier
+        if actual_provider is not None:
+            payload["actual_provider"] = actual_provider
+        if actual_model is not None:
+            payload["actual_model"] = actual_model
+        if attempts is not None:
+            payload["attempts"] = attempts
+        self.metadata["pretranslation"] = payload
 
     def set_farmer_context(
         self,
@@ -329,18 +411,58 @@ class VoiceTrace:
             "technician_info_chars": technician_info_chars,
         }
 
-    def set_agent(self, *, signed_in: bool, output: str, new_messages: Optional[list[Any]] = None) -> None:
+    def set_agent(
+        self,
+        *,
+        signed_in: bool,
+        output: str,
+        new_messages: Optional[list[Any]] = None,
+        requested_tier: Optional[str] = None,
+        requested_provider: Optional[str] = None,
+        requested_model: Optional[str] = None,
+        actual_tier: Optional[str] = None,
+        actual_provider: Optional[str] = None,
+        actual_model: Optional[str] = None,
+        first_token_committed_tier: Optional[str] = None,
+        first_token_committed_provider: Optional[str] = None,
+        first_token_committed_model: Optional[str] = None,
+        fallback_used: Optional[bool] = None,
+        attempts: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
         tool_calls = 0
         for msg in new_messages or []:
             for part in getattr(msg, "parts", None) or []:
                 if getattr(part, "tool_name", None):
                     tool_calls += 1
-        self.metadata["agent"] = {
+        payload: dict[str, Any] = {
             "signed_in": signed_in,
             "output_chars": len(output or ""),
             "new_message_count": len(new_messages or []),
             "tool_call_count": tool_calls,
         }
+        if requested_tier is not None:
+            payload["requested_tier"] = requested_tier
+        if requested_provider is not None:
+            payload["requested_provider"] = requested_provider
+        if requested_model is not None:
+            payload["requested_model"] = requested_model
+        if actual_tier is not None:
+            payload["actual_tier"] = actual_tier
+        if actual_provider is not None:
+            payload["actual_provider"] = actual_provider
+        if actual_model is not None:
+            payload["actual_model"] = actual_model
+        if first_token_committed_tier is not None:
+            payload["first_token_committed_tier"] = first_token_committed_tier
+        if first_token_committed_provider is not None:
+            payload["first_token_committed_provider"] = first_token_committed_provider
+        if first_token_committed_model is not None:
+            payload["first_token_committed_model"] = first_token_committed_model
+        if fallback_used is not None:
+            payload["fallback_used"] = fallback_used
+        if attempts is not None:
+            payload["attempts"] = attempts
+        self.metadata["agent"] = payload
 
     def set_nudge(self, **values: Any) -> None:
         current = self.metadata.setdefault("nudge", {})

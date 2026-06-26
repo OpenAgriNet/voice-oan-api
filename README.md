@@ -133,7 +133,7 @@ Relevant tuning env vars:
 
 Voice request tracing is enabled by default with `ENABLE_VOICE_TRACING=true`.
 When Langfuse is configured, each streamed voice request opens one root
-`voice_request` observation and nests moderation, translation, agent, and tool
+`agent_journey` observation and nests moderation, translation, agent, and tool
 spans below it. The service also emits one structured `VOICE_TRACE_SUMMARY`
 log line per request when `VOICE_TRACE_LOG_SUMMARY=true`.
 
