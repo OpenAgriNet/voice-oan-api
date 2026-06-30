@@ -5,10 +5,13 @@ on:
     branches:
       - bh-voice-prod
       - bh-voice-dev
+      - bh/all-lang-voiceera-testing
+      
   pull_request:
     branches:
       - bh-voice-prod
       - bh-voice-dev
+      - bh/all-lang-voiceera-testing
 
 env:
   BASE_IMAGE_NAME: bh-voice-api
