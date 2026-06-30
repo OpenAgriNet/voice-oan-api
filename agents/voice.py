@@ -1,5 +1,6 @@
 from typing import Literal, Optional
 from pydantic_ai import Agent, RunContext
+from app.core.languages import is_supported, resolve_render_language, DEFAULT_LANGUAGE
 from helpers.utils import get_prompt, get_today_date_str
 from agents.models import LLM_AGRINET_MODEL
 from agents.tools import TOOLS
@@ -45,10 +46,29 @@ voice_agent = Agent(
 
 @voice_agent.instructions
 def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
-    # Session default is Hindi at start; prompt is chosen by deps.lang_code (from client). Never assume language—always ask user first.
-    target_lang = ctx.deps.lang_code if ctx.deps.lang_code else 'hi'
-    if target_lang not in ['hi', 'en']:
-        logger.warning(f"Invalid language code: {target_lang}. Defaulting to Hindi.")
-        target_lang = 'other'
-    prompt_file = f"voice_{target_lang}"
-    return get_prompt(prompt_file, context={'today_date': get_today_date_str()})
+    # The client specifies the conversation language via the X-Language header
+    # (deps.lang_code). When it is a supported code, respond in that language and
+    # skip the language gate. When it is missing ("none"/unknown), fall back to the
+    # gated Hindi prompt that asks the user to pick English or Hindi.
+    requested = ctx.deps.lang_code
+    if is_supported(requested):
+        # Use the requested language if it has a prompt file, else fall back to Hindi.
+        render_lang = resolve_render_language(requested)
+        if render_lang != requested:
+            logger.warning(
+                f"No prompt file for language '{requested}'. Responding in Hindi."
+            )
+        ask_language_gate = False
+    else:
+        # No explicit language preference -> ask the user (gate), default to Hindi.
+        render_lang = DEFAULT_LANGUAGE
+        ask_language_gate = True
+
+    prompt_file = f"voice_{render_lang}"
+    return get_prompt(
+        prompt_file,
+        context={
+            'today_date': get_today_date_str(),
+            'ask_language_gate': ask_language_gate,
+        },
+    )
