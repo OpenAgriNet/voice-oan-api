@@ -10,6 +10,7 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["openai"])
 
+@router.post("/chat-dev/completions")
 @router.post("/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
