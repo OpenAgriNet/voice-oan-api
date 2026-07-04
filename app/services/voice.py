@@ -10,15 +10,18 @@ from agents.models import (
     LLM_AGRINET_MODEL_NAME,
     LLM_PROVIDER,
 )
-from agents.voice import agrinet_vllm_usage_limits, voice_agent
+from agents.voice import agrinet_vllm_usage_limits, build_voice_system_prompt, voice_agent
 from helpers.utils import get_logger
 from app.langfuse_client import get_langfuse, traced_voice_request
 from app.config import settings
 from app.utils import (
-    update_message_history, 
-    trim_history, 
+    update_message_history,
+    trim_history,
     format_message_pairs,
-    clean_message_history_for_openai
+    clean_message_history_for_openai,
+    inject_profile_into_history,
+    get_cache,
+    set_cache,
 )
 from agents.deps import FarmerContext
 from app.services.translation import translation_service
@@ -153,10 +156,16 @@ def _trim_voice_history(history: list) -> list:
     prefill latency low. Tool calls/results from earlier turns are stripped
     because the model rarely needs to see them on the next user turn — the
     final answer is what the user heard.
+
+    The budget must cover the system prompt itself (it counts against the same
+    total below) before any conversation turns fit at all: the mr/hi/en voice
+    system prompts alone run ~15k-20k tokens. A too-small budget silently
+    zeroes out every past turn (trim_history keeps the system prompt and drops
+    everything else), which looks like the agent has no short-term memory.
     Bump via VOICE_HISTORY_MAX_TOKENS if needed.
     """
     import os
-    budget = int(os.getenv("VOICE_HISTORY_MAX_TOKENS", "4_000").replace("_", ""))
+    budget = int(os.getenv("VOICE_HISTORY_MAX_TOKENS", "24_000").replace("_", ""))
     return trim_history(
         history,
         max_tokens=budget,
@@ -292,24 +301,49 @@ async def stream_voice_message(
     # Resolve effective user_id (skip 'anonymous' placeholder)
     effective_user_id = user_id if user_id and user_id != 'anonymous' else None
 
-    # Phase 1: profile snapshot at call start (history <= 2 = welcome pair only).
+    # Phase 1: profile snapshot at call start (history <= 3 = seeded welcome pair
+    # only: [system prompt, user greeting, assistant welcome] from _get_message_history).
     # Prefer the structured farmer profile (deterministic, crop-stage aware);
     # fall back to mem0's semantic summary when no structured profile exists yet.
     user_memories: Optional[str] = None
-    if effective_user_id and len(history) <= 2:
+    if effective_user_id and len(history) <= 3:
+        from app.services.profile import profile_store, snapshot_cache_key
+
+        # Snapshot lookups (Qdrant point read; mem0 fallback = OpenAI embedding
+        # call) run before the agent starts, so they add directly to first-turn
+        # TTFT. Cache the rendered snapshot per user; "" marks a known-empty
+        # profile so farmers without memories don't re-pay the mem0 call.
+        # Invalidated on profile save/delete (see app.services.profile).
+        snap_key = snapshot_cache_key(effective_user_id)
         try:
-            from app.services.profile import profile_store
-            user_memories = await profile_store.get_snapshot(effective_user_id)
+            cached_snapshot = await get_cache(snap_key)
         except Exception:
-            logger.warning("Failed to load structured profile for user %s", effective_user_id, exc_info=True)
-        if not user_memories:
+            cached_snapshot = None
+        if cached_snapshot is not None:
+            user_memories = cached_snapshot or None
+        else:
             try:
-                from app.services.memory import memory_service
-                user_memories = await memory_service.get_profile_summary(effective_user_id)
+                user_memories = await profile_store.get_snapshot(effective_user_id)
             except Exception:
-                logger.warning("Failed to load profile snapshot for user %s", effective_user_id, exc_info=True)
+                logger.warning("Failed to load structured profile for user %s", effective_user_id, exc_info=True)
+            if not user_memories:
+                try:
+                    from app.services.memory import memory_service
+                    user_memories = await memory_service.get_profile_summary(effective_user_id)
+                except Exception:
+                    logger.warning("Failed to load profile snapshot for user %s", effective_user_id, exc_info=True)
+            try:
+                await set_cache(snap_key, user_memories or "", ttl=300)
+            except Exception:
+                logger.debug("Failed to cache profile snapshot for user %s", effective_user_id, exc_info=True)
         if user_memories:
             logger.info("Loaded profile snapshot for user %s (%d chars)", effective_user_id, len(user_memories))
+            # The cached history carries a static system prompt, so pydantic-ai
+            # never runs the agent's system-prompt function once history exists.
+            # Persist the snapshot into that system prompt or the model never
+            # sees the profile at all.
+            history = inject_profile_into_history(history, user_memories)
+            await update_message_history(session_id, history)
 
     deps = FarmerContext(
         query=query,
@@ -321,6 +355,19 @@ async def stream_voice_message(
         user_id=effective_user_id,
         user_memories=user_memories,
     )
+    # For Langfuse, log the system prompt the model will ACTUALLY see: the
+    # session's cached system part (which carries the injected farmer profile
+    # on every turn). Rebuilding from deps would drop the profile on turns 2+,
+    # since deps.user_memories is only loaded at call start.
+    system_prompt = next(
+        (
+            part.content
+            for msg in history
+            for part in getattr(msg, "parts", [])
+            if getattr(part, "part_kind", "") == "system-prompt"
+        ),
+        None,
+    ) or build_voice_system_prompt(deps)
 
     tags = [
         "voice",
@@ -513,6 +560,7 @@ async def stream_voice_message(
                         "request_tokens": request_tokens,
                         "response_tokens": response_tokens,
                         "rounds": round_num,
+                        "system_prompt": system_prompt,
                     },
                 )
 
@@ -577,6 +625,7 @@ async def get_voice_message_with_translation(
 
         user_message = deps.get_user_message()
         logger.info(f"Running agent with translated user message: {user_message}")
+        system_prompt = build_voice_system_prompt(deps)
 
         # Clean message history to remove orphaned tool calls BEFORE passing to OpenAI API
         cleaned_history = clean_message_history_for_openai(history)
@@ -597,7 +646,7 @@ async def get_voice_message_with_translation(
                 as_type="generation",
                 name=_langfuse_vllm_model(),
                 model=_langfuse_vllm_model(),
-                input={"user_prompt": user_message},
+                input={"system_prompt": system_prompt, "user_prompt": user_message},
             ) as lf_gen:
                 agent_run = await _run_voice_agent(
                     user_prompt=user_message,

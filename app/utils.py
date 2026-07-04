@@ -1,3 +1,4 @@
+import os
 from typing import List
 
 from app.core.cache import cache  # Import cache instance from core
@@ -16,7 +17,11 @@ from pydantic_core import to_jsonable_python
 
 HISTORY_SUFFIX = "_SVA"
 
-DEFAULT_CACHE_TTL = 60*60*24 # 24 hours
+# Session-state TTL. A voice call lives minutes, not days: the history only
+# needs to survive the active call plus gaps between turns. Cross-call
+# continuity comes from Qdrant (profile + memories), not this cache — and a
+# long TTL risks resuming a stale conversation if a provider reuses session_id.
+DEFAULT_CACHE_TTL = int(os.getenv("SESSION_CACHE_TTL_SECONDS", str(2 * 60 * 60)))  # 2 hours
 
 logger = get_logger(__name__)
 
@@ -134,6 +139,31 @@ async def _get_message_history(
 async def update_message_history(session_id: str, all_messages: List[ModelMessage]):
     """Persist the full message list for a session."""
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(all_messages), ttl=DEFAULT_CACHE_TTL)
+
+
+def inject_profile_into_history(history: List[ModelMessage], snapshot: str) -> List[ModelMessage]:
+    """Append the farmer-profile snapshot to the session's cached system prompt.
+
+    The session history is seeded with a *static* SystemPromptPart (no
+    dynamic_ref), and pydantic-ai skips the agent's system-prompt functions
+    whenever message_history is non-empty — so a snapshot loaded into
+    deps.user_memories never reaches the model on its own. Mutating the cached
+    system prompt (and persisting it) is the only path that puts the profile in
+    front of the model for every turn of the call.
+
+    Appending at the END of the system prompt keeps the shared base prompt a
+    byte-identical prefix across sessions, so vLLM prefix caching still hits.
+    Idempotent: re-injecting the same snapshot is a no-op.
+    """
+    for msg in history:
+        if isinstance(msg, ModelRequest):
+            for i, part in enumerate(msg.parts):
+                if isinstance(part, SystemPromptPart):
+                    if snapshot not in part.content:
+                        msg.parts[i] = SystemPromptPart(content=f"{part.content}\n\n{snapshot}")
+                    return history
+    history.insert(0, ModelRequest(parts=[SystemPromptPart(content=snapshot)]))
+    return history
 
 def filter_out_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
     """Filter out tool calls and tool returns from the message history.

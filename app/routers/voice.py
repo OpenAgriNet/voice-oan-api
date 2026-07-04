@@ -174,5 +174,11 @@ async def voice_endpoint(
             session_id,
             memory_user_id,
         ),
-        media_type='text/plain; charset=utf-8'
+        media_type='text/plain; charset=utf-8',
+        headers={
+            # Tell nginx/ingress not to buffer the stream — buffering upstream
+            # turns real token streaming into one big delayed chunk.
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+        },
     )

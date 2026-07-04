@@ -366,6 +366,59 @@ class WeatherResponse(BaseModel):
             return "\n".join(lines)
 
 # -----------------------
+# Forecast post-processing
+# -----------------------
+def _tag_day(tag: Tag):
+    """Return the calendar date a per-day tag group describes, or None."""
+    for tag_item in tag.list:
+        label = (tag_item.descriptor.name or tag_item.descriptor.code or "").strip().lower()
+        if label == "date":
+            try:
+                return parser.parse(tag_item.value).date()
+            except (ParserError, TypeError, ValueError):
+                return None
+    return None
+
+
+def _issue_day(item: Item):
+    """Parse the bulletin issue date from e.g. short_desc='Forecast from 2026-06-30'."""
+    if item.descriptor.short_desc:
+        try:
+            return parser.parse(item.descriptor.short_desc, fuzzy=True).date()
+        except (ParserError, TypeError, ValueError):
+            return None
+    return None
+
+
+def _keep_newest_issue_and_future_days(weather_response: "WeatherResponse") -> None:
+    """Trim a forecast response to what a farmer can act on.
+
+    The issue-date query window (see WeatherRequest.get_payload) can return
+    several bulletins, each carrying day-tags that may already be in the past.
+    Keep only the newest bulletin per provider, and within it only today and
+    future days — a 'forecast' for yesterday read aloud confuses callers, and
+    the stale tags waste prompt tokens on every turn.
+    """
+    from datetime import date as _date
+
+    today = _date.today()
+    for rsp in weather_response.responses:
+        for provider in rsp.message.catalog.providers:
+            items = provider.items or []
+            if not items:
+                continue
+            dated = [(_issue_day(i), i) for i in items]
+            known = [d for d, _ in dated if d is not None]
+            if known:
+                newest = max(known)
+                items = [i for d, i in dated if d is None or d == newest]
+            for item in items:
+                if item.tags:
+                    item.tags = [t for t in item.tags if (_tag_day(t) is None or _tag_day(t) >= today)]
+            provider.items = [i for i in items if i.tags]
+
+
+# -----------------------
 # Weather Request
 # -----------------------
 class WeatherRequest(BaseModel):
@@ -403,8 +456,13 @@ class WeatherRequest(BaseModel):
             end_time = now.astimezone(timezone.utc).strftime('%Y-%m-%dT00:00:00Z')
         else:  # forecast
             category_name = "Weather-Forecast"
-            start_time = now.astimezone(timezone.utc).strftime('%Y-%m-%dT00:00:00Z')
-            end_time = (now + timedelta(days=self.days)).astimezone(timezone.utc).strftime('%Y-%m-%dT00:00:00Z')
+            # PoCRA quirk: the forecast API filters on the forecast ISSUE date,
+            # not the dates being forecast. Requesting [today, today+N] returns
+            # nothing whenever today's bulletin isn't published yet, so ask for
+            # bulletins issued over the recent past through tomorrow and keep
+            # the newest (see _keep_newest_issue_and_future_days).
+            start_time = (now - timedelta(days=self.days)).astimezone(timezone.utc).strftime('%Y-%m-%dT00:00:00Z')
+            end_time = (now + timedelta(days=1)).astimezone(timezone.utc).strftime('%Y-%m-%dT00:00:00Z')
         
         return {
             "context": {
@@ -480,7 +538,8 @@ async def weather_forecast(ctx: RunContext[FarmerContext], latitude: float, long
                 
             weather_response = WeatherResponse.model_validate(response.json())
             weather_response.response_type = "forecast"
-                
+            _keep_newest_issue_and_future_days(weather_response)
+
             return str(weather_response)
                 
     except httpx.TimeoutException:

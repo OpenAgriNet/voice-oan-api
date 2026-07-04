@@ -43,6 +43,24 @@ _PROFILE_ID_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")  # fix
 _PLACEHOLDER_VECTOR = [0.0]  # 1-dim; never used for search, only to satisfy Qdrant
 
 
+def snapshot_cache_key(user_id: str) -> str:
+    """Redis key for the rendered call-start snapshot (see stream_voice_message).
+
+    Cached so a new call doesn't pay the Qdrant + mem0 (OpenAI embedding) round
+    trip before the agent can start. Invalidated on profile save/delete.
+    """
+    return f"profile_snapshot_{user_id}"
+
+
+async def _invalidate_snapshot_cache(user_id: str) -> None:
+    try:
+        from app.core.cache import cache
+
+        await cache.delete(snapshot_cache_key(user_id))
+    except Exception:
+        logger.debug("snapshot cache invalidation failed for user %s", user_id, exc_info=True)
+
+
 # --------------------------------------------------------------------------- #
 # Schema
 # --------------------------------------------------------------------------- #
@@ -109,6 +127,35 @@ _CROP_DURATION_DAYS = {
 }
 
 
+def _crop_age_state(crop: Crop) -> str:
+    """Classify a crop by how far past its season the sowing date is.
+
+    'current'  — in season (or age unknown): show with computed stage.
+    'stale'    — past harvest but recent: show as last season's crop so the
+                 agent asks instead of assuming ("कापूस अजूनही घेता का?").
+    'expired'  — long gone (>2 seasons/a year): drop from the snapshot; the
+                 record stays in Qdrant, we just stop presenting it as fact.
+
+    Without this, a crop sown last June reads "near harvest" forever and can
+    color advice with a crop the farmer no longer grows.
+    """
+    if not crop.sowing_date:
+        return "current"
+    try:
+        sown = date.fromisoformat(crop.sowing_date)
+    except (ValueError, TypeError):
+        return "current"
+    days = (date.today() - sown).days
+    if days < 0:
+        return "current"
+    total = _CROP_DURATION_DAYS.get(crop.name.strip().lower(), 130)
+    if days <= int(total * 1.3):
+        return "current"
+    if days <= max(2 * total, 365):
+        return "stale"
+    return "expired"
+
+
 def _crop_stage(crop: Crop) -> Optional[str]:
     """Return a short 'day N, ~flowering stage' label, or None if no sowing date."""
     if not crop.sowing_date:
@@ -139,6 +186,58 @@ def _crop_stage(crop: Crop) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------- #
+# District GPS (Maharashtra district HQs)
+# --------------------------------------------------------------------------- #
+# Putting coordinates in the snapshot lets the model call weather/mandi tools
+# directly instead of spending a whole LLM round on forward_geocode first.
+_MH_DISTRICT_GPS: dict[str, tuple[float, float]] = {
+    "ahmednagar": (19.0948, 74.7480), "अहमदनगर": (19.0948, 74.7480),
+    "akola": (20.7002, 77.0082), "अकोला": (20.7002, 77.0082),
+    "amravati": (20.9374, 77.7796), "अमरावती": (20.9374, 77.7796),
+    "aurangabad": (19.8762, 75.3433), "औरंगाबाद": (19.8762, 75.3433),
+    "chhatrapati sambhajinagar": (19.8762, 75.3433), "छत्रपती संभाजीनगर": (19.8762, 75.3433),
+    "beed": (18.9891, 75.7601), "बीड": (18.9891, 75.7601),
+    "bhandara": (21.1704, 79.6522), "भंडारा": (21.1704, 79.6522),
+    "buldhana": (20.5293, 76.1842), "बुलढाणा": (20.5293, 76.1842),
+    "chandrapur": (19.9615, 79.2961), "चंद्रपूर": (19.9615, 79.2961),
+    "dhule": (20.9042, 74.7749), "धुळे": (20.9042, 74.7749),
+    "gadchiroli": (20.1809, 80.0000), "गडचिरोली": (20.1809, 80.0000),
+    "gondia": (21.4602, 80.1920), "गोंदिया": (21.4602, 80.1920),
+    "hingoli": (19.7173, 77.1494), "हिंगोली": (19.7173, 77.1494),
+    "jalgaon": (21.0077, 75.5626), "जळगाव": (21.0077, 75.5626),
+    "jalna": (19.8410, 75.8864), "जालना": (19.8410, 75.8864),
+    "kolhapur": (16.7050, 74.2433), "कोल्हापूर": (16.7050, 74.2433),
+    "latur": (18.4088, 76.5604), "लातूर": (18.4088, 76.5604),
+    "mumbai": (19.0760, 72.8777), "मुंबई": (19.0760, 72.8777),
+    "nagpur": (21.1458, 79.0882), "नागपूर": (21.1458, 79.0882),
+    "nanded": (19.1383, 77.3210), "नांदेड": (19.1383, 77.3210),
+    "nandurbar": (21.3697, 74.2400), "नंदुरबार": (21.3697, 74.2400),
+    "nashik": (19.9975, 73.7898), "नाशिक": (19.9975, 73.7898),
+    "osmanabad": (18.1860, 76.0419), "उस्मानाबाद": (18.1860, 76.0419),
+    "dharashiv": (18.1860, 76.0419), "धाराशिव": (18.1860, 76.0419),
+    "palghar": (19.6967, 72.7699), "पालघर": (19.6967, 72.7699),
+    "parbhani": (19.2686, 76.7708), "परभणी": (19.2686, 76.7708),
+    "pune": (18.5204, 73.8567), "पुणे": (18.5204, 73.8567),
+    "raigad": (18.6414, 72.8722), "रायगड": (18.6414, 72.8722),
+    "ratnagiri": (16.9902, 73.3120), "रत्नागिरी": (16.9902, 73.3120),
+    "sangli": (16.8524, 74.5815), "सांगली": (16.8524, 74.5815),
+    "satara": (17.6805, 74.0183), "सातारा": (17.6805, 74.0183),
+    "sindhudurg": (16.1200, 73.6900), "सिंधुदुर्ग": (16.1200, 73.6900),
+    "solapur": (17.6599, 75.9064), "सोलापूर": (17.6599, 75.9064),
+    "thane": (19.2183, 72.9781), "ठाणे": (19.2183, 72.9781),
+    "wardha": (20.7453, 78.6022), "वर्धा": (20.7453, 78.6022),
+    "washim": (20.1110, 77.1330), "वाशिम": (20.1110, 77.1330),
+    "yavatmal": (20.3888, 78.1204), "यवतमाळ": (20.3888, 78.1204),
+}
+
+
+def _district_gps(name: Optional[str]) -> Optional[tuple[float, float]]:
+    if not name:
+        return None
+    return _MH_DISTRICT_GPS.get(name.strip().lower())
+
+
+# --------------------------------------------------------------------------- #
 # Snapshot rendering (call-start system-prompt injection)
 # --------------------------------------------------------------------------- #
 def render_snapshot(profile: FarmerProfile) -> Optional[str]:
@@ -157,18 +256,30 @@ def render_snapshot(profile: FarmerProfile) -> Optional[str]:
         lines.append(f"• Name: {profile.name}")
     if loc:
         lines.append(f"• Location: {loc}")
+    gps = _district_gps(profile.district) or _district_gps(profile.village)
+    if gps:
+        lines.append(
+            f"• GPS: latitude={gps[0]}, longitude={gps[1]} "
+            "(pass directly to weather/mandi tools; no geocoding needed)"
+        )
     if profile.preferred_mandi:
         lines.append(f"• Preferred mandi: {profile.preferred_mandi}")
 
     for crop in profile.crops:
+        age_state = _crop_age_state(crop)
+        if age_state == "expired":
+            continue
         parts = [crop.name]
         if crop.variety:
             parts.append(f"({crop.variety})")
         if crop.area_acres:
             parts.append(f"{crop.area_acres} acre")
-        stage = _crop_stage(crop)
-        if stage:
-            parts.append(f"— {stage}")
+        if age_state == "stale":
+            parts.append("— sown LAST season; ask if they still grow it, do not assume")
+        else:
+            stage = _crop_stage(crop)
+            if stage:
+                parts.append(f"— {stage}")
         lines.append(f"• Crop: {' '.join(parts)}")
 
     if profile.land_area_acres:
@@ -270,6 +381,9 @@ _EXTRACTION_SYSTEM = (
     "crops (list of {name, variety, area_acres, sowing_date YYYY-MM-DD, season}), "
     "open_threads (list of {topic, advice_given}) for unresolved issues to follow up on. "
     "Only include stable facts, not one-off price/weather questions. "
+    "preferred_mandi ONLY if the farmer explicitly says where they sell their produce — "
+    "NEVER infer it from a warehouse/godown location, a staff contact, or a price lookup "
+    "the assistant performed. "
     "Return {} if nothing durable was learned. Output JSON only, no prose."
 )
 
@@ -398,6 +512,7 @@ class ProfileStore:
                 None,
                 lambda: client.upsert(collection_name=_PROFILE_COLLECTION, points=[point]),
             )
+            await _invalidate_snapshot_cache(profile.user_id)
         except Exception:
             logger.warning("profile.save failed for user %s", profile.user_id, exc_info=True)
 
@@ -467,6 +582,7 @@ class ProfileStore:
                     points_selector=[self._point_id(user_id)],
                 ),
             )
+            await _invalidate_snapshot_cache(user_id)
             return existed
         except Exception:
             logger.warning("profile.delete failed for user %s", user_id, exc_info=True)

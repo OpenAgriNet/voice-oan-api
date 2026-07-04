@@ -12,6 +12,34 @@ logging.getLogger("marqo").setLevel(logging.ERROR)
 # Import all routers
 from app.routers import voice, voice_bhili, health, voice_webhook
 
+async def _warm_lazy_clients():
+    """Initialize heavy lazily-created clients (Qdrant profile store, mem0) at
+    startup so a farmer's first call on each worker doesn't pay the init cost."""
+    import asyncio
+    import os
+    import time
+    from helpers.utils import get_logger
+
+    log = get_logger("warmup")
+    t0 = time.perf_counter()
+    loop = asyncio.get_event_loop()
+    try:
+        from app.services.profile import profile_store
+        await loop.run_in_executor(None, profile_store._get_client)
+    except Exception:
+        log.warning("profile store warm-up failed", exc_info=True)
+    try:
+        from app.services.memory import memory_service
+        await loop.run_in_executor(None, memory_service._get_client)
+    except Exception:
+        log.warning("memory service warm-up failed", exc_info=True)
+    log.info(
+        "Lazy clients warmed up in %dms (pid=%s)",
+        int((time.perf_counter() - t0) * 1000),
+        os.getpid(),
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan events for startup and shutdown"""
@@ -20,6 +48,8 @@ async def lifespan(app: FastAPI):
     print(f"📍 Environment: {settings.environment}")
     print(f"🔧 Debug mode: {settings.debug}")
     print(f"🌐 CORS origins: {settings.allowed_origins}")
+    import asyncio
+    asyncio.create_task(_warm_lazy_clients())  # fire-and-forget; don't block startup
     yield
     # Shutdown
     print(f"🛑 {settings.app_name} shutting down...")

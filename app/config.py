@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     redis_retry_on_timeout: bool = True
 
     # Cache Configuration
-    default_cache_ttl: int = 60 * 60 * 24  # 24 hours
+    default_cache_ttl: int = 60 * 60 * 2  # 2 hours (voice sessions live minutes; long-term memory is in Qdrant)
 
     # Logging Configuration
     log_level: str = "INFO"

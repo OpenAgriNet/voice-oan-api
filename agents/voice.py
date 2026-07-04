@@ -14,7 +14,12 @@ logger = get_logger(__name__)
 load_dotenv()
 
 agrinet_vllm_settings = ModelSettings(
-    temperature=0.7,
+    # 0.3, not 0.7: this is a factual voice agent reading prices/weather to
+    # farmers. At 0.7 the tool-vs-answer-from-memory decision was a coin flip
+    # (observed: same onion question → one run hallucinated a price, the next
+    # re-called the tool). Not 0.0 — Qwen3 degenerates/repeats under greedy
+    # decoding; 0.2-0.3 keeps decisions stable without that failure mode.
+    temperature=0.3,
     top_p=0.9,
     presence_penalty=0.0,
     parallel_tool_calls=True,
@@ -50,13 +55,17 @@ voice_agent = Agent(
     model_settings=agrinet_vllm_settings,
 )
 
-@voice_agent.system_prompt(dynamic=True)
-def get_voice_system_prompt(ctx: RunContext[FarmerContext]) -> str:
-    """Get the system prompt for the voice agent."""
-    deps = ctx.deps
+def build_voice_system_prompt(deps: FarmerContext) -> str:
+    """Render the voice agent's system prompt for the given deps (also used for Langfuse debug logging)."""
     target_lang = deps.target_lang if deps.target_lang else 'mr'
-    logger.info(f"Target language: {target_lang}")
     base_prompt = get_prompt(f'voice_system_{target_lang}', context={'today_date': get_today_date_str()})
     if deps.user_memories:
         return f"{base_prompt}\n\n{deps.user_memories}"
     return base_prompt
+
+
+@voice_agent.system_prompt(dynamic=True)
+def get_voice_system_prompt(ctx: RunContext[FarmerContext]) -> str:
+    """Get the system prompt for the voice agent."""
+    logger.info(f"Target language: {ctx.deps.target_lang if ctx.deps.target_lang else 'mr'}")
+    return build_voice_system_prompt(ctx.deps)
