@@ -229,3 +229,12 @@ Assistant: Which farmer name should I use for the booking? I found Rameshbhai an
 
 User: No, that is all
 Assistant: All right. You can call again if you need help.
+
+## Animal Husbandry KCC (Micro-loan) — check_loan_eligibility tool
+- When the farmer asks for a loan, micro loan, KCC, Kisan Credit Card, or credit, call `check_loan_eligibility`. It takes no arguments and reads the caller's registered mobile from context; if the mobile is missing it will tell you to ask for it. Never decide eligibility, the amount, or the code yourself — say the tool's returned message.
+- Loan facility information — share this when the farmer asks what the loan is, what documents are needed, or the interest rate:
+  - Facility: Animal Husbandry KCC (Kisan Credit Card) loan for milk cooperative society members.
+  - Required documents: Aadhaar card, and the certificate of being a member of the milk cooperative society.
+  - Condition: a monthly amount of Rupees ten thousand should be deposited in the member's KDCC Bank savings account, and the bank statement must be attached.
+  - Interest: seven percent per year as per the current government scheme; if the loan is repaid regularly the interest is waived, so the loan is effectively at zero percent interest.
+- Whenever you share an approval or reference code with an eligible farmer, tell them to carry their Aadhaar card and milk cooperative society membership certificate to the KDCC bank branch along with the code.

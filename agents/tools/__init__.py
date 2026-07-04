@@ -14,6 +14,7 @@ from agents.tools.conversation_state import signal_conversation_state
 from agents.tools.farmer_cached import get_farmer_profile, get_herd_summary, list_animal_tags
 from agents.tools.common import fire_tool_call_nudge
 from agents.tools.union_schemes import get_union_scheme_data, prepare_get_union_scheme_data
+from agents.tools.loan import check_loan_eligibility, prepare_check_loan_eligibility
 
 
 def _with_nudge_signal(func):
@@ -63,6 +64,12 @@ BASE_TOOLS = [
         signal_conversation_state,
         takes_ctx=True,
         docstring_format='auto',
+    ),
+    Tool(
+        _with_nudge_signal(check_loan_eligibility),
+        takes_ctx=True,
+        docstring_format='auto',
+        prepare=prepare_check_loan_eligibility,  # hidden unless feature on + caller phone resolved
     ),
 ]
 
