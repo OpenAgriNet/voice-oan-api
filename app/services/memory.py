@@ -165,7 +165,13 @@ class MemoryService:
         return self._client
 
     async def get_profile_summary(self, user_id: str) -> Optional[str]:
-        """Return a 3-4 bullet profile snapshot (crop, location, language/pref) for call start."""
+        """Return a 3-4 bullet profile snapshot for call start (mem0 fallback path).
+
+        Only used when the farmer has no structured profile yet. Legacy mem0
+        memories contain near-duplicates and low-value facts ("prefers Marathi"
+        — target_lang already handles language), so query for actionable facts
+        and dedupe before injecting into the prompt.
+        """
         client = self._get_client()
         if not client or not user_id:
             return None
@@ -173,16 +179,38 @@ class MemoryService:
             results = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: client.search(
-                    "crop location language preference",
+                    "crops grown, village or district, land, irrigation, pest issues, schemes",
                     filters={"user_id": user_id},
-                    limit=4,
+                    limit=8,
                 ),
             )
             memories = results if isinstance(results, list) else results.get("results", [])
             if not memories:
                 return None
-            bullets = "\n".join(f"• {m['memory']}" for m in memories[:4])
-            return f"Farmer profile (summary):\n{bullets}"
+
+            from difflib import SequenceMatcher
+
+            bullets: list[str] = []
+            for m in memories:
+                text = (m.get("memory") or "").strip()
+                if not text:
+                    continue
+                # Skip language-preference trivia: it duplicates target_lang and
+                # was stored repeatedly by old inference runs.
+                lowered = text.lower()
+                if "language" in lowered or ("marathi" in lowered and "prefer" in lowered) or "speaks" in lowered:
+                    continue
+                # Skip exact and near duplicates of already-kept bullets.
+                if any(SequenceMatcher(None, lowered, b.lower()).ratio() >= 0.85 for b in bullets):
+                    continue
+                bullets.append(text)
+                if len(bullets) >= 4:
+                    break
+
+            if not bullets:
+                return None
+            joined = "\n".join(f"• {b}" for b in bullets)
+            return f"Farmer profile (summary):\n{joined}"
         except Exception:
             logger.warning("get_profile_summary failed for user %s", user_id, exc_info=True)
             return None
