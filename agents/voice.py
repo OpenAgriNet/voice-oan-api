@@ -2,6 +2,7 @@ import os
 from pydantic_ai import Agent
 from helpers.utils import get_prompt, get_logger
 from dotenv import load_dotenv
+from app.config import settings
 from agents.models import LLM_MODEL
 from agents.tools import BASE_TOOLS, SIGNED_IN_FARMER_TOOLS
 from pydantic_ai.settings import ModelSettings
@@ -38,6 +39,7 @@ def _resolve_voice_prompt_name() -> str:
 VOICE_SYSTEM_PROMPT_NAME = _resolve_voice_prompt_name()
 STATIC_VOICE_SYSTEM_PROMPT = get_prompt(
     VOICE_SYSTEM_PROMPT_NAME,
+    context={"loan_max_amount": f"{int(settings.loan_max_amount):,}"},
 )
 
 def _build_voice_agent(name: str, tools):
