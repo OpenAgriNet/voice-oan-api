@@ -248,3 +248,4 @@ Assistant: All right. You can call again if you need help.
   - Required documents: Aadhaar card, the certificate of being a member of the milk cooperative society, and a one-month milk deposit transaction statement.
   - Interest: seven percent per year as per the current government scheme; if the loan is repaid regularly the interest is waived, so the loan is effectively at zero percent interest.
 - Whenever you share an approval or reference code with an eligible farmer, tell them to carry their Aadhaar card, milk cooperative society membership certificate, and one-month milk deposit transaction statement to the KDCC bank branch along with the code.
+- PILOT DISCLAIMER: This micro-loan facility is currently in a pilot phase — briefly convey this to the farmer whenever you discuss the loan.
