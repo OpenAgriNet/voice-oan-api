@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -146,22 +147,36 @@ def _patch_mem0_disable_thinking() -> None:
 
 
 class MemoryService:
+    # After a failed init, wait this long before trying again — so a transient
+    # Qdrant/OpenAI blip at first use degrades memory for a minute, not until
+    # restart, while still not re-running a failing init on every call.
+    _INIT_RETRY_SECONDS = 60.0
+
     def __init__(self) -> None:
         self._client = None
-        self._init_attempted = False
+        self._last_init_failure: Optional[float] = None
 
     def _get_client(self):
-        if self._init_attempted:
+        if self._client is not None:
             return self._client
-        self._init_attempted = True
+        if (
+            self._last_init_failure is not None
+            and time.monotonic() - self._last_init_failure < self._INIT_RETRY_SECONDS
+        ):
+            return None
         try:
             from mem0 import Memory  # type: ignore
 
             _patch_mem0_disable_thinking()
             self._client = Memory.from_config(_build_mem0_config())
+            self._last_init_failure = None
             logger.info("MemoryService: mem0 client initialized")
         except Exception:
-            logger.warning("MemoryService: initialization failed — memory disabled", exc_info=True)
+            self._last_init_failure = time.monotonic()
+            logger.warning(
+                "MemoryService: initialization failed — memory disabled, retrying in %ss",
+                self._INIT_RETRY_SECONDS, exc_info=True,
+            )
         return self._client
 
     async def get_profile_summary(self, user_id: str) -> Optional[str]:

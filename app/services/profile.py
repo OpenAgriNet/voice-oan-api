@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import date, datetime, timezone
 from typing import Optional, TYPE_CHECKING
@@ -438,15 +439,24 @@ def _extract_partial_sync(transcript: str) -> dict:
 # Store
 # --------------------------------------------------------------------------- #
 class ProfileStore:
+    # After a failed init, wait this long before trying again — so a Qdrant
+    # blip at first use degrades profiles for a minute, not until restart,
+    # while still not hammering a down Qdrant on every call.
+    _INIT_RETRY_SECONDS = 60.0
+
     def __init__(self) -> None:
         self._client = None
-        self._init_attempted = False
+        self._last_init_failure: Optional[float] = None
 
     def _get_client(self):
         """Lazily create the Qdrant client and ensure the profile collection exists."""
-        if self._init_attempted:
+        if self._client is not None:
             return self._client
-        self._init_attempted = True
+        if (
+            self._last_init_failure is not None
+            and time.monotonic() - self._last_init_failure < self._INIT_RETRY_SECONDS
+        ):
+            return None
         try:
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, VectorParams
@@ -464,9 +474,14 @@ class ProfileStore:
                 )
                 logger.info("ProfileStore: created Qdrant collection %s", _PROFILE_COLLECTION)
             self._client = client
+            self._last_init_failure = None
             logger.info("ProfileStore: Qdrant client initialized")
         except Exception:
-            logger.warning("ProfileStore: init failed — profile disabled", exc_info=True)
+            self._last_init_failure = time.monotonic()
+            logger.warning(
+                "ProfileStore: init failed — profile disabled, retrying in %ss",
+                self._INIT_RETRY_SECONDS, exc_info=True,
+            )
         return self._client
 
     @staticmethod

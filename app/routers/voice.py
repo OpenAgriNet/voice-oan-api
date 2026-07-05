@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, BackgroundTasks, Request, HTTPException, status
+from fastapi import APIRouter, Depends, BackgroundTasks, Header, Request, HTTPException, status
 from fastapi.responses import StreamingResponse
 from app.services.voice import stream_voice_message
 from app.utils import _get_message_history
@@ -10,6 +10,8 @@ from app.config import settings
 from app.services import call_timeout
 from fastapi.security.utils import get_authorization_scheme_param
 from helpers.utils import get_logger
+import os
+import secrets
 import uuid
 import asyncio
 from typing import AsyncGenerator
@@ -73,13 +75,36 @@ def _resolve_memory_user_id(http_request: Request, request: ChatRequest) -> str 
     )
 
 
-@router.get("/memories")
+def _require_internal_access(x_internal_token: str | None = Header(default=None)) -> None:
+    """Gate for the phone-keyed memory/profile admin endpoints.
+
+    These endpoints take a raw phone number and return (or delete) a farmer's
+    stored memories and profile, so they must never be open on a reachable
+    deployment: open access would allow phone-number enumeration of PII and
+    silent deletion of farmer data.
+
+    Development: open, so the memory viewer works without setup.
+    Otherwise: requires INTERNAL_ADMIN_TOKEN to be set in the environment AND
+    presented by the caller in the X-Internal-Token header. If the token is not
+    configured, the endpoints are disabled entirely.
+    """
+    if settings.environment == "development":
+        return
+    expected = os.getenv("INTERNAL_ADMIN_TOKEN")
+    if expected and x_internal_token and secrets.compare_digest(x_internal_token, expected):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Internal access token required.",
+    )
+
+
+@router.get("/memories", dependencies=[Depends(_require_internal_access)])
 async def list_memories(phone: str):
     """Read-only: return all long-term memories for a farmer, looked up by phone.
 
     The phone is hashed here (same logic as call-time) so the raw number never
-    leaves this process and the caller (the memory viewer UI) needs no secrets.
-    Intended for internal POC/demo use — unauthenticated.
+    leaves this process. Internal use only — gated by _require_internal_access.
     """
     user_id = resolve_user_id(phone)
     if not user_id:
@@ -88,12 +113,12 @@ async def list_memories(phone: str):
     return {"user_id": user_id, "count": len(items), "memories": items}
 
 
-@router.delete("/memories")
+@router.delete("/memories", dependencies=[Depends(_require_internal_access)])
 async def delete_memories(phone: str):
     """Read-write: delete all long-term memories for a farmer, looked up by phone.
 
-    Phone is hashed here (same as call-time). Intended for internal POC/demo
-    cleanup — unauthenticated.
+    Phone is hashed here (same as call-time). Internal cleanup only — gated by
+    _require_internal_access.
     """
     user_id = resolve_user_id(phone)
     if not user_id:
@@ -102,11 +127,12 @@ async def delete_memories(phone: str):
     return {"user_id": user_id, "deleted": deleted}
 
 
-@router.get("/profile")
+@router.get("/profile", dependencies=[Depends(_require_internal_access)])
 async def get_profile(phone: str):
     """Read-only: return the structured farmer profile, looked up by phone.
 
-    Phone is hashed here (same as call-time). Internal POC/demo use.
+    Phone is hashed here (same as call-time). Internal use only — gated by
+    _require_internal_access.
     """
     user_id = resolve_user_id(phone)
     if not user_id:
@@ -116,9 +142,12 @@ async def get_profile(phone: str):
     return {"user_id": user_id, "profile": profile.model_dump() if profile else None}
 
 
-@router.delete("/profile")
+@router.delete("/profile", dependencies=[Depends(_require_internal_access)])
 async def delete_profile(phone: str):
-    """Delete the structured farmer profile, looked up by phone. POC/demo cleanup."""
+    """Delete the structured farmer profile, looked up by phone.
+
+    Internal cleanup only — gated by _require_internal_access.
+    """
     user_id = resolve_user_id(phone)
     if not user_id:
         raise HTTPException(status_code=400, detail="Invalid phone number")
