@@ -5,6 +5,8 @@ import os
 import re
 from agents.voice import voice_agent
 from agents.deps import FarmerContext
+from agents.models import LLM_AGRINET_MODEL
+from agents.routing import select_model_for_session
 from agents.tools.language import LANGUAGE_CACHE_SUFFIX
 from helpers.telemetry import (
     TelemetryRequest,
@@ -86,10 +88,20 @@ async def stream_voice_message(
     # Use effective_lang for recording message so it matches the frozen session language
     recording_prefix = _get_recording_message(effective_lang) if is_first_message else ""
 
+    model, model_route = await select_model_for_session(session_id)
+    model_name = getattr(model, "model_name", "unknown")
+    logger.info(f"Routing session {session_id} to model_route={model_route} model={model_name}")
+
+    # Runtime fallback: if the Gemma canary call errors/times out before any audio has
+    # been streamed to the client, retry once against the default (Azure/OpenAI) model.
+    # Once any output has been sent, a retry can't be done cleanly (the client already
+    # heard part of the response), so failures past that point just propagate.
+    candidates = [(model, model_route)]
+    if model_route == 'gemma':
+        candidates.append((LLM_AGRINET_MODEL, 'gemma_runtime_fallback'))
+
     final_output = None
     new_messages = None
-    text_buffer = ""
-    prev_audio = ""
 
     agent_slug = (voice_agent.name or "voice").replace(" ", "_").lower()
     with safe_start_agent_observation(
@@ -104,35 +116,66 @@ async def stream_voice_message(
             "agent_name": voice_agent.name,
             "voice_qid": voice_qid,
             "user_id": user_id,
+            "model_route": model_route,
+            "model_name": model_name,
         },
-        tags=["voice", "pydantic_ai", f"agent:{agent_slug}"],
+        tags=["voice", "pydantic_ai", f"agent:{agent_slug}", f"model_route:{model_route}", f"model:{model_name}"],
     ) as agent_obs:
-        async for event in voice_agent.run_stream_events(
-            user_prompt=user_message,
-            message_history=trimmed_history,
-            deps=deps
-        ):
-            kind = getattr(event, 'event_kind', '')
+        for attempt_index, (attempt_model, attempt_route) in enumerate(candidates):
+            text_buffer = ""
+            prev_audio = ""
+            any_chunk_yielded = False
+            is_last_attempt = attempt_index == len(candidates) - 1
+            try:
+                async for event in voice_agent.run_stream_events(
+                    user_prompt=user_message,
+                    message_history=trimmed_history,
+                    deps=deps,
+                    model=attempt_model,
+                ):
+                    kind = getattr(event, 'event_kind', '')
 
-            if kind == 'part_delta':
-                delta = event.delta
-                if getattr(delta, 'part_delta_kind', '') == 'text':
-                    text_buffer += delta.content_delta
-                    audio = _extract_audio_from_partial_json(text_buffer)
-                    if audio and audio != prev_audio:
-                        prev_audio = audio
-                        output_dict = _voice_output_dict(recording_prefix + audio, False, target_lang)
-                        yield json.dumps(output_dict, ensure_ascii=False)
+                    if kind == 'part_delta':
+                        delta = event.delta
+                        if getattr(delta, 'part_delta_kind', '') == 'text':
+                            text_buffer += delta.content_delta
+                            audio = _extract_audio_from_partial_json(text_buffer)
+                            if audio and audio != prev_audio:
+                                any_chunk_yielded = True
+                                prev_audio = audio
+                                output_dict = _voice_output_dict(recording_prefix + audio, False, target_lang)
+                                yield json.dumps(output_dict, ensure_ascii=False)
 
-            elif kind == 'function_tool_result':
-                # Reset text buffer for next model turn
-                text_buffer = ""
-                prev_audio = ""
+                    elif kind == 'function_tool_result':
+                        # Reset text buffer for next model turn
+                        text_buffer = ""
+                        prev_audio = ""
 
-            elif kind == 'agent_run_result':
-                agent_result = event.result
-                final_output = agent_result.output
-                new_messages = agent_result.new_messages()
+                    elif kind == 'agent_run_result':
+                        agent_result = event.result
+                        final_output = agent_result.output
+                        new_messages = agent_result.new_messages()
+            except Exception as e:
+                if any_chunk_yielded or is_last_attempt:
+                    raise
+                logger.warning(
+                    f"model_route={attempt_route} call failed before streaming any output "
+                    f"(session={session_id}): {e}. Retrying with fallback model."
+                )
+                continue
+
+            if attempt_route != model_route:
+                model_route = attempt_route
+                model_name = getattr(attempt_model, "model_name", "unknown")
+                logger.info(f"Session {session_id} recovered via runtime fallback to model_route={model_route}")
+                try:
+                    agent_obs.update(
+                        metadata={"model_route": model_route, "model_name": model_name},
+                        tags=["voice", "pydantic_ai", f"agent:{agent_slug}", f"model_route:{model_route}", f"model:{model_name}"],
+                    )
+                except (TypeError, AttributeError):
+                    pass
+            break
 
         if final_output is not None:
             if isinstance(final_output, dict):
