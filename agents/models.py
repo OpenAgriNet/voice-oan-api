@@ -49,3 +49,20 @@ else:
 
 # Alias for backward compatibility (used by voice agent and agents.__init__)
 LLM_AGRINET_MODEL = LLM_MODEL
+
+# Gemma canary model (self-hosted vLLM). Built independently of LLM_PROVIDER above -
+# this is only used for a percentage of sessions via agents.routing, with the model
+# above (Azure/OpenAI) always available as the fallback. None if not configured.
+AGRINET_GEMMA_BASE_URL = os.getenv('AGRINET_GEMMA_BASE_URL')
+AGRINET_GEMMA_MODEL_NAME = os.getenv('AGRINET_GEMMA_MODEL_NAME')
+
+if AGRINET_GEMMA_BASE_URL and AGRINET_GEMMA_MODEL_NAME:
+    GEMMA_MODEL = OpenAIModel(
+        AGRINET_GEMMA_MODEL_NAME,
+        provider=OpenAIProvider(
+            base_url=AGRINET_GEMMA_BASE_URL,
+            api_key=os.getenv('AGRINET_GEMMA_API_KEY', 'not-required'),
+        ),
+    )
+else:
+    GEMMA_MODEL = None
