@@ -25,6 +25,9 @@ voice_agent = Agent(
     model_settings=ModelSettings(
         max_tokens=8192,
         parallel_tool_calls=True,
+        # Low temperature + fixed seed: factual agri answers must be stable across
+        temperature=0.2,
+        seed=42,
    )
 )
 
