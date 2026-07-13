@@ -39,7 +39,10 @@ def _resolve_voice_prompt_name() -> str:
 VOICE_SYSTEM_PROMPT_NAME = _resolve_voice_prompt_name()
 STATIC_VOICE_SYSTEM_PROMPT = get_prompt(
     VOICE_SYSTEM_PROMPT_NAME,
-    context={"loan_max_amount": f"{int(settings.loan_max_amount):,}"},
+    context={
+        "loan_max_amount": f"{int(settings.loan_max_amount):,}",
+        "loan_interest_rate_pct": f"{int(settings.loan_interest_rate_pct)}",
+    },
 )
 
 def _build_voice_agent(name: str, tools):
