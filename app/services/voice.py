@@ -17,7 +17,7 @@ from helpers.telemetry import (
 from helpers.utils import get_logger
 from app.utils import update_message_history, trim_history
 from app.core.cache import cache
-from app.observability.langfuse_client import safe_start_agent_observation
+from app.observability.langfuse_client import safe_propagate_attributes, safe_start_agent_observation
 from app.observability.voice import safe_update_observation
 
 logger = get_logger(__name__)
@@ -104,7 +104,11 @@ async def stream_voice_message(
     new_messages = None
 
     agent_slug = (voice_agent.name or "voice").replace(" ", "_").lower()
-    with safe_start_agent_observation(
+    # Tags are trace-level in Langfuse, so they go through propagate_attributes;
+    # observations only carry metadata.
+    with safe_propagate_attributes(
+        tags=["voice", "pydantic_ai", f"agent:{agent_slug}", f"model_route:{model_route}", f"model:{model_name}"],
+    ), safe_start_agent_observation(
         name=f"agent.{agent_slug}",
         input={
             "query": query,
@@ -119,7 +123,6 @@ async def stream_voice_message(
             "model_route": model_route,
             "model_name": model_name,
         },
-        tags=["voice", "pydantic_ai", f"agent:{agent_slug}", f"model_route:{model_route}", f"model:{model_name}"],
     ) as agent_obs:
         for attempt_index, (attempt_model, attempt_route) in enumerate(candidates):
             text_buffer = ""
@@ -167,12 +170,14 @@ async def stream_voice_message(
             if attempt_route != model_route:
                 model_route = attempt_route
                 model_name = getattr(attempt_model, "model_name", "unknown")
-                logger.info(f"Session {session_id} recovered via runtime fallback to model_route={model_route}")
+                # Tag the active agent span so the trace is filterable by the route
+                # actually served, not just the one initially selected.
+                with safe_propagate_attributes(
+                    tags=[f"model_route:{model_route}", f"model:{model_name}"],
+                ):
+                    logger.info(f"Session {session_id} recovered via runtime fallback to model_route={model_route}")
                 try:
-                    agent_obs.update(
-                        metadata={"model_route": model_route, "model_name": model_name},
-                        tags=["voice", "pydantic_ai", f"agent:{agent_slug}", f"model_route:{model_route}", f"model:{model_name}"],
-                    )
+                    agent_obs.update(metadata={"model_route": model_route, "model_name": model_name})
                 except (TypeError, AttributeError):
                     pass
             break

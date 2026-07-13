@@ -68,9 +68,10 @@ def safe_start_observation(
     input: Any = None,
     output: Any = None,
     metadata: Optional[Dict[str, Any]] = None,
-    tags: Optional[list[str]] = None,
     model: Optional[str] = None,
 ):
+    # Note: Langfuse observations do not support tags — tags are trace-level only.
+    # Use safe_propagate_attributes(tags=...) instead.
     client = get_langfuse()
     if client is None:
         return nullcontext(None)
@@ -82,7 +83,6 @@ def safe_start_observation(
                 input=input,
                 output=output,
                 metadata=metadata,
-                tags=tags,
                 model=model,
             )
         )
@@ -128,9 +128,11 @@ def safe_start_agent_observation(
     name: str,
     input: Any = None,
     metadata: Optional[Dict[str, Any]] = None,
-    tags: Optional[list[str]] = None,
 ):
-    """Langfuse ``agent`` observation; children include PydanticAI OTEL spans (invoke_agent, execute_tool, …)."""
+    """Langfuse ``agent`` observation; children include PydanticAI OTEL spans (invoke_agent, execute_tool, …).
+
+    Tags are trace-level only in Langfuse; use safe_propagate_attributes(tags=...) for those.
+    """
     client = get_langfuse()
     if client is None:
         return nullcontext(None)
@@ -141,7 +143,6 @@ def safe_start_agent_observation(
                 name=name,
                 input=input,
                 metadata=metadata,
-                tags=tags,
             )
         )
     except Exception:
