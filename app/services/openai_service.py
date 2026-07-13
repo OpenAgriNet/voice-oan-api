@@ -35,8 +35,7 @@ async def generate_openai_stream(
     with safe_start_observation(
         as_type="span",
         name="voice.chat_completions.stream",
-        input={"query": query, "target_lang": target_lang, "model": request.model},
-        tags=langfuse_tags,
+        input={"query": query, "target_lang": target_lang},
     ) as root_obs:
         with safe_propagate_attributes(
             user_id=user_id,
@@ -120,8 +119,7 @@ async def generate_openai_response(
     with safe_start_observation(
         as_type="span",
         name="voice.chat_completions",
-        input={"query": query, "target_lang": target_lang, "model": request.model},
-        tags=langfuse_tags,
+        input={"query": query, "target_lang": target_lang},
     ) as root_obs:
         with safe_propagate_attributes(
             user_id=user_id,
