@@ -91,6 +91,19 @@ class Settings(BaseSettings):
     voice_trace_text_mode: str = os.getenv("VOICE_TRACE_TEXT_MODE", "preview_hash")
     voice_trace_preview_chars: int = int(os.getenv("VOICE_TRACE_PREVIEW_CHARS", "120"))
     voice_trace_log_summary: bool = _get_bool_env("VOICE_TRACE_LOG_SUMMARY", default=True)
+    # Shared voice profile prompt fields (rendered once at startup).
+    voice_profile_creation_date_words: str = os.getenv(
+        "VOICE_PROFILE_CREATION_DATE_WORDS",
+        "eleventh February two thousand twenty six",
+    )
+    voice_profile_service_channels: str = os.getenv(
+        "VOICE_PROFILE_SERVICE_CHANNELS",
+        "chat, voice call, and WhatsApp",
+    )
+    voice_profile_helpline_number_words: str = os.getenv(
+        "VOICE_PROFILE_HELPLINE_NUMBER_WORDS",
+        "zero eight zero three five four five three five four five",
+    )
 
     # Sticky %-split between OSS (vLLM gemma + pretranslation) and legacy pipelines.
     # A session is bucketed deterministically by session_id; OSS_PIPELINE_PCT

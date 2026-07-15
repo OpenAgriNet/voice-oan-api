@@ -37,6 +37,11 @@ VARIANTS = {
 }
 
 NEW_VARIANTS = ["gpt-5.1", "gemma4"]
+PROFILE_RENDER_CONTEXT = {
+    "creation_date_words": "eleventh February two thousand twenty six",
+    "service_channels_words": "chat, voice call, and WhatsApp",
+    "helpline_number_words": "zero eight zero three five four five three five four five",
+}
 
 LIVE_TOOLS = [
     "search_documents",
@@ -114,7 +119,7 @@ class TestAllVariantsLoad:
 
     @pytest.mark.parametrize("version, filename_stem", list(VARIANTS.items()))
     def test_file_loads_via_get_prompt(self, version, filename_stem):
-        text = get_prompt(filename_stem)
+        text = get_prompt(filename_stem, context=PROFILE_RENDER_CONTEXT)
         assert text and len(text.strip()) > 200, f"{version} prompt is empty or too short"
 
 
@@ -124,7 +129,7 @@ class TestAllVariantsLoad:
 # ---------------------------------------------------------------------------
 
 def _load(version: str) -> str:
-    return get_prompt(VARIANTS[version])
+    return get_prompt(VARIANTS[version], context=PROFILE_RENDER_CONTEXT)
 
 
 class TestNewVariantInvariants:
@@ -147,7 +152,14 @@ class TestNewVariantInvariants:
         assert "Amul AI" in text
         lower = text.lower()
         assert "female persona" in lower or "helpline didi" in lower
-        assert "a woman" not in lower
+        assert "a woman" in lower
+
+    @pytest.mark.parametrize("version", list(VARIANTS))
+    def test_profile_identity_facts_present(self, version):
+        text = _load(version)
+        assert f"Creation date: {PROFILE_RENDER_CONTEXT['creation_date_words']}." in text
+        assert f"Service channels: {PROFILE_RENDER_CONTEXT['service_channels_words']}." in text
+        assert f"Helpline number: {PROFILE_RENDER_CONTEXT['helpline_number_words']}." in text
 
     @pytest.mark.parametrize("version", NEW_VARIANTS)
     def test_phone_call_register_present(self, version):
