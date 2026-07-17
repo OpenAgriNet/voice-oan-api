@@ -22,6 +22,13 @@ tenacity
 
 langfuse>=4.0,<5
 
+# opentelemetry-api 1.44.0 removed the private `_events` module that
+# pydantic-ai 0.2.4 imports at startup (ModuleNotFoundError: opentelemetry._events).
+# Cap below 1.44 until pydantic-ai is upgraded.
+opentelemetry-api>=1.33.1,<1.44
+opentelemetry-sdk>=1.33.1,<1.44
+opentelemetry-exporter-otlp-proto-http>=1.33.1,<1.44
+
 # Redis for caching and stuff
 redis
 # NOTE: not sure if needed
