@@ -133,8 +133,8 @@ async def resolve_chain(
     the ``Attempt`` interface the fallback walkers read (``.kind`` / ``.model`` /
     ``.model_name`` / ``.provider`` / ``.endpoint`` / ``.timeout``).
 
-    (The P3 concurrency-reorder pre-flight filter is wired into this function in
-    that phase, after the health prune and before materialize.)"""
+    Fixed composition order (plan §2): health-prune -> concurrency-reorder ->
+    materialize -> classify-walk."""
     pipeline = pipeline or runtime.get_pipeline()
     name = await resolve_profile(session_id, pipeline)
     profile = _profile_for(pipeline, name)
@@ -149,6 +149,17 @@ async def resolve_chain(
     # inert Tiers so a pruned tier's client is never even built.
     from app.llm_core import health
     tiers = health.prune_unhealthy(step, list(step_cfg.tiers))
+
+    # ── P3 pre-flight FILTER: concurrency-gauge REORDER (after prune, before
+    # materialize). Only DEPRIORITIZES a saturated-but-UP vLLM tier behind the
+    # managed tier, reading the gauge from the step's explicit ConcurrencyGate. A
+    # no-op unless CONCURRENCY_GAUGE_ENABLED and a gate is configured on the step;
+    # never drops a tier / empties the chain. Because health has already pruned any
+    # DOWN tier, a down tier is gone here and can never be reordered back to front.
+    from app.llm_core import concurrency
+    tiers = await concurrency.reprioritize_by_load(
+        step, tiers, step_cfg.triggers.concurrency_gate
+    )
 
     return materialize(STEP_CLIENT_KIND[step], tiers)
 
