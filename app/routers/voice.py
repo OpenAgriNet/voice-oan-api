@@ -5,6 +5,7 @@ from app.config import settings
 from app.services.voice_trace import create_voice_trace
 from app.services.voice import stream_voice_message
 from app.services.pipeline_router import resolve_pipeline_variant
+from app.llm_core import split
 from app.utils import _get_message_history, claim_session_request_ownership
 from app.models.requests import ChatRequest
 from helpers.utils import get_logger
@@ -65,9 +66,16 @@ async def voice_endpoint(
     )
     logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
 
-    # Sticky per-session OSS/legacy routing (no-op while OSS_PIPELINE_PCT=0
-    # or OSS_INFERENCE_ENDPOINT_URL unset — resolver returns 'legacy').
-    pipeline_variant = await resolve_pipeline_variant(session_id)
+    # Sticky per-session OSS/legacy routing, resolved ONCE here and threaded
+    # through the orchestrator (which already carries ``pipeline_variant``).
+    # Gate on PROFILES_ENABLED, mirroring the chat router: when on, the weighted
+    # named-profile split (llm_core) resolves the variant; else the legacy
+    # ``pipeline_router``. Both are no-ops while OSS_PIPELINE_PCT=0 or
+    # OSS_INFERENCE_ENDPOINT_URL unset (they return 'legacy').
+    if settings.profiles_enabled:
+        pipeline_variant = await split.resolve_variant(session_id)
+    else:
+        pipeline_variant = await resolve_pipeline_variant(session_id)
 
     return StreamingResponse(
         stream_voice_message(

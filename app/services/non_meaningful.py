@@ -34,6 +34,16 @@ _NON_MEANINGFUL_PROVIDER = (os.getenv("VOICE_NON_MEANINGFUL_PROVIDER", "vllm") o
 
 
 def _non_meaningful_client_and_model() -> tuple[AsyncOpenAI, str, str]:
+    if settings.llm_core_enabled:
+        # Flag-on: source the RAW_OPENAI client + model from the unified pipeline
+        # resolver (P0 identity with the legacy branch below; verified by
+        # runtime.self_check). VOICE_NON_MEANINGFUL_PROVIDER still governs the
+        # provider (variant-independent, so the NON_MEANINGFUL primary tier is
+        # profile-invariant in the shim). Fail-open behaviour is unchanged.
+        from app.llm_core import resolver as _llm_resolver
+        from app.llm_core.config_model import Step as _LlmStep
+        mt = _llm_resolver.primary_tier(_LlmStep.NON_MEANINGFUL, "legacy")
+        return mt.handle, mt.model_name, mt.provider
     if _NON_MEANINGFUL_PROVIDER == "openai":
         return _get_openai_client(), OPENAI_PRETRANSLATION_MODEL, "openai"
     return _get_oss_pretranslation_client(), OSS_PRETRANSLATION_MODEL, "vllm"

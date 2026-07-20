@@ -128,6 +128,79 @@ class Settings(BaseSettings):
     # Deadline for the managed (fallback) tier.
     fallback_managed_timeout_ms: int = int(os.getenv("FALLBACK_MANAGED_TIMEOUT_MS", "20000"))
 
+    # Unified LLM pipeline core (app/llm_core). Kill-switch defaults OFF: when
+    # on, the voice agent/moderation/non_meaningful/pretranslation call sites
+    # obtain the model handle from the llm_core resolver instead of the legacy
+    # singletons (identity for the current env, verified at startup by
+    # app.llm_core.runtime.self_check). When off, every path is byte-identical to
+    # today's behaviour.
+    llm_core_enabled: bool = os.getenv("LLM_CORE_ENABLED", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    # Weighted named-profile split + config-driven attempt chain (llm_core P1).
+    # Kill-switch defaults OFF: when off, the sticky OSS/legacy variant comes from
+    # `pipeline_router` and the fallback chain from `fallback.attempt_chain`
+    # (byte-identical to today). When on, the session is bucketed into an
+    # llm_core NamedProfile (cumulative sha256 buckets, bit-compatible with
+    # pipeline_router) and the fallback walkers materialize the profile's tiers.
+    # Composes with LLM_CORE_ENABLED: the config-driven chain of factory handles
+    # is only materialized when BOTH this and LLM_CORE_ENABLED are on.
+    profiles_enabled: bool = os.getenv("PROFILES_ENABLED", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    # Health filter — pre-flight chain FILTER (llm_core P2). Two independent
+    # kill-switches, both default OFF (zero behaviour change when off):
+    #   * HEALTH_BREAKER_ENABLED — the passive circuit-breaker, fed by the
+    #     fallback failure/success path (per-endpoint consecutive-failure trip).
+    #   * HEALTH_POLLER_ENABLED  — the active LB `/health` poller (a lifespan
+    #     background task) that updates breaker state with hysteresis failback.
+    # The health prune is active when EITHER is on; it only ever DROPS tiers whose
+    # endpoint is currently `open` from an already-resolved chain, never reorders,
+    # and never returns an empty chain (degrade-safe). Orthogonal to the sticky
+    # split: a session's profile assignment is unchanged; only its chain is pruned
+    # while an endpoint is down.
+    health_breaker_enabled: bool = os.getenv("HEALTH_BREAKER_ENABLED", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    health_poller_enabled: bool = os.getenv("HEALTH_POLLER_ENABLED", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    # Consecutive FALLBACKABLE failures on an endpoint before the breaker trips.
+    health_breaker_fail_threshold: int = int(os.getenv("HEALTH_BREAKER_FAIL_THRESHOLD", "5"))
+    # Cooldown before an `open` endpoint is allowed a single half-open probe.
+    health_breaker_cooldown_ms: int = int(os.getenv("HEALTH_BREAKER_COOLDOWN_MS", "30000"))
+    # Active poller cadence and per-probe HTTP timeout.
+    health_poller_interval_ms: int = int(os.getenv("HEALTH_POLLER_INTERVAL_MS", "10000"))
+    health_poller_timeout_ms: int = int(os.getenv("HEALTH_POLLER_TIMEOUT_MS", "2000"))
+    # Hysteresis: consecutive healthy polls required to fail an `open` endpoint
+    # back to `closed` (guards against the H200 crash-and-half-boot flap).
+    health_poller_healthy_polls: int = int(os.getenv("HEALTH_POLLER_HEALTHY_POLLS", "3"))
+    # Concurrency-gauge trigger — pre-flight REORDER filter (llm_core P3). Default
+    # OFF (zero behaviour change when off). When on, a step carrying an explicit
+    # ConcurrencyGate (metrics_url + max_concurrency) has its vLLM tier
+    # DEPRIORITIZED behind the managed tier while that box's in-flight
+    # (running+waiting) requests are at/above max_concurrency — so managed is tried
+    # first under load. Unreadable metrics FAIL OPEN (order unchanged), never a
+    # forced flip to managed. Never drops a tier and never empties the chain;
+    # orthogonal to the sticky split and composes AFTER the health prune.
+    concurrency_gauge_enabled: bool = os.getenv("CONCURRENCY_GAUGE_ENABLED", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    # Explicit vLLM Prometheus /metrics URL for the AGENT step's ConcurrencyGate.
+    # The shim (synthesize_from_env) attaches a gate to the AGENT step ONLY when
+    # this is set; unset -> concurrency reorder is a harmless no-op even with
+    # CONCURRENCY_GAUGE_ENABLED on. Given EXPLICITLY (never derived by stripping
+    # /v1 off the inference endpoint). Prod hint: the OSS vLLM /metrics, e.g.
+    # http://10.185.25.197:8020/metrics.
+    agent_concurrency_metrics_url: Optional[str] = os.getenv("AGENT_CONCURRENCY_METRICS_URL")
+    # In-flight (running+waiting) threshold at/above which the AGENT vLLM tier is
+    # deprioritized behind managed. Also the ConcurrencyGate default.
+    concurrency_max: int = int(os.getenv("CONCURRENCY_MAX", "10"))
+    # Short TTL (seconds) for the shared Redis cache of a vLLM engine's in-flight
+    # count (mirrors bh's ~2s), and the per-probe metrics HTTP timeout.
+    concurrency_metrics_cache_ttl_s: int = int(os.getenv("CONCURRENCY_METRICS_CACHE_TTL_S", "2"))
+    concurrency_metrics_timeout_ms: int = int(os.getenv("CONCURRENCY_METRICS_TIMEOUT_MS", "2000"))
+
     # Voice pipeline behavioral flags
     # RETRIEVAL_AUDIT_LOG: log intent/retrieval_called/query per turn for replay analysis
     retrieval_audit_log: bool = _get_bool_env("RETRIEVAL_AUDIT_LOG", default=False)
