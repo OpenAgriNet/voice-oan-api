@@ -133,9 +133,8 @@ async def resolve_chain(
     the ``Attempt`` interface the fallback walkers read (``.kind`` / ``.model`` /
     ``.model_name`` / ``.provider`` / ``.endpoint`` / ``.timeout``).
 
-    (The P2 health-prune and P3 concurrency-reorder pre-flight filters are wired
-    into this function in their respective phases, between tier lookup and
-    materialize.)"""
+    (The P3 concurrency-reorder pre-flight filter is wired into this function in
+    that phase, after the health prune and before materialize.)"""
     pipeline = pipeline or runtime.get_pipeline()
     name = await resolve_profile(session_id, pipeline)
     profile = _profile_for(pipeline, name)
@@ -144,7 +143,13 @@ async def resolve_chain(
     if step_cfg is None:
         raise ValueError(f"no config for step={step.value} in profile={profile.name}")
 
-    tiers = list(step_cfg.tiers)
+    # ── P2 pre-flight FILTER: health prune (before materialize) ──────────────
+    # Drop tiers whose endpoint is currently `open` (per-endpoint breaker). No-op
+    # unless a HEALTH_* flag is on; contract: never empties the chain. Runs on the
+    # inert Tiers so a pruned tier's client is never even built.
+    from app.llm_core import health
+    tiers = health.prune_unhealthy(step, list(step_cfg.tiers))
+
     return materialize(STEP_CLIENT_KIND[step], tiers)
 
 
