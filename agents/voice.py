@@ -42,6 +42,9 @@ STATIC_VOICE_SYSTEM_PROMPT = get_prompt(
     context={
         "loan_max_amount": f"{int(settings.loan_max_amount):,}",
         "loan_interest_rate_pct": f"{int(settings.loan_interest_rate_pct)}",
+        "creation_date_words": settings.voice_profile_creation_date_words,
+        "service_channels_words": settings.voice_profile_service_channels,
+        "helpline_number_words": settings.voice_profile_helpline_number_words,
     },
 )
 
