@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
 from app.config import settings
+# Per-turn resolved-pipeline-config tracer (tracing-only; no behaviour change).
+from app.llm_core import trace as _pipeline_trace
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +216,10 @@ class VoiceTrace:
     @contextmanager
     def request_context(self) -> Iterator[None]:
         """Open the root Langfuse observation for the full streaming request."""
+        # Open the per-turn pipeline-config tracer: every llm_core seam records the
+        # resolved profile / step tiers / trigger outcomes into this context while
+        # the request runs; it is flushed to the trace metadata on exit below.
+        _pipeline_trace.begin(self.metadata.get("pipeline_variant"))
         if not self.enabled or self.langfuse_client is None:
             yield
             return
@@ -268,6 +274,10 @@ class VoiceTrace:
         try:
             yield
         finally:
+            # Flush the full resolved-pipeline-config (profile + per-step served
+            # tiers + trigger decisions) onto the trace metadata as a `pipeline`
+            # object, while the root observation is still open.
+            _pipeline_trace.emit_to_trace()
             try:
                 stack.close()
             except Exception as exc:

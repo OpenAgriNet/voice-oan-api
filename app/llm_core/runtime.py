@@ -111,6 +111,11 @@ def configure(*, run_self_check: bool = True) -> PipelineConfig:
     from app.config import settings as _settings
     if bool(getattr(_settings, "llm_core_enabled", False)):
         validate_config(PIPELINE)
+    # Tracing-only: dump the COMPLETE loaded config (all profiles, step tiers,
+    # triggers) as one structured boot log line so the full wiring is greppable
+    # in logs even before any turn arrives (`grep llm_core.full_config`).
+    from app.llm_core import trace as _trace
+    _trace.log_full_config(PIPELINE)
     if run_self_check:
         try:
             self_check()
