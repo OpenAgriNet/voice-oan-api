@@ -177,6 +177,10 @@ class VoiceTrace:
     timings_ms: dict[str, float] = field(default_factory=dict)
     response_parts: list[str] = field(default_factory=list)
     finished: bool = False
+    # Explicit per-turn pipeline-config trace instance (contextvar-independent —
+    # threaded so the emit in request_context() reads THIS populated object, not a
+    # fresh contextvar read that the streaming-generator boundary would empty).
+    pipeline_trace_obj: Any | None = None
 
     def __post_init__(self) -> None:
         if self.enabled:
@@ -216,10 +220,12 @@ class VoiceTrace:
     @contextmanager
     def request_context(self) -> Iterator[None]:
         """Open the root Langfuse observation for the full streaming request."""
-        # Open the per-turn pipeline-config tracer: every llm_core seam records the
-        # resolved profile / step tiers / trigger outcomes into this context while
-        # the request runs; it is flushed to the trace metadata on exit below.
-        _pipeline_trace.begin(self.metadata.get("pipeline_variant"))
+        # Ensure a per-turn pipeline-config trace instance exists. Normally
+        # stream_voice_message has already opened + populated one and stashed it on
+        # self.pipeline_trace_obj (the EXPLICIT instance emit reads below); this is
+        # a fail-safe for any caller that enters request_context without it.
+        if self.pipeline_trace_obj is None:
+            self.pipeline_trace_obj = _pipeline_trace.begin(self.metadata.get("pipeline_variant"))
         if not self.enabled or self.langfuse_client is None:
             yield
             return
@@ -274,10 +280,12 @@ class VoiceTrace:
         try:
             yield
         finally:
-            # Flush the full resolved-pipeline-config (profile + per-step served
-            # tiers + trigger decisions) onto the trace metadata as a `pipeline`
-            # object, while the root observation is still open.
-            _pipeline_trace.emit_to_trace()
+            # Flush the resolved-pipeline-config (profile + variant + flags +
+            # per-step primary tiers, plus any best-effort trigger/served fields)
+            # onto the trace metadata as a `pipeline_config` object while the root
+            # observation is still open. Pass the EXPLICIT instance — a contextvar
+            # read here would be emptied by the streaming-generator boundary.
+            _pipeline_trace.emit_to_trace(self.pipeline_trace_obj)
             try:
                 stack.close()
             except Exception as exc:

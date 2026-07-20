@@ -1053,6 +1053,22 @@ async def stream_voice_message(
         trace.metadata["request_provider"] = request_provider
     except Exception:  # pragma: no cover - never break the call
         pass
+    # Open the per-turn pipeline-config tracer and hold the EXPLICIT instance on the
+    # VoiceTrace (contextvar-independent — the streaming-generator boundary empties
+    # a contextvar read). Populate the must-have static fields (profile, variant,
+    # flags, per-step PRIMARY tier) now; request_context() emits THIS object on exit.
+    try:
+        from app.llm_core import trace as _pipeline_trace
+        from app.llm_core import resolver as _lr, runtime as _lrt
+        from app.llm_core.config_model import Step as _LS
+        _pt = _pipeline_trace.begin(pipeline_variant)
+        _pipeline_trace.populate(
+            _pt, _lrt.get_pipeline(), _lr.primary_tier, pipeline_variant,
+            (_LS.PRE_TRANSLATION, _LS.MODERATION, _LS.NON_MEANINGFUL, _LS.AGENT, _LS.POST_TRANSLATION),
+        )
+        trace.pipeline_trace_obj = _pt
+    except Exception as _pt_exc:  # pragma: no cover - tracing must never break the call
+        logger.debug("pipeline_config populate skipped: %s", _pt_exc)
     logger.info(
         "voice request_variant session_id=%s variant=%s model=%s provider=%s",
         session_id,
