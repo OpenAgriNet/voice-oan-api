@@ -25,12 +25,63 @@ import os
 from typing import Optional
 
 from helpers.utils import get_logger
-from app.llm_core.config_model import PipelineConfig, Step
+from app.llm_core.config_model import PipelineConfig, Provider, Step
 from app.llm_core.legacy_shim import synthesize_from_env
 
 logger = get_logger(__name__)
 
 PIPELINE: Optional[PipelineConfig] = None
+
+# Providers the RAW_OPENAI factory can actually build (bare AsyncOpenAI clients).
+# anthropic/gemini/translategemma are rejected for a RAW_OPENAI-kind step.
+_RAW_OPENAI_PROVIDERS = frozenset({Provider.VLLM, Provider.OPENAI, Provider.AZURE})
+
+
+class PipelineConfigError(ValueError):
+    """Raised at startup for a structurally-valid but unbuildable pipeline config
+    (e.g. an anthropic/gemini tier on a RAW_OPENAI-kind step). Fails the boot fast
+    instead of letting it crash per-request. ``main`` re-raises it."""
+
+
+def validate_config(pipeline: PipelineConfig) -> None:
+    """Startup validation (plan §2, MUST-FIX E): reject any RAW_OPENAI-kind step
+    (``pre_translation`` / ``moderation`` / ``non_meaningful``) whose tier provider
+    the factory cannot build — i.e. not in {vllm, openai, azure-openai}. These
+    steps materialize as bare ``AsyncOpenAI`` clients, so anthropic/gemini would
+    only crash mid-request; catching it at boot turns a per-request 500 into a
+    clear startup failure.
+
+    Supporting anthropic/gemini for RAW pretranslation is a tracked enhancement
+    (see ``UNIFIED_LLM_PIPELINE_PLAN.md`` §2 — file an issue to add a native
+    pretranslation client for those providers)."""
+    from app.llm_core.config_model import StepClientKind
+    from app.llm_core.resolver import STEP_CLIENT_KIND
+
+    raw_steps = {s for s, kind in STEP_CLIENT_KIND.items() if kind is StepClientKind.RAW_OPENAI}
+    bad: list[str] = []
+
+    def _check(where: str, step: Step, step_cfg) -> None:
+        if step not in raw_steps:
+            return
+        for tier in step_cfg.tiers:
+            if tier.provider not in _RAW_OPENAI_PROVIDERS:
+                bad.append(f"{where} step={step.value} provider={tier.provider.value}")
+
+    for profile in pipeline.profiles:
+        for step, step_cfg in profile.steps.items():
+            _check(f"profile={profile.name}", step, step_cfg)
+    for step, step_cfg in pipeline.defaults.items():
+        _check("defaults", step, step_cfg)
+
+    if bad:
+        raise PipelineConfigError(
+            "llm_core config invalid: RAW_OPENAI steps (pre_translation/moderation/"
+            "non_meaningful) accept only vllm/openai/azure-openai providers, but "
+            "found: " + "; ".join(sorted(bad)) + ". Set PRETRANSLATION_PROVIDER / "
+            "VOICE_MODERATION_PROVIDER / VOICE_NON_MEANINGFUL_PROVIDER (or the YAML "
+            "tier) to a supported provider. (anthropic/gemini RAW pretranslation is "
+            "a tracked enhancement, not yet supported.)"
+        )
 
 
 def _load_from_yaml(path: str) -> PipelineConfig:
@@ -54,6 +105,12 @@ def configure(*, run_self_check: bool = True) -> PipelineConfig:
             "llm_core: synthesized pipeline config from env (profiles=%s)",
             [f"{p.name}:{p.weight}" for p in PIPELINE.profiles],
         )
+    # Fail-fast config validation (E) — only when the core actually drives requests
+    # (LLM_CORE_ENABLED). A legacy-revert deploy (flag off) never consults this
+    # config, so we don't fail its boot on a RAW-provider it won't use.
+    from app.config import settings as _settings
+    if bool(getattr(_settings, "llm_core_enabled", False)):
+        validate_config(PIPELINE)
     if run_self_check:
         try:
             self_check()

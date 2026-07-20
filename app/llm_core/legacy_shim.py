@@ -41,6 +41,7 @@ import os
 
 from app.llm_core.config_model import (
     ApiStyle,
+    ConcurrencyGate,
     NamedProfile,
     PipelineConfig,
     Provider,
@@ -176,6 +177,21 @@ def _oss_configured() -> bool:
     return bool(_env("OSS_INFERENCE_ENDPOINT_URL"))
 
 
+def _agent_triggers(ttft_ms: int) -> Triggers:
+    """AGENT-step triggers: the TTFT deadline plus, when
+    ``AGENT_CONCURRENCY_METRICS_URL`` is set, an explicit ``ConcurrencyGate`` so
+    the P3 gauge can deprioritize the vLLM tier under load. The metrics URL is
+    given EXPLICITLY (never derived from the inference endpoint); unset -> no gate
+    -> the reorder is a no-op even with CONCURRENCY_GAUGE_ENABLED on."""
+    metrics_url = _env("AGENT_CONCURRENCY_METRICS_URL")
+    gate = (
+        ConcurrencyGate(metrics_url=metrics_url, max_concurrency=_int_env("CONCURRENCY_MAX", 10))
+        if metrics_url
+        else None
+    )
+    return Triggers(ttft_deadline_ms=ttft_ms, concurrency_gate=gate)
+
+
 def synthesize_from_env() -> PipelineConfig:
     """Build a behaviour-identical PipelineConfig from the current environment."""
     managed_ms = _int_env("FALLBACK_MANAGED_TIMEOUT_MS", 20000)
@@ -197,7 +213,7 @@ def synthesize_from_env() -> PipelineConfig:
     }
 
     def managed_steps() -> dict:
-        agent_cfg = StepConfig(tiers=[managed_agent], triggers=Triggers(ttft_deadline_ms=managed_ms))
+        agent_cfg = StepConfig(tiers=[managed_agent], triggers=_agent_triggers(managed_ms))
         return {
             Step.AGENT: agent_cfg,
             Step.MODERATION: StepConfig(tiers=[managed_raw]),
@@ -220,7 +236,7 @@ def synthesize_from_env() -> PipelineConfig:
     oss_steps = {
         Step.AGENT: StepConfig(
             tiers=[_oss_agent_tier(oss_chat_ms, "oss-agent"), managed_agent],
-            triggers=Triggers(ttft_deadline_ms=oss_chat_ms),
+            triggers=_agent_triggers(oss_chat_ms),
         ),
         Step.MODERATION: StepConfig(tiers=[_oss_raw_tier(oss_mod_ms, "oss-moderation"), managed_raw]),
         Step.PRE_TRANSLATION: StepConfig(tiers=[_oss_raw_tier(oss_pre_ms, "oss-pretranslation"), managed_raw]),

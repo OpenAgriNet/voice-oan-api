@@ -314,13 +314,133 @@ def test_empty_session_id_skips_cache(monkeypatch):
     assert fake.sets == [] and fake.store == {}   # no id -> no Redis touch
 
 
+# ── (A) legacy sticky-key migration (voice_pipeline_variant: -> profile:) ─────
+
+def test_legacy_variant_key_honored_and_migrated(monkeypatch):
+    """A session already sticky under the pre-P1 ``voice_pipeline_variant:`` key
+    must NOT be re-bucketed on enabling PROFILES: the legacy ``oss`` is honored
+    (and migrated forward to the new ``voice_pipeline_profile:`` key) EVEN when the
+    deterministic bucket would now land ``managed`` (MUST-FIX A)."""
+    import asyncio
+
+    fake = _FakeCache()
+    sid, bucket = _sid_with_bucket_between(30, 60)
+    cfg = two_profile_config(bucket - 5)                  # bucket >= pct -> 'managed'
+    assert split.deterministic_profile(sid, cfg) == "managed"
+
+    fake.store[f"voice_pipeline_variant:{sid}"] = "oss"   # legacy pipeline_router decision
+    monkeypatch.setattr(split, "cache", fake)
+
+    got = asyncio.run(split.resolve_profile(sid, cfg))
+    assert got == "oss"                                                  # honored, not re-bucketed
+    assert fake.store[f"voice_pipeline_profile:{sid}"] == "oss"          # migrated forward
+    assert any(k == f"voice_pipeline_profile:{sid}" and v == "oss"       # under the config TTL
+               and t == cfg.sticky_ttl_s for (k, v, t) in fake.sets)
+
+
+def test_legacy_variant_legacy_maps_to_managed(monkeypatch):
+    """Legacy ``legacy`` migrates to the ``managed`` profile."""
+    import asyncio
+
+    fake = _FakeCache()
+    fake.store["voice_pipeline_variant:ml"] = "legacy"
+    monkeypatch.setattr(split, "cache", fake)
+    cfg = two_profile_config(100)                        # deterministic would be 'oss'
+    assert asyncio.run(split.resolve_profile("ml", cfg)) == "managed"
+    assert fake.store["voice_pipeline_profile:ml"] == "managed"
+
+
+def test_new_profile_key_wins_over_legacy_variant_key(monkeypatch):
+    """When BOTH keys exist the new key is authoritative and nothing is re-written."""
+    import asyncio
+
+    fake = _FakeCache()
+    fake.store["voice_pipeline_profile:both"] = "managed"
+    fake.store["voice_pipeline_variant:both"] = "oss"
+    monkeypatch.setattr(split, "cache", fake)
+    cfg = two_profile_config(100)
+    assert asyncio.run(split.resolve_profile("both", cfg)) == "managed"
+    assert fake.sets == []                              # no migration, no re-write
+
+
+def test_legacy_variant_unmapped_profile_falls_through_to_bucketing(monkeypatch):
+    """If the legacy variant maps to a profile that doesn't exist (e.g. 'oss' with
+    an OSS-unconfigured managed-only config), migration is skipped and the session
+    buckets deterministically."""
+    import asyncio
+
+    fake = _FakeCache()
+    fake.store["voice_pipeline_variant:x"] = "oss"
+    monkeypatch.setattr(split, "cache", fake)
+    managed_only = PipelineConfig(profiles=[
+        NamedProfile(name="managed", weight=100,
+                     steps={Step.AGENT: StepConfig(tiers=[_managed_tier()])}),
+    ])
+    assert asyncio.run(split.resolve_profile("x", managed_only)) == "managed"
+
+
+# ── (B) voice router gates the variant resolver on PROFILES_ENABLED ───────────
+
+def test_voice_router_gates_variant_on_profiles_enabled(monkeypatch):
+    """The voice router resolves the variant ONCE — via ``split.resolve_variant``
+    when PROFILES_ENABLED, else the legacy ``pipeline_router`` (MUST-FIX B).
+    Guarded: the router transitively imports agents.* (fails under the local
+    pydantic-ai mismatch), so this runs in CI and skips locally."""
+    import asyncio
+    from types import SimpleNamespace
+
+    voice_router = pytest.importorskip("app.routers.voice")
+
+    trace = SimpleNamespace(attach_stage_timing=lambda *a, **k: None, metadata={})
+    monkeypatch.setattr(voice_router, "create_voice_trace", lambda **k: trace)
+
+    async def _own(session_id):
+        return SimpleNamespace(epoch=1, request_token="tok")
+    monkeypatch.setattr(voice_router, "claim_session_request_ownership", _own)
+
+    async def _hist(session_id):
+        return []
+    monkeypatch.setattr(voice_router, "_get_message_history", _hist)
+
+    async def _empty_stream(**k):
+        if False:  # pragma: no cover - never yields; StreamingResponse won't consume it
+            yield
+    monkeypatch.setattr(voice_router, "stream_voice_message", lambda **k: _empty_stream(**k))
+
+    calls = {"split": 0, "legacy": 0}
+
+    async def _split_resolve(session_id):
+        calls["split"] += 1
+        return "oss"
+
+    async def _legacy_resolve(session_id):
+        calls["legacy"] += 1
+        return "legacy"
+
+    monkeypatch.setattr(voice_router.split, "resolve_variant", _split_resolve)
+    monkeypatch.setattr(voice_router, "resolve_pipeline_variant", _legacy_resolve)
+
+    req = SimpleNamespace(session_id="s", user_id="u", query="q", source_lang="gu",
+                          target_lang="gu", provider="p", process_id="pid")
+    http_request = SimpleNamespace()
+
+    monkeypatch.setattr(voice_router.settings, "profiles_enabled", True)
+    asyncio.run(voice_router.voice_endpoint(http_request=http_request, request=req, user_info={}))
+    assert calls == {"split": 1, "legacy": 0}     # PROFILES on -> split resolver
+
+    monkeypatch.setattr(voice_router.settings, "profiles_enabled", False)
+    asyncio.run(voice_router.voice_endpoint(http_request=http_request, request=req, user_info={}))
+    assert calls == {"split": 1, "legacy": 1}     # PROFILES off -> legacy resolver
+
+
 # ── (d) flags-OFF path untouched + composition with fallback walkers ──────────
 
-def test_profiles_enabled_defaults_off():
+def test_profiles_enabled_defaults_on_and_env_overridable(monkeypatch):
     from app.config import Settings
-    import os as _os
-    _os.environ.pop("PROFILES_ENABLED", None)
-    assert Settings().profiles_enabled is False
+    monkeypatch.delenv("PROFILES_ENABLED", raising=False)
+    assert Settings().profiles_enabled is True   # enabled by default now
+    monkeypatch.setenv("PROFILES_ENABLED", "false")
+    assert Settings().profiles_enabled is False   # still fully env-overridable
 
 
 def test_fallback_chain_uses_legacy_attempt_chain_when_flag_off(monkeypatch):
@@ -363,7 +483,7 @@ def test_fallback_chain_stays_legacy_when_only_profiles_on(monkeypatch):
 
     called = {"n": 0}
 
-    async def _spy(session_id, step):
+    async def _spy(session_id, step, *, variant=None):
         called["n"] += 1
         return []
 
@@ -383,8 +503,9 @@ def test_fallback_chain_uses_split_when_both_flags_on(monkeypatch):
 
     sentinel = ["MATERIALIZED_TIER"]
 
-    async def _spy(session_id, step):
+    async def _spy(session_id, step, *, variant=None):
         assert step is Step.MODERATION
+        assert variant == "oss"   # the router-resolved variant is threaded through
         return sentinel
 
     monkeypatch.setattr(split, "resolve_chain", _spy)
@@ -405,7 +526,7 @@ def test_fallback_chain_degrades_to_legacy_on_split_error(monkeypatch):
     monkeypatch.setattr(fb, "OSS_LLM_MODEL_NAME", "gemma-test")
     monkeypatch.setattr(fb, "OSS_INFERENCE_ENDPOINT_URL", "http://oss:8020/v1")
 
-    async def _boom(session_id, step):
+    async def _boom(session_id, step, *, variant=None):
         raise RuntimeError("config blew up")
 
     monkeypatch.setattr(split, "resolve_chain", _boom)

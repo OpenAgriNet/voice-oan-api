@@ -31,10 +31,12 @@ async def lifespan(app: FastAPI):
     # Unified LLM pipeline: synthesize/validate the config and run the identity
     # self-check (logs resolved vs legacy wiring; raises only when the flag is on).
     # Best-effort: a self-check bug must never block startup on the flag-off path.
+    from app.llm_core import runtime as _llm_runtime
     try:
-        from app.llm_core import runtime as _llm_runtime
         _llm_runtime.configure()
-    except AssertionError:
+    except (AssertionError, _llm_runtime.PipelineConfigError):
+        # Fail-fast at boot: a self-check identity mismatch (flag on) or an
+        # unbuildable pipeline config (E) must stop startup, not crash per-request.
         raise
     except Exception as _llm_exc:  # pragma: no cover - defensive
         print(f"⚠️  llm_core configure skipped: {_llm_exc}")

@@ -64,8 +64,17 @@ def test_bad_output_and_cancelled_not_fallbackable():
 
 @pytest.fixture
 def oss_enabled(monkeypatch):
-    """Fallback ON, OSS available; capture emitted events instead of logging."""
+    """Fallback ON, OSS available; capture emitted events instead of logging.
+
+    These tests characterize the LEGACY ``attempt_chain`` path, so PROFILES /
+    LLM_CORE are pinned OFF (both now default ON) — the config-driven split path
+    has its own coverage in test_split.py. Health flags are pinned OFF too so the
+    process-global breaker registry never prunes/reorders across tests."""
     monkeypatch.setattr(fb.settings, "fallback_enabled", True)
+    monkeypatch.setattr(fb.settings, "profiles_enabled", False)
+    monkeypatch.setattr(fb.settings, "llm_core_enabled", False)
+    monkeypatch.setattr(fb.settings, "health_breaker_enabled", False)
+    monkeypatch.setattr(fb.settings, "health_poller_enabled", False)
     monkeypatch.setattr(fb, "oss_model_available", lambda: True)
     monkeypatch.setattr(fb, "OSS_LLM_MODEL", object())
     monkeypatch.setattr(fb, "OSS_LLM_MODEL_NAME", "gemma-test")

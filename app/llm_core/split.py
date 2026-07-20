@@ -47,6 +47,20 @@ logger = get_logger(__name__)
 # qualifier the voice pipeline_router uses).
 _PROFILE_KEY_PREFIX = "voice_pipeline_profile:"
 
+# Legacy sticky namespace the live voice ``pipeline_router`` writes (pre-P1). A
+# session already sticky under this key must be honored on enabling PROFILES so a
+# since-changed ``OSS_PIPELINE_PCT`` never re-buckets it (see ``resolve_profile``).
+_LEGACY_VARIANT_KEY_PREFIX = "voice_pipeline_variant:"
+
+
+def profile_for_variant(variant: str) -> str:
+    """Inverse of :func:`variant_for_profile`: the profile a resolved legacy
+    ``"oss"``/``"legacy"`` variant selects — ``oss`` -> the OSS-primary profile
+    (``"oss"``), anything else -> the managed profile (``"managed"``). Mirrors
+    ``resolver._profile_name_for_variant`` so the router-resolved variant and the
+    fallback chain agree on the profile."""
+    return "oss" if variant == "oss" else "managed"
+
 
 def _bucket(session_id: str) -> int:
     """The exact bucket voice pipeline_router uses: 0-99 from a stable sha256 of
@@ -95,15 +109,37 @@ async def resolve_profile(
         return deterministic_profile(session_id, pipeline)
 
     key = f"{_PROFILE_KEY_PREFIX}{session_id}"
+    legacy_key = f"{_LEGACY_VARIANT_KEY_PREFIX}{session_id}"
     valid = {p.name for p in pipeline.profiles}
 
     try:
         stored = await cache.get(key)
         if stored in valid:
             return stored
+        # New key absent -> honor a pre-P1 ``pipeline_router`` sticky decision if
+        # one exists, so enabling PROFILES never re-buckets an already-sticky
+        # session (a since-changed OSS_PIPELINE_PCT would otherwise move it).
+        legacy = await cache.get(legacy_key) if stored is None else None
     except Exception as e:  # Redis down / timeout -> deterministic fallback
         logger.warning("llm_core.split: cache read failed for %s: %s", session_id, e)
         return deterministic_profile(session_id, pipeline)
+
+    # ── Legacy sticky-key migration (before deterministic bucketing) ──────────
+    # Only when the NEW key is truly absent (a stale/invalid stored value falls
+    # through to re-bucketing, unchanged). Map the legacy variant to its profile,
+    # migrate it forward under the new key (same TTL), and return it. Deterministic
+    # bucketing is the last resort (both keys absent).
+    if stored is None and legacy in ("oss", "legacy"):
+        migrated = profile_for_variant(legacy)
+        if migrated in valid:
+            try:
+                await cache.set(key, migrated, ttl=pipeline.sticky_ttl_s)
+            except Exception as e:  # migration write best-effort; still stable
+                logger.warning(
+                    "llm_core.split: legacy-key migration write failed for %s: %s",
+                    session_id, e,
+                )
+            return migrated
 
     name = deterministic_profile(session_id, pipeline)
 
@@ -122,7 +158,11 @@ def _profile_for(pipeline: PipelineConfig, name: str):
 
 
 async def resolve_chain(
-    session_id: str, step: Step, pipeline: Optional[PipelineConfig] = None
+    session_id: str,
+    step: Step,
+    pipeline: Optional[PipelineConfig] = None,
+    *,
+    variant: Optional[str] = None,
 ) -> list[MaterializedTier]:
     """The P1 seam: (session, step) -> ordered materialized tier chain.
 
@@ -133,10 +173,20 @@ async def resolve_chain(
     the ``Attempt`` interface the fallback walkers read (``.kind`` / ``.model`` /
     ``.model_name`` / ``.provider`` / ``.endpoint`` / ``.timeout``).
 
+    ``variant`` (when given) is the variant ALREADY resolved at the router seam
+    (``split.resolve_variant``): the profile is selected directly from it
+    (``profile_for_variant``) with NO independent re-bucketing, so the fallback
+    chain can never pick a different profile than the primary request path for the
+    same session id. When ``variant`` is None (direct callers / tests), the sticky
+    weighted profile is resolved from ``session_id`` as before.
+
     Fixed composition order (plan §2): health-prune -> concurrency-reorder ->
     materialize -> classify-walk."""
     pipeline = pipeline or runtime.get_pipeline()
-    name = await resolve_profile(session_id, pipeline)
+    if variant is not None:
+        name = profile_for_variant(variant)
+    else:
+        name = await resolve_profile(session_id, pipeline)
     profile = _profile_for(pipeline, name)
 
     step_cfg = pipeline.step_config(profile, step)

@@ -232,7 +232,11 @@ async def _resolve_chain(*, pipeline: str, session_id: str, variant: str) -> lis
     if settings.profiles_enabled and settings.llm_core_enabled and step is not None:
         try:
             from app.llm_core import split
-            return await split.resolve_chain(session_id, step)  # health-pruned inside
+            # Honor the variant ALREADY resolved at the router (split.resolve_variant)
+            # with the SAME session id — the chain selects its profile from that
+            # variant, never independently re-buckets, so the fallback chain and the
+            # primary request path can't diverge onto different profiles.
+            return await split.resolve_chain(session_id, step, variant=variant)  # health-pruned inside
         except Exception as exc:  # never break the fallback path on a config edge
             logger.warning(
                 "fallback: profiles chain resolve failed (pipeline=%s): %s; "

@@ -146,6 +146,14 @@ def _build_agent_model(tier: Tier) -> Any:
     """AGENT kind -> pydantic-ai Model."""
     if tier.provider in (Provider.VLLM, Provider.OPENAI):
         base_url = tier.endpoint if tier.provider is Provider.VLLM else None
+        if tier.provider is Provider.VLLM and not base_url:
+            # A vLLM/OSS tier with no endpoint must NOT silently fall through to the
+            # OpenAI default (base_url=None) — that would flip a self-hosted tier
+            # onto OpenAI. Raise, mirroring the legacy OSS client builders.
+            raise ValueError(
+                "vllm agent tier requires an endpoint (inference/OSS endpoint unset); "
+                "refusing to silently resolve to the OpenAI default"
+            )
         return _build_openai_compatible_model(tier.model, base_url=base_url, api_key=_key(tier))
 
     if tier.provider is Provider.AZURE:
@@ -209,6 +217,18 @@ def _build_raw_openai(tier: Tier) -> AsyncOpenAI:
             http_client=_capture_http_client(),
         )
     base_url = tier.endpoint if tier.provider is Provider.VLLM else None
+    if tier.provider is Provider.VLLM and not base_url:
+        # Critical for RAW_OPENAI moderation / non_meaningful: a vLLM/OSS tier with
+        # no endpoint must RAISE (as the legacy ``_get_oss_pretranslation_client``
+        # did), NOT silently build an OpenAI-default client labeled vLLM. Building
+        # the OpenAI client would flip moderation from fail-OPEN to fail-CLOSED
+        # (reject) when OSS is unconfigured. Raising keeps the call sites' existing
+        # try/except fail-OPEN behavior intact.
+        raise ValueError(
+            "vllm raw-openai client requires an endpoint (OSS/inference endpoint "
+            "unset); refusing to silently resolve to the OpenAI default so "
+            "moderation/non_meaningful stay fail-open when OSS is unconfigured"
+        )
     return AsyncOpenAI(api_key=_key(tier), base_url=base_url, http_client=_capture_http_client())
 
 

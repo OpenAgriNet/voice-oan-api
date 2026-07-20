@@ -47,7 +47,14 @@ def test_unavailable_verdict_has_generic_decline():
 
 @pytest.fixture
 def oss_on(monkeypatch):
+    # Characterizes the LEGACY variant-routed attempt_chain path: pin PROFILES /
+    # LLM_CORE OFF (both now default ON; the split path is covered in test_split.py)
+    # and the health flags OFF (no cross-test breaker prune via the global registry).
     monkeypatch.setattr(fb.settings, "fallback_enabled", True)
+    monkeypatch.setattr(fb.settings, "profiles_enabled", False)
+    monkeypatch.setattr(fb.settings, "llm_core_enabled", False)
+    monkeypatch.setattr(fb.settings, "health_breaker_enabled", False)
+    monkeypatch.setattr(fb.settings, "health_poller_enabled", False)
     monkeypatch.setattr(fb, "oss_model_available", lambda: True)
     monkeypatch.setattr(fb, "OSS_LLM_MODEL", object())
     monkeypatch.setattr(fb, "OSS_LLM_MODEL_NAME", "gemma-test")
@@ -120,6 +127,21 @@ def test_legacy_path_used_when_disabled(monkeypatch):
 
     v = asyncio.run(mod.check_moderation("hi", "gu", variant="oss", session_id="s"))
     assert v is sentinel  # disabled -> today's fail-open legacy path, unchanged
+
+
+def test_legacy_moderation_fails_open_when_client_build_raises(monkeypatch):
+    """MUST-FIX D end-to-end: when the RAW vLLM client refuses to build (OSS
+    endpoint unset), the legacy moderation path FAILS OPEN (in_scope) rather than
+    silently building an OpenAI client and possibly rejecting."""
+    monkeypatch.setattr(fb.settings, "fallback_enabled", False)
+    monkeypatch.setattr(mod, "_get_langfuse", lambda: None)
+
+    def _boom():
+        raise ValueError("vllm raw-openai client requires an endpoint")
+    monkeypatch.setattr(mod, "_moderation_client_and_model", _boom)
+
+    v = asyncio.run(mod.check_moderation("hi", "gu", variant="oss", session_id="s"))
+    assert v.category == "in_scope" and not v.rejected and v.failed_open
 
 
 def test_legacy_success_records_requested_actual(monkeypatch):

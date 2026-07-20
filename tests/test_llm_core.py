@@ -126,6 +126,25 @@ def test_factory_rejects_openai_for_translategemma_kind():
         build_handle(tier, StepClientKind.TRANSLATEGEMMA)
 
 
+# ── (D) vLLM tier without an endpoint must RAISE (not silently target OpenAI) ──
+
+def test_factory_raw_openai_vllm_without_endpoint_raises():
+    """A vLLM RAW_OPENAI tier with no endpoint RAISES rather than silently building
+    an OpenAI-default client — so moderation/non_meaningful stay FAIL-OPEN when OSS
+    is unconfigured, instead of flipping to fail-closed via OpenAI (MUST-FIX D)."""
+    tier = Tier(provider=Provider.VLLM, model="gemma", endpoint=None,
+                api_key_env="OSS_INFERENCE_API_KEY")
+    with pytest.raises(ValueError):
+        build_handle(tier, StepClientKind.RAW_OPENAI)
+
+
+def test_factory_vllm_agent_without_endpoint_raises():
+    """Same guard on the AGENT vLLM builder."""
+    tier = Tier(provider=Provider.VLLM, model="gemma", endpoint="")
+    with pytest.raises(ValueError):
+        build_handle(tier, StepClientKind.AGENT)
+
+
 # ── materialize ───────────────────────────────────────────────────────────────
 
 def test_materialize_preserves_order_and_timeout():
@@ -265,11 +284,15 @@ def test_resolver_falls_back_to_managed_when_oss_profile_absent():
     assert len(chain) >= 1
 
 
-# ── default-OFF flag posture ──────────────────────────────────────────────────
+# ── default-ON flag posture (still fully env-overridable) ─────────────────────
 
-def test_llm_core_flag_defaults_off(monkeypatch):
+def test_llm_core_flag_defaults_on_and_env_overridable(monkeypatch):
+    """Enabled by default now; anyone can set LLM_CORE_ENABLED=false to fully
+    revert to the legacy path."""
     monkeypatch.delenv("LLM_CORE_ENABLED", raising=False)
     from app.config import Settings
+    assert Settings().llm_core_enabled is True
+    monkeypatch.setenv("LLM_CORE_ENABLED", "false")
     assert Settings().llm_core_enabled is False
 
 
@@ -299,8 +322,82 @@ def test_self_check_enforces_identity_when_flag_on(monkeypatch):
 
 
 def test_configure_does_not_raise_with_flag_off():
-    """Flag-off startup must be robust even if the self-check can't import a
-    legacy module in this env (pre-existing pydantic-ai mismatch) — configure()
-    swallows non-assertion errors from the self-check when the flag is off."""
-    cfg = runtime.configure()  # run_self_check defaults True; flag off => no raise
+    """Startup must be robust even if the self-check can't import a legacy module in
+    this env (pre-existing pydantic-ai mismatch) — configure() swallows non-assertion
+    errors from the self-check."""
+    cfg = runtime.configure()
     assert cfg is not None and len(cfg.profiles) >= 1
+
+
+# ── (E) startup config validation: RAW_OPENAI steps reject anthropic/gemini ────
+
+def test_validate_config_rejects_anthropic_raw_step():
+    """A RAW_OPENAI step (pre_translation/moderation/non_meaningful) whose tier is
+    anthropic/gemini is rejected at startup — fail fast, not per-request (MUST-FIX E)."""
+    from app.llm_core.config_model import NamedProfile, PipelineConfig, StepConfig
+
+    bad = PipelineConfig(profiles=[
+        NamedProfile(name="managed", weight=100, steps={
+            Step.MODERATION: StepConfig(tiers=[Tier(provider=Provider.ANTHROPIC, model="claude")]),
+        }),
+    ])
+    with pytest.raises(runtime.PipelineConfigError):
+        runtime.validate_config(bad)
+
+
+def test_validate_config_rejects_gemini_in_defaults():
+    from app.llm_core.config_model import NamedProfile, PipelineConfig, StepConfig
+
+    bad = PipelineConfig(
+        profiles=[NamedProfile(name="managed", weight=100,
+                               steps={Step.AGENT: StepConfig(tiers=[Tier(provider=Provider.OPENAI, model="gpt")])})],
+        defaults={Step.NON_MEANINGFUL: StepConfig(tiers=[Tier(provider=Provider.GEMINI, model="gemini")])},
+    )
+    with pytest.raises(runtime.PipelineConfigError):
+        runtime.validate_config(bad)
+
+
+def test_validate_config_accepts_supported_raw_providers():
+    """openai / vllm / azure-openai RAW tiers pass; anthropic on an AGENT step is
+    fine (only RAW steps are restricted)."""
+    from app.llm_core.config_model import NamedProfile, PipelineConfig, StepConfig
+
+    ok = PipelineConfig(profiles=[
+        NamedProfile(name="managed", weight=100, steps={
+            Step.AGENT: StepConfig(tiers=[Tier(provider=Provider.ANTHROPIC, model="claude")]),
+            Step.MODERATION: StepConfig(tiers=[Tier(provider=Provider.OPENAI, model="gpt")]),
+            Step.NON_MEANINGFUL: StepConfig(
+                tiers=[Tier(provider=Provider.VLLM, model="gemma", endpoint="http://oss:8020/v1")]),
+            Step.PRE_TRANSLATION: StepConfig(
+                tiers=[Tier(provider=Provider.AZURE, model="dep", endpoint="https://x.openai.azure.com",
+                            api_version="2024-02-01", api_key_env="AZURE_OPENAI_API_KEY")]),
+        }),
+    ])
+    runtime.validate_config(ok)  # must not raise
+
+
+# ── ENABLE: AGENT-step ConcurrencyGate synthesized from the explicit env ───────
+
+def _agent_step(cfg):
+    for prof in cfg.profiles:
+        if Step.AGENT in prof.steps:
+            return prof.steps[Step.AGENT]
+    return cfg.defaults[Step.AGENT]
+
+
+def test_shim_attaches_concurrency_gate_when_metrics_url_set(monkeypatch):
+    monkeypatch.setenv("AGENT_CONCURRENCY_METRICS_URL", "http://10.185.25.197:8020/metrics")
+    monkeypatch.setenv("CONCURRENCY_MAX", "7")
+    cfg = synthesize_from_env()
+    gate = _agent_step(cfg).triggers.concurrency_gate
+    assert gate is not None
+    assert gate.metrics_url == "http://10.185.25.197:8020/metrics"
+    assert gate.max_concurrency == 7
+
+
+def test_shim_no_concurrency_gate_when_metrics_url_unset(monkeypatch):
+    monkeypatch.delenv("AGENT_CONCURRENCY_METRICS_URL", raising=False)
+    cfg = synthesize_from_env()
+    for prof in cfg.profiles:
+        if Step.AGENT in prof.steps:
+            assert prof.steps[Step.AGENT].triggers.concurrency_gate is None
