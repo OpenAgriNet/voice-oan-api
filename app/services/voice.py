@@ -366,9 +366,19 @@ def _greeting_response(target_lang: str) -> str:
     return _GREETING_RESPONSES.get(target_lang, _GREETING_RESPONSES["gu"])
 
 
+# ── Identity fast-path ────────────────────────────────────────────────────
+_IDENTITY_PHRASES_GU = {
+    "તમારું નામ શું છે", "તારું નામ શું છે", "તમે કોણ છો", "આ સેવા શું છે",
+    "આ કઈ સેવા છે", "તમે ક્યાંથી બોલો છો", "ક્યાંથી બોલો",
+}
+_IDENTITY_PHRASES_EN = {
+    "what is your name", "who are you", "what is this service", "what service is this",
+    "where are you calling from",
+}
+
 _IDENTITY_RESPONSE_EN = (
-    "I am Sarlaben, your Amul AI assistant for dairy farming and animal husbandry. "
-    "Please tell me, how can I help you today?"
+    f"I am Sarlaben from Amul AI. I was created on {settings.voice_profile_creation_date_words}, "
+    "and I help dairy farmers with animal health, feed, and breeding guidance."
 )
 
 _WAIT_MESSAGES = {
@@ -417,6 +427,16 @@ _IDENTITY_DRIFT_PATTERN = re.compile(
     r"made by Anthropic)\b",
     re.IGNORECASE,
 )
+
+
+def _fast_path_kind_for_query(text: str) -> Optional[Literal["identity"]]:
+    """Return 'identity' if the query is an identity or social-greeting query, else None."""
+    cleaned = re.sub(r"[.,!?।\s]+", " ", text).strip().lower()
+    if not cleaned:
+        return None
+    if cleaned in _IDENTITY_PHRASES_GU or cleaned in _IDENTITY_PHRASES_EN:
+        return "identity"
+    return None
 
 
 def render_in_flight_wait_message(lang: str) -> str:
@@ -1210,6 +1230,26 @@ async def stream_voice_message(
                     await update_message_history(session_id, [*history, greet_req, greet_resp])
                 trace.set_outcome("greeting_fast_path")
                 yield _emit(_prepare_voice_output(greeting_response, requested_target_lang))
+                return
+
+            # ── Identity fast-path ────────────────────────────────────────
+            # Pure identity queries ("What is your name?", "What is this service?")
+            # should return the canonical Sarlaben identity line directly
+            # without running the full agent pipeline.
+            if _fast_path_kind_for_query(query) == "identity" and not has_meaningful_history:
+                trace.set_route("identity_fast_path")
+                logger.info(
+                    "Identity fast-path triggered; session_id=%s process_id=%s query=%r",
+                    session_id, process_id, query,
+                )
+                identity_resp_en = _IDENTITY_RESPONSE_EN
+                with trace.stage("identity_fast_path"):
+                    identity_resp_for_caller = await _render_text_for_caller(identity_resp_en, requested_target_lang)
+                id_req, id_resp = _history_pair(_canonical_history_user_text("greeting"), identity_resp_en)
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, id_req, id_resp])
+                trace.set_outcome("identity_fast_path")
+                yield _emit(_prepare_voice_output(identity_resp_for_caller, requested_target_lang))
                 return
 
             # ── Fragment short-circuit ────────────────────────────────────
