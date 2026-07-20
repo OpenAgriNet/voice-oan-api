@@ -10,8 +10,6 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
 from app.config import settings
-# Per-turn resolved-pipeline-config tracer (tracing-only; no behaviour change).
-from app.llm_core import trace as _pipeline_trace
 
 logger = logging.getLogger(__name__)
 
@@ -177,10 +175,6 @@ class VoiceTrace:
     timings_ms: dict[str, float] = field(default_factory=dict)
     response_parts: list[str] = field(default_factory=list)
     finished: bool = False
-    # Explicit per-turn pipeline-config trace instance (contextvar-independent —
-    # threaded so the emit in request_context() reads THIS populated object, not a
-    # fresh contextvar read that the streaming-generator boundary would empty).
-    pipeline_trace_obj: Any | None = None
 
     def __post_init__(self) -> None:
         if self.enabled:
@@ -219,13 +213,14 @@ class VoiceTrace:
 
     @contextmanager
     def request_context(self) -> Iterator[None]:
-        """Open the root Langfuse observation for the full streaming request."""
-        # Ensure a per-turn pipeline-config trace instance exists. Normally
-        # stream_voice_message has already opened + populated one and stashed it on
-        # self.pipeline_trace_obj (the EXPLICIT instance emit reads below); this is
-        # a fail-safe for any caller that enters request_context without it.
-        if self.pipeline_trace_obj is None:
-            self.pipeline_trace_obj = _pipeline_trace.begin(self.metadata.get("pipeline_variant"))
+        """Open the root Langfuse observation for the full streaming request.
+
+        The resolved-pipeline-config compact keys (``pipeline_profile`` /
+        ``pipeline_flags`` / ``pc_<step>``) are added to ``self.metadata`` by
+        ``stream_voice_message`` BEFORE this opens, so they ride along in the
+        ``metadata=self.metadata`` passed to the root observation below (the path
+        that actually lands — a nested blob via ``update_current_trace`` does not,
+        this SDK has no such method)."""
         if not self.enabled or self.langfuse_client is None:
             yield
             return
@@ -280,12 +275,6 @@ class VoiceTrace:
         try:
             yield
         finally:
-            # Flush the resolved-pipeline-config (profile + variant + flags +
-            # per-step primary tiers, plus any best-effort trigger/served fields)
-            # onto the trace metadata as a `pipeline_config` object while the root
-            # observation is still open. Pass the EXPLICIT instance — a contextvar
-            # read here would be emptied by the streaming-generator boundary.
-            _pipeline_trace.emit_to_trace(self.pipeline_trace_obj)
             try:
                 stack.close()
             except Exception as exc:
