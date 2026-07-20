@@ -128,6 +128,16 @@ class Settings(BaseSettings):
     # Deadline for the managed (fallback) tier.
     fallback_managed_timeout_ms: int = int(os.getenv("FALLBACK_MANAGED_TIMEOUT_MS", "20000"))
 
+    # Unified LLM pipeline core (app/llm_core). Kill-switch defaults OFF: when
+    # on, the voice agent/moderation/non_meaningful/pretranslation call sites
+    # obtain the model handle from the llm_core resolver instead of the legacy
+    # singletons (identity for the current env, verified at startup by
+    # app.llm_core.runtime.self_check). When off, every path is byte-identical to
+    # today's behaviour.
+    llm_core_enabled: bool = os.getenv("LLM_CORE_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
     # Voice pipeline behavioral flags
     # RETRIEVAL_AUDIT_LOG: log intent/retrieval_called/query per turn for replay analysis
     retrieval_audit_log: bool = _get_bool_env("RETRIEVAL_AUDIT_LOG", default=False)

@@ -993,8 +993,22 @@ async def stream_voice_message(
     # gemma pretranslation). 'legacy' keeps current prod behaviour byte-for-byte;
     # with OSS_PIPELINE_PCT=0 (or OSS endpoint unset) every session is 'legacy'.
     is_oss = pipeline_variant == "oss"
-    request_model = get_model_for_variant(pipeline_variant)
-    request_provider = provider_for_variant(pipeline_variant)
+    if settings.llm_core_enabled:
+        # Flag-on: obtain the agent model handle + provider from the unified
+        # pipeline resolver instead of the legacy singletons. P0 identity — for the
+        # current env this resolves the same provider/base_url/model as
+        # get_model_for_variant (verified at startup by llm_core.runtime.self_check).
+        # P1 generalizes this to the weighted split + config-driven fallback chain
+        # behind the same resolver API. The fallback-path agent stream
+        # (settings.fallback_enabled) still uses attempt.model from
+        # fallback.attempt_chain — untouched in P0.
+        from app.llm_core import resolver as _llm_resolver
+        from app.llm_core.config_model import Step as _LlmStep
+        request_model = _llm_resolver.primary_handle(_LlmStep.AGENT, pipeline_variant)
+        request_provider = _llm_resolver.primary_provider(_LlmStep.AGENT, pipeline_variant)
+    else:
+        request_model = get_model_for_variant(pipeline_variant)
+        request_provider = provider_for_variant(pipeline_variant)
     request_model_name = OSS_LLM_MODEL_NAME if is_oss else LLM_MODEL_NAME
     last_owner_refresh_at = 0.0
     last_emitted_sig_char: str | None = None
@@ -1371,9 +1385,25 @@ async def stream_voice_message(
             )
 
             if requested_source_lang not in {"en", "english"}:
-                _pretrans_provider_label = "vllm" if is_oss else "openai"
-                _pretrans_model = OSS_PRETRANSLATION_MODEL if is_oss else OPENAI_PRETRANSLATION_MODEL
-                _pretrans_requested_tier = "oss" if is_oss else "managed"
+                if settings.llm_core_enabled:
+                    # Flag-on: source the pretranslation tier decision (provider
+                    # label + model + tier) from the resolver's PRE_TRANSLATION
+                    # primary tier. P0 identity: for the shim config this equals the
+                    # `is_oss` toggle exactly (oss variant -> vLLM/OSS model, else
+                    # managed/OpenAI model). The dispatch below still branches on
+                    # is_oss (== resolver kind for the shim), so behaviour is
+                    # unchanged; P1 makes pretranslation a fully tier-parameterized
+                    # RAW_OPENAI call from the factory.
+                    from app.llm_core import resolver as _llm_resolver
+                    from app.llm_core.config_model import Step as _LlmStep
+                    _pre_mt = _llm_resolver.primary_tier(_LlmStep.PRE_TRANSLATION, pipeline_variant)
+                    _pretrans_provider_label = "vllm" if _pre_mt.kind == "oss" else "openai"
+                    _pretrans_model = _pre_mt.model_name
+                    _pretrans_requested_tier = _pre_mt.kind
+                else:
+                    _pretrans_provider_label = "vllm" if is_oss else "openai"
+                    _pretrans_model = OSS_PRETRANSLATION_MODEL if is_oss else OPENAI_PRETRANSLATION_MODEL
+                    _pretrans_requested_tier = "oss" if is_oss else "managed"
                 _pretranslation_attempts: list[dict[str, object]] = []
                 _pretranslation_actual_tier = _pretrans_requested_tier
                 _pretranslation_actual_provider = _pretrans_provider_label

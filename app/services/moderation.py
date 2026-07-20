@@ -86,7 +86,23 @@ _MODERATION_PROVIDER = (os.getenv("VOICE_MODERATION_PROVIDER", "vllm") or "vllm"
 
 def _moderation_client_and_model() -> tuple[AsyncOpenAI, str, str]:
     """Return (client, model, provider_label) for the configured moderation backend
-    (legacy path: single global VOICE_MODERATION_PROVIDER)."""
+    (legacy path: single global VOICE_MODERATION_PROVIDER).
+
+    P0 (LLM_CORE_ENABLED): the RAW_OPENAI client + model are sourced from the
+    unified pipeline resolver instead of translation.py's ``_get_*`` helpers. This
+    is a pure source-of-client swap — the two moderation impls (this fail-open
+    legacy path and the fail-closed fallback path) and their control flow are
+    unchanged (their de-duplication is P4). Identity: for the current env the
+    resolver's MODERATION tier is byte-identical (same base_url + model). The
+    provider label is preserved exactly, so telemetry is unchanged."""
+    if settings.llm_core_enabled:
+        from app.llm_core import resolver as _llm_resolver
+        from app.llm_core.config_model import Step as _LlmStep
+        # VOICE_MODERATION_PROVIDER governs the tier, independent of session variant:
+        # openai -> the managed tier; else -> the OSS (vLLM) tier.
+        variant = "legacy" if _MODERATION_PROVIDER == "openai" else "oss"
+        mt = _llm_resolver.primary_tier(_LlmStep.MODERATION, variant)
+        return mt.handle, mt.model_name, ("openai" if _MODERATION_PROVIDER == "openai" else "vllm")
     if _MODERATION_PROVIDER == "openai":
         return _get_openai_client(), OPENAI_PRETRANSLATION_MODEL, "openai"
     return _get_oss_pretranslation_client(), OSS_PRETRANSLATION_MODEL, "vllm"
@@ -94,7 +110,18 @@ def _moderation_client_and_model() -> tuple[AsyncOpenAI, str, str]:
 
 def _client_model_for_kind(kind: str) -> tuple[AsyncOpenAI, str, str]:
     """Return (client, model, provider_label) for one fallback-chain attempt:
-    'oss' -> self-hosted vLLM, anything else -> managed OpenAI."""
+    'oss' -> self-hosted vLLM, anything else -> managed OpenAI.
+
+    P0 (LLM_CORE_ENABLED): the RAW_OPENAI client + model come from the resolver's
+    MODERATION tier for the matching variant ('oss' tier vs managed tier), keeping
+    the provider label byte-identical. Identity with the legacy branch for the
+    current env; the fallback control flow is untouched."""
+    if settings.llm_core_enabled:
+        from app.llm_core import resolver as _llm_resolver
+        from app.llm_core.config_model import Step as _LlmStep
+        variant = "oss" if kind == "oss" else "legacy"
+        mt = _llm_resolver.primary_tier(_LlmStep.MODERATION, variant)
+        return mt.handle, mt.model_name, ("vllm" if kind == "oss" else "openai")
     if kind == "oss":
         return _get_oss_pretranslation_client(), OSS_PRETRANSLATION_MODEL, "vllm"
     return _get_openai_client(), OPENAI_PRETRANSLATION_MODEL, "openai"
