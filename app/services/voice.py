@@ -377,8 +377,8 @@ _IDENTITY_PHRASES_EN = {
 }
 
 _IDENTITY_RESPONSE_EN = (
-    "I am Sarlaben, your Amul AI assistant for dairy farming and animal husbandry. "
-    "Please tell me, how can I help you today?"
+    f"I am Sarlaben from Amul AI. I was created on {settings.voice_profile_creation_date_words}, "
+    "and I help dairy farmers with animal health, feed, and breeding guidance."
 )
 
 _WAIT_MESSAGES = {
