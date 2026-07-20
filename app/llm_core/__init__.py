@@ -29,7 +29,7 @@ from app.llm_core.factory import (
     materialize,
 )
 from app.llm_core.legacy_shim import synthesize_from_env
-from app.llm_core import runtime, resolver
+from app.llm_core import runtime, resolver, split
 
 __all__ = [
     "ApiStyle",
@@ -49,4 +49,5 @@ __all__ = [
     "synthesize_from_env",
     "runtime",
     "resolver",
+    "split",
 ]
