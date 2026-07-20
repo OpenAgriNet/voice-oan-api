@@ -19,13 +19,11 @@ from typing import Literal, Optional
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.services.fallback import attempt_chain, classify, execute_with_fallback
+from app.services.fallback import classify, execute_with_fallback
 from app.services.translation import (
     OPENAI_PRETRANSLATION_MODEL,
     OSS_PRETRANSLATION_MODEL,
     _get_langfuse,
-    _get_openai_client,
-    _get_oss_pretranslation_client,
 )
 from helpers.utils import get_logger, get_prompt
 
@@ -86,45 +84,32 @@ _MODERATION_PROVIDER = (os.getenv("VOICE_MODERATION_PROVIDER", "vllm") or "vllm"
 
 def _moderation_client_and_model() -> tuple[AsyncOpenAI, str, str]:
     """Return (client, model, provider_label) for the configured moderation backend
-    (legacy path: single global VOICE_MODERATION_PROVIDER).
+    (legacy fail-open path: single global VOICE_MODERATION_PROVIDER).
 
-    P0 (LLM_CORE_ENABLED): the RAW_OPENAI client + model are sourced from the
-    unified pipeline resolver instead of translation.py's ``_get_*`` helpers. This
-    is a pure source-of-client swap — the two moderation impls (this fail-open
-    legacy path and the fail-closed fallback path) and their control flow are
-    unchanged (their de-duplication is P4). Identity: for the current env the
-    resolver's MODERATION tier is byte-identical (same base_url + model). The
-    provider label is preserved exactly, so telemetry is unchanged."""
-    if settings.llm_core_enabled:
-        from app.llm_core import resolver as _llm_resolver
-        from app.llm_core.config_model import Step as _LlmStep
-        # VOICE_MODERATION_PROVIDER governs the tier, independent of session variant:
-        # openai -> the managed tier; else -> the OSS (vLLM) tier.
-        variant = "legacy" if _MODERATION_PROVIDER == "openai" else "oss"
-        mt = _llm_resolver.primary_tier(_LlmStep.MODERATION, variant)
-        return mt.handle, mt.model_name, ("openai" if _MODERATION_PROVIDER == "openai" else "vllm")
-    if _MODERATION_PROVIDER == "openai":
-        return _get_openai_client(), OPENAI_PRETRANSLATION_MODEL, "openai"
-    return _get_oss_pretranslation_client(), OSS_PRETRANSLATION_MODEL, "vllm"
+    The RAW_OPENAI client + model come from the unified pipeline resolver (the only
+    path after P4) — identity, for the current env, with translation.py's old
+    ``_get_*`` helpers (same base_url + model). VOICE_MODERATION_PROVIDER governs
+    the tier independent of session variant: openai -> the managed tier; else ->
+    the OSS (vLLM) tier. The provider label is preserved exactly."""
+    from app.llm_core import resolver as _llm_resolver
+    from app.llm_core.config_model import Step as _LlmStep
+    variant = "legacy" if _MODERATION_PROVIDER == "openai" else "oss"
+    mt = _llm_resolver.primary_tier(_LlmStep.MODERATION, variant)
+    return mt.handle, mt.model_name, ("openai" if _MODERATION_PROVIDER == "openai" else "vllm")
 
 
 def _client_model_for_kind(kind: str) -> tuple[AsyncOpenAI, str, str]:
     """Return (client, model, provider_label) for one fallback-chain attempt:
     'oss' -> self-hosted vLLM, anything else -> managed OpenAI.
 
-    P0 (LLM_CORE_ENABLED): the RAW_OPENAI client + model come from the resolver's
-    MODERATION tier for the matching variant ('oss' tier vs managed tier), keeping
-    the provider label byte-identical. Identity with the legacy branch for the
-    current env; the fallback control flow is untouched."""
-    if settings.llm_core_enabled:
-        from app.llm_core import resolver as _llm_resolver
-        from app.llm_core.config_model import Step as _LlmStep
-        variant = "oss" if kind == "oss" else "legacy"
-        mt = _llm_resolver.primary_tier(_LlmStep.MODERATION, variant)
-        return mt.handle, mt.model_name, ("vllm" if kind == "oss" else "openai")
-    if kind == "oss":
-        return _get_oss_pretranslation_client(), OSS_PRETRANSLATION_MODEL, "vllm"
-    return _get_openai_client(), OPENAI_PRETRANSLATION_MODEL, "openai"
+    The RAW_OPENAI client + model come from the resolver's MODERATION tier for the
+    matching variant ('oss' tier vs managed tier), keeping the provider label
+    byte-identical (the only path after P4)."""
+    from app.llm_core import resolver as _llm_resolver
+    from app.llm_core.config_model import Step as _LlmStep
+    variant = "oss" if kind == "oss" else "legacy"
+    mt = _llm_resolver.primary_tier(_LlmStep.MODERATION, variant)
+    return mt.handle, mt.model_name, ("vllm" if kind == "oss" else "openai")
 
 
 @dataclass(frozen=True)
@@ -196,22 +181,45 @@ def _with_telemetry(
     )
 
 
-def _parse_verdict(raw: str) -> ModerationVerdict:
-    """Parse the model's JSON output. Fail-open on any parsing issue."""
+def _parse_verdict(raw: str, *, fail_closed: bool = False) -> ModerationVerdict:
+    """Parse the model's JSON output into a ModerationVerdict.
+
+    ONE parser for both moderation policies (collapse of the former
+    ``_parse_verdict`` / ``_parse_verdict_strict`` twins, which were line-identical
+    bar the terminal on malformed/untrustworthy output). The ``fail_closed`` flag
+    selects that terminal WITHOUT changing any classification:
+
+      * ``fail_closed=False`` (default) — fail OPEN: malformed/unknown output
+        allows the turn (``in_scope``, ``failed_open=True``). Today's behaviour on
+        the ``FALLBACK_ENABLED``-off legacy path.
+      * ``fail_closed=True`` — fail CLOSED: malformed/unknown output blocks the
+        turn (``unavailable`` reject, ``failed_closed=True``). Today's behaviour on
+        the fallback path so a garbage response blocks rather than waves through.
+
+    A VALID verdict (including a reject category) is returned unchanged under both
+    policies. This is a behaviour-preserving de-duplication only — pinned by
+    tests/test_moderation_characterization.py."""
+    disposition = "closed" if fail_closed else "open"
+
+    def _reject(reason: str) -> ModerationVerdict:
+        if fail_closed:
+            return _block_unavailable(reason, raw_output=raw)
+        return _allow(reason, raw_output=raw, failed_open=True)
+
     stripped = (raw or "").strip()
     if not stripped:
-        logger.warning("Moderation returned empty output; failing open")
-        return _allow("empty model output", raw_output=raw, failed_open=True)
+        logger.warning("Moderation returned empty output; failing %s", disposition)
+        return _reject("empty model output")
 
     try:
         data = json.loads(stripped)
     except json.JSONDecodeError:
-        logger.warning("Moderation returned non-JSON output; failing open - raw=%r", stripped[:200])
-        return _allow("non-json model output", raw_output=raw, failed_open=True)
+        logger.warning("Moderation returned non-JSON output; failing %s - raw=%r", disposition, stripped[:200])
+        return _reject("non-json model output")
 
     if not isinstance(data, dict):
-        logger.warning("Moderation returned non-object JSON; failing open - raw=%r", stripped[:200])
-        return _allow("non-object model output", raw_output=raw, failed_open=True)
+        logger.warning("Moderation returned non-object JSON; failing %s - raw=%r", disposition, stripped[:200])
+        return _reject("non-object model output")
 
     category = (data.get("category") or "").strip().lower()
     reason = (data.get("reason") or "").strip()[:200]
@@ -219,44 +227,18 @@ def _parse_verdict(raw: str) -> ModerationVerdict:
     valid = {"in_scope", "irrelevant", "offensive", "cultural_sensitivity", "aberration"}
     if category not in valid:
         logger.warning(
-            "Moderation returned unknown category=%r; failing open - raw=%r",
-            category,
-            stripped[:200],
+            "Moderation returned unknown category=%r; failing %s - raw=%r",
+            category, disposition, stripped[:200],
         )
-        return _allow(f"unknown category: {category}", raw_output=raw, failed_open=True)
+        return _reject(f"unknown category: {category}")
 
     return ModerationVerdict(category=category, reason=reason, raw_output=raw)  # type: ignore[arg-type]
 
 
 def _parse_verdict_strict(raw: str) -> ModerationVerdict:
-    """Like _parse_verdict but fails CLOSED on malformed/untrustworthy output
-    (returns an `unavailable` reject) instead of failing open. Valid verdicts —
-    including reject categories — are returned unchanged. Used on the
-    fallback-enabled path so a garbage response blocks rather than waves through."""
-    stripped = (raw or "").strip()
-    if not stripped:
-        logger.warning("Moderation returned empty output; failing closed")
-        return _block_unavailable("empty model output", raw_output=raw)
-
-    try:
-        data = json.loads(stripped)
-    except json.JSONDecodeError:
-        logger.warning("Moderation returned non-JSON output; failing closed - raw=%r", stripped[:200])
-        return _block_unavailable("non-json model output", raw_output=raw)
-
-    if not isinstance(data, dict):
-        logger.warning("Moderation returned non-object JSON; failing closed - raw=%r", stripped[:200])
-        return _block_unavailable("non-object model output", raw_output=raw)
-
-    category = (data.get("category") or "").strip().lower()
-    reason = (data.get("reason") or "").strip()[:200]
-
-    valid = {"in_scope", "irrelevant", "offensive", "cultural_sensitivity", "aberration"}
-    if category not in valid:
-        logger.warning("Moderation returned unknown category=%r; failing closed - raw=%r", category, stripped[:200])
-        return _block_unavailable(f"unknown category: {category}", raw_output=raw)
-
-    return ModerationVerdict(category=category, reason=reason, raw_output=raw)  # type: ignore[arg-type]
+    """Fail-CLOSED parser — thin alias over ``_parse_verdict(raw, fail_closed=True)``.
+    Kept as a name for the fallback-path call site + existing tests."""
+    return _parse_verdict(raw, fail_closed=True)
 
 
 def _build_messages(
@@ -340,11 +322,14 @@ async def check_moderation(
             pipeline_variant=pipeline_variant,
         )
 
-    chain = attempt_chain(variant, "moderation")
-    requested = chain[0]
-    _, requested_model, requested_provider = _client_model_for_kind(requested.kind)
+    # Requested (primary) tier for this session's variant. Identity with the
+    # removed ``attempt_chain(variant, "moderation")[0].kind``: an OSS session's
+    # primary is the vLLM tier, everything else is the managed tier. The actual
+    # walk (execute_with_fallback) resolves the config-driven chain internally.
+    requested_kind = "oss" if variant == "oss" else "managed"
+    _, requested_model, requested_provider = _client_model_for_kind(requested_kind)
     attempts: list[dict[str, object]] = []
-    actual_tier = requested.kind
+    actual_tier = requested_kind
     actual_provider = requested_provider
     actual_model = requested_model
 
@@ -384,7 +369,7 @@ async def check_moderation(
         fallback_used = len(attempts) > 1 and attempts[0].get("status") == "error"
         return _with_telemetry(
             verdict,
-            requested_tier=requested.kind,
+            requested_tier=requested_kind,
             requested_provider=requested_provider,
             requested_model=requested_model,
             actual_tier=actual_tier,
@@ -402,7 +387,7 @@ async def check_moderation(
         fallback_used = len(attempts) > 1 and attempts[0].get("status") == "error"
         return _with_telemetry(
             _block_unavailable(f"moderation unavailable: {type(e).__name__}"),
-            requested_tier=requested.kind,
+            requested_tier=requested_kind,
             requested_provider=requested_provider,
             requested_model=requested_model,
             actual_tier="failed",

@@ -249,18 +249,17 @@ def test_shim_pretranslation_and_post_translation(monkeypatch):
     assert post.model == "translategemma-27b-base"
 
 
-def test_shim_identity_agent_matches_legacy_singleton():
-    """Resolver's AGENT primary == agents.models legacy singleton (real identity).
-
-    Guarded: agents/models fails to import under the local pydantic-ai mismatch."""
-    agents_models = pytest.importorskip("agents.models")
-
+def test_shim_agent_resolves_to_env_managed_tier(monkeypatch):
+    """Resolver's AGENT primary reflects the env-synthesized managed tier
+    (provider + model come from LLM_PROVIDER / LLM_MODEL_NAME)."""
+    monkeypatch.delenv("OSS_INFERENCE_ENDPOINT_URL", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL_NAME", "gpt-4.1")
     runtime.configure(run_self_check=False)
     mt = resolver.primary_tier(Step.AGENT, "legacy")
-    legacy = agents_models.get_model_for_variant("legacy")
-    assert mt.model_name == getattr(legacy, "model_name", agents_models.LLM_MODEL_NAME)
-    assert mt.provider == agents_models.provider_for_variant("legacy")
-    assert str(mt.handle.base_url).rstrip("/") == str(legacy.base_url).rstrip("/")
+    assert mt.provider == "openai"
+    assert mt.model_name == "gpt-4.1"
+    assert mt.handle is not None
 
 
 # ── resolver ──────────────────────────────────────────────────────────────────
@@ -284,48 +283,24 @@ def test_resolver_falls_back_to_managed_when_oss_profile_absent():
     assert len(chain) >= 1
 
 
-# ── default-ON flag posture (still fully env-overridable) ─────────────────────
+# ── self-check (resolvability, non-fatal) ─────────────────────────────────────
 
-def test_llm_core_flag_defaults_on_and_env_overridable(monkeypatch):
-    """Enabled by default now; anyone can set LLM_CORE_ENABLED=false to fully
-    revert to the legacy path."""
-    monkeypatch.delenv("LLM_CORE_ENABLED", raising=False)
-    from app.config import Settings
-    assert Settings().llm_core_enabled is True
-    monkeypatch.setenv("LLM_CORE_ENABLED", "false")
-    assert Settings().llm_core_enabled is False
-
-
-def test_self_check_enforces_identity_when_flag_on(monkeypatch):
-    """With the flag on, a resolve-vs-legacy mismatch must raise AssertionError.
-
-    Uses the always-run managed-timeout check (no legacy import needed) so this is
-    exercisable even under the local pydantic-ai mismatch that skips the
-    agents.models / translation identity checks."""
+def test_self_check_is_non_fatal_on_unresolvable_step(monkeypatch):
+    """The P4 self-check logs+warns on a step that fails to resolve; it must NOT
+    raise (a materialize edge case must never block startup)."""
     runtime.configure(run_self_check=False)
-    monkeypatch.setattr("app.config.settings.llm_core_enabled", True, raising=False)
 
-    real_primary_tier = resolver.primary_tier
+    def _boom(step, variant="legacy"):
+        raise RuntimeError("cannot build handle in this env")
 
-    def _wrong(step, variant="legacy"):
-        mt = real_primary_tier(step, variant)
-        if step is Step.AGENT and variant == "legacy":
-            return MaterializedTier(
-                kind=mt.kind, handle=mt.handle, model_name=mt.model_name,
-                provider=mt.provider, endpoint=mt.endpoint, timeout=987.0,  # bogus timeout
-            )
-        return mt
-
-    monkeypatch.setattr(resolver, "primary_tier", _wrong)
-    with pytest.raises(AssertionError):
-        runtime.self_check()
+    monkeypatch.setattr(resolver, "primary_tier", _boom)
+    # No exception — self_check swallows resolve failures into a warning log.
+    runtime.self_check()
 
 
-def test_configure_does_not_raise_with_flag_off():
-    """Startup must be robust even if the self-check can't import a legacy module in
-    this env (pre-existing pydantic-ai mismatch) — configure() swallows non-assertion
-    errors from the self-check."""
-    cfg = runtime.configure()
+def test_configure_runs_self_check_without_raising():
+    """Startup config load + self-check must be robust and return a valid config."""
+    cfg = runtime.configure()  # run_self_check defaults True
     assert cfg is not None and len(cfg.profiles) >= 1
 
 
