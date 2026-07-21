@@ -220,8 +220,8 @@ def test_real_openai_pretranslation_for_clear_and_garbled_inputs():
 
 
 def test_real_translategemma_output_is_speakable():
-    if not (os.getenv("TRANSLATEGEMMA_27B_BASE_ENDPOINT") or os.getenv("TRANSLATEGEMMA_27B_BASE_ENDPOINTS")):
-        pytest.skip("TRANSLATEGEMMA_27B_BASE_ENDPOINT(S) is required for this integration test")
+    if not os.getenv("TRANSLATEGEMMA_27B_BASE_ENDPOINT"):
+        pytest.skip("TRANSLATEGEMMA_27B_BASE_ENDPOINT is required for this integration test")
 
     translated = asyncio.run(translate_text("The cow is pregnant.", "english", "gu"))
     assert translated
