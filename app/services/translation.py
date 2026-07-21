@@ -48,6 +48,18 @@ load_dotenv()
 logger = get_logger(__name__)
 
 
+class _TranslationHTTPError(Exception):
+    """A non-200 from the TranslateGemma endpoint, carrying ``status_code`` so the
+    shared ``classify`` sees the real HTTP status (HTTP_5XX / RATE_LIMITED / OOM)
+    instead of collapsing every failure to UNKNOWN. ``classify`` reads
+    ``exc.status_code`` first, so exposing it here restores honest fallback-reason
+    telemetry and 4xx-vs-5xx slicing across the post-translation chain."""
+
+    def __init__(self, status: int, body: str = ""):
+        self.status_code = status
+        super().__init__(f"Translation failed with status {status}: {body}")
+
+
 # Pretranslation provider — follows main LLM_PROVIDER by default.
 # Override with PRETRANSLATION_PROVIDER if you want a different provider for pretranslation.
 # Supported: "openai" | "vllm" (OpenAI-compatible endpoint, e.g. local Gemma 4 via vLLM).
@@ -518,7 +530,7 @@ async def _translategemma_stream(descriptor, prompt, source_lang, target_lang, t
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Translation API error {response.status}: {error_text}")
-                    raise Exception(f"Translation failed with status {response.status}")
+                    raise _TranslationHTTPError(response.status, error_text)
 
                 buffer = b''
                 async for chunk in response.content.iter_chunked(64):
@@ -578,7 +590,7 @@ async def _translategemma_stream(descriptor, prompt, source_lang, target_lang, t
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Translation API error {response.status}: {error_text}")
-                    raise Exception(f"Translation failed with status {response.status}")
+                    raise _TranslationHTTPError(response.status, error_text)
 
                 buffer = b''
                 async for chunk in response.content.iter_chunked(64):
@@ -620,7 +632,7 @@ async def _llm_translation_stream(client, model_name, instruction, source_lang, 
             model=model_name,
             messages=[{"role": "user", "content": instruction}],
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
             stream=True,
         )
         async for chunk in stream:
@@ -654,7 +666,7 @@ async def _llm_translation_stream(client, model_name, instruction, source_lang, 
             model=model_name,
             messages=[{"role": "user", "content": instruction}],
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
             stream=True,
         )
         async for chunk in stream:
@@ -692,7 +704,7 @@ async def _translategemma_unary(descriptor, prompt, source_lang, target_lang, te
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Translation API error {response.status}: {error_text}")
-                    raise Exception(f"Translation failed with status {response.status}")
+                    raise _TranslationHTTPError(response.status, error_text)
 
                 result = await response.json()
                 translated_text = result["choices"][0]["text"].strip()
@@ -731,7 +743,7 @@ async def _translategemma_unary(descriptor, prompt, source_lang, target_lang, te
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Translation API error {response.status}: {error_text}")
-                    raise Exception(f"Translation failed with status {response.status}")
+                    raise _TranslationHTTPError(response.status, error_text)
 
                 result = await response.json()
                 translated_text = result["choices"][0]["text"].strip()
@@ -755,7 +767,7 @@ async def _llm_translation_unary(client, model_name, instruction, source_lang, t
             model=model_name,
             messages=[{"role": "user", "content": instruction}],
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
         )
         translated_text = (response.choices[0].message.content or "").strip()
         translated_text = _fix_dandas(translated_text)
@@ -782,7 +794,7 @@ async def _llm_translation_unary(client, model_name, instruction, source_lang, t
             model=model_name,
             messages=[{"role": "user", "content": instruction}],
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
         )
         translated_text = (response.choices[0].message.content or "").strip()
         translated_text = _fix_dandas(translated_text)
