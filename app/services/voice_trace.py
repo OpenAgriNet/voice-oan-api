@@ -213,7 +213,14 @@ class VoiceTrace:
 
     @contextmanager
     def request_context(self) -> Iterator[None]:
-        """Open the root Langfuse observation for the full streaming request."""
+        """Open the root Langfuse observation for the full streaming request.
+
+        The resolved-pipeline-config compact keys (``pipeline_profile`` /
+        ``pipeline_flags`` / ``pc_<step>``) are added to ``self.metadata`` by
+        ``stream_voice_message`` BEFORE this opens, so they ride along in the
+        ``metadata=self.metadata`` passed to the root observation below (the path
+        that actually lands — a nested blob via ``update_current_trace`` does not,
+        this SDK has no such method)."""
         if not self.enabled or self.langfuse_client is None:
             yield
             return

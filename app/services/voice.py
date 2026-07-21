@@ -1053,6 +1053,24 @@ async def stream_voice_message(
         trace.metadata["request_provider"] = request_provider
     except Exception:  # pragma: no cover - never break the call
         pass
+    # Serialize the resolved pipeline config into COMPACT flat keys and merge them
+    # into trace.metadata (which rides along in metadata=self.metadata on the root
+    # observation — the path that lands; this SDK has no update_current_trace, and a
+    # big nested blob is OTEL-attribute size-capped). Adds `pipeline_profile`,
+    # `pipeline_flags`, and one `pc_<step>` per step. Full static config is in the
+    # `llm_core.full_config` boot log. Best-effort — never breaks the call.
+    try:
+        from app.llm_core import trace as _pipeline_trace
+        from app.llm_core import resolver as _lr, runtime as _lrt
+        from app.llm_core.config_model import Step as _LS
+        _pt = _pipeline_trace.begin(pipeline_variant)
+        _pipeline_trace.populate(
+            _pt, _lrt.get_pipeline(), _lr.primary_tier, pipeline_variant,
+            (_LS.PRE_TRANSLATION, _LS.MODERATION, _LS.NON_MEANINGFUL, _LS.AGENT, _LS.POST_TRANSLATION),
+        )
+        _pipeline_trace.add_compact_metadata(_pt, trace.metadata)
+    except Exception as _pt_exc:  # pragma: no cover - tracing must never break the call
+        logger.debug("pipeline_config populate skipped: %s", _pt_exc)
     logger.info(
         "voice request_variant session_id=%s variant=%s model=%s provider=%s",
         session_id,
