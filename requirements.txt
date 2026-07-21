@@ -25,6 +25,9 @@ tenacity
 langfuse
 gevent>=22.10.0
 
+# Prometheus metrics (optional at runtime; app/metrics.py degrades to a no-op when absent)
+prometheus-client==0.21.1
+
 # Redis for caching and stuff
 redis
 apscheduler==3.10.4

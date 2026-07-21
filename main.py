@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from contextlib import asynccontextmanager
@@ -35,9 +35,10 @@ async def lifespan(app: FastAPI):
     from app.llm_core import runtime as _llm_runtime
     try:
         _llm_runtime.configure()
-    except _llm_runtime.PipelineConfigError:
+    except (_llm_runtime.PipelineConfigError, _llm_runtime.BootRefused):
         # Fail-fast at boot: an unbuildable pipeline config (E, e.g. an anthropic
-        # tier on a RAW_OPENAI step) must stop startup, not crash per-request.
+        # tier on a RAW_OPENAI step) OR an intentional REQUIRE_OVERFLOW_ARMED
+        # hard-gate must stop startup, not crash per-request / ship dark.
         raise
     except Exception as _llm_exc:  # pragma: no cover - defensive
         print(f"⚠️  llm_core configure skipped: {_llm_exc}")
@@ -78,6 +79,15 @@ async def root():
         "debug": settings.debug,
         "api_prefix": settings.api_prefix
     }
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus exposition for the unified LLM pipeline (plain text, no auth,
+    scraped internally). render() is a no-op safe stub when prometheus_client is
+    absent, so this route works whether or not the dependency is installed."""
+    from app import metrics as _metrics
+    body, content_type = _metrics.render()
+    return Response(content=body, media_type=content_type)
 
 # Include all routers with API prefix from settings
 
