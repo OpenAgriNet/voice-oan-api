@@ -35,9 +35,10 @@ async def lifespan(app: FastAPI):
     from app.llm_core import runtime as _llm_runtime
     try:
         _llm_runtime.configure()
-    except _llm_runtime.PipelineConfigError:
+    except (_llm_runtime.PipelineConfigError, _llm_runtime.BootRefused):
         # Fail-fast at boot: an unbuildable pipeline config (E, e.g. an anthropic
-        # tier on a RAW_OPENAI step) must stop startup, not crash per-request.
+        # tier on a RAW_OPENAI step) OR an intentional REQUIRE_OVERFLOW_ARMED
+        # hard-gate must stop startup, not crash per-request / ship dark.
         raise
     except Exception as _llm_exc:  # pragma: no cover - defensive
         print(f"⚠️  llm_core configure skipped: {_llm_exc}")
