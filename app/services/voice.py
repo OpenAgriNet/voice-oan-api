@@ -56,7 +56,7 @@ from app.services.stt_signals import (
     count_consecutive_stt_signals,
 )
 from app.services.moderation import ModerationVerdict, check_moderation
-from app.services.fallback import classify, execute_with_fallback, stream_with_fallback, with_first_token_deadline
+from app.services.fallback import AGENT_ACTIVITY, classify, execute_with_fallback, stream_with_fallback, with_first_token_deadline
 from app.services.non_meaningful import NonMeaningfulVerdict, check_non_meaningful_streak
 from app.services.translation import (
     INDIAN_LANGUAGES,
@@ -2386,25 +2386,53 @@ async def stream_voice_message(
                     _fb_holder: dict = {}
 
                     async def _raw_stream(attempt, _attempt_info):
-                        async with active_agent.run_stream(
+                        # (D) COMMIT-ON-FIRST-ACTIVITY. Iterate via agent.iter()+node.stream()
+                        # so the FIRST pydantic-ai model event (a tool-call part, emitted
+                        # BEFORE the tools run and long before the first TEXT delta) is
+                        # surfaced once as the AGENT_ACTIVITY sentinel.
+                        # with_first_token_deadline treats that as the first-token commit,
+                        # so the slow 20s milk-collection tool can no longer trip the TTFT
+                        # deadline and force a cross-tier re-run of side-effecting tools
+                        # (CreateAICall booking / SMS -> duplicate bookings). The sentinel
+                        # is swallowed by the deadline wrapper and never heard by the
+                        # caller. Liveness is preserved: a hung endpoint emits no event, so
+                        # the deadline still fires -> swap. _attempt_had_chunk / committed
+                        # stay tied to real TEXT (unchanged caller-visible commit).
+                        _activity_signaled = False
+                        async with active_agent.iter(
                             user_prompt=user_message,
                             message_history=model_input_history,
                             deps=deps,
                             usage_limits=usage_limits,
                             model=attempt.model,
-                        ) as rs:
+                        ) as agent_run:
                             _attempt_had_chunk = False
-                            async for _c in rs.stream_text(delta=True, debounce_by=0):
-                                if not _attempt_had_chunk:
-                                    _attempt_had_chunk = True
-                                    _attempt_info["committed"] = True
-                                    _attempt_info["status"] = "committed"
-                                yield _c
+                            async for node in agent_run:
+                                if type(node).__name__ == 'ModelRequestNode':
+                                    async with node.stream(agent_run.ctx) as request_stream:
+                                        async for event in request_stream:
+                                            if not _activity_signaled:
+                                                _activity_signaled = True
+                                                yield AGENT_ACTIVITY
+                                            event_type = type(event).__name__
+                                            _c = None
+                                            if event_type == 'PartStartEvent' and hasattr(event, 'part'):
+                                                if type(event.part).__name__ == 'TextPart' and hasattr(event.part, 'content'):
+                                                    _c = event.part.content
+                                            elif event_type == 'PartDeltaEvent' and hasattr(event, 'delta'):
+                                                if type(event.delta).__name__ == 'TextPartDelta':
+                                                    _c = event.delta.content_delta
+                                            if _c:
+                                                if not _attempt_had_chunk:
+                                                    _attempt_had_chunk = True
+                                                    _attempt_info["committed"] = True
+                                                    _attempt_info["status"] = "committed"
+                                                yield _c
                             if _attempt_had_chunk and _attempt_info.get("status") != "error":
                                 _attempt_info["status"] = "ok"
                             elif _attempt_info.get("status") != "error":
                                 _attempt_info["status"] = "ok_no_output"
-                            _fb_holder["new_messages"] = rs.new_messages()
+                            _fb_holder["new_messages"] = agent_run.result.new_messages()
 
                     async def _make_stream(attempt):
                         nonlocal _agent_actual_tier, _agent_actual_provider, _agent_actual_model
