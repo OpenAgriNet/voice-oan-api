@@ -28,15 +28,16 @@ async def lifespan(app: FastAPI):
     # Load prompt templates into memory (no disk I/O at request time)
     from helpers.utils import load_prompt_templates
     load_prompt_templates(settings.base_dir / "assets" / "prompts")
-    # Unified LLM pipeline: synthesize/validate the config and run the identity
-    # self-check (logs resolved vs legacy wiring; raises only when the flag is on).
-    # Best-effort: a self-check bug must never block startup on the flag-off path.
+    # Unified LLM pipeline (the only model-selection path): synthesize/validate the
+    # config and run the resolvability self-check (logs the resolved per-step
+    # provider/model/endpoint; non-fatal). An unbuildable config (E) fails the boot
+    # fast; a self-check/configure edge case never blocks startup.
     from app.llm_core import runtime as _llm_runtime
     try:
         _llm_runtime.configure()
-    except (AssertionError, _llm_runtime.PipelineConfigError):
-        # Fail-fast at boot: a self-check identity mismatch (flag on) or an
-        # unbuildable pipeline config (E) must stop startup, not crash per-request.
+    except _llm_runtime.PipelineConfigError:
+        # Fail-fast at boot: an unbuildable pipeline config (E, e.g. an anthropic
+        # tier on a RAW_OPENAI step) must stop startup, not crash per-request.
         raise
     except Exception as _llm_exc:  # pragma: no cover - defensive
         print(f"⚠️  llm_core configure skipped: {_llm_exc}")

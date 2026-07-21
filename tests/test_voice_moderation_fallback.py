@@ -6,6 +6,15 @@ import os
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("LLM_MODEL_NAME", "gpt-test")
 
+# Env shim: the pinned pydantic-ai 1.x exposes ``OpenAIChatModel``; the locally
+# installed 0.2.4 only has ``OpenAIModel``. agents/models (imported transitively
+# via moderation -> translation) constructs a model at import, so alias the name
+# to let this module import + run under both versions. No behaviour is exercised
+# through the model object here (all model calls are monkeypatched).
+import pydantic_ai.models.openai as _pai_openai  # noqa: E402
+if not hasattr(_pai_openai, "OpenAIChatModel"):
+    _pai_openai.OpenAIChatModel = _pai_openai.OpenAIModel
+
 import asyncio
 from types import SimpleNamespace
 
@@ -46,19 +55,9 @@ def test_unavailable_verdict_has_generic_decline():
 # ── check_moderation: fallback + fail-closed ─────────────────────────────────
 
 @pytest.fixture
-def oss_on(monkeypatch):
-    # Characterizes the LEGACY variant-routed attempt_chain path: pin PROFILES /
-    # LLM_CORE OFF (both now default ON; the split path is covered in test_split.py)
-    # and the health flags OFF (no cross-test breaker prune via the global registry).
+def oss_on(monkeypatch, install_chain):
     monkeypatch.setattr(fb.settings, "fallback_enabled", True)
-    monkeypatch.setattr(fb.settings, "profiles_enabled", False)
-    monkeypatch.setattr(fb.settings, "llm_core_enabled", False)
-    monkeypatch.setattr(fb.settings, "health_breaker_enabled", False)
-    monkeypatch.setattr(fb.settings, "health_poller_enabled", False)
-    monkeypatch.setattr(fb, "oss_model_available", lambda: True)
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL", object())
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL_NAME", "gemma-test")
-    monkeypatch.setattr(fb, "OSS_INFERENCE_ENDPOINT_URL", "http://oss:8020/v1")
+    install_chain()  # config-driven [oss, managed] for variant "oss"
     events = []
     monkeypatch.setattr(fb, "emit", events.append)
     # deterministic per-kind backends

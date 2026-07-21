@@ -3,20 +3,15 @@
 ``configure()`` (called from the FastAPI lifespan) loads ``PIPELINE_CONFIG_PATH``
 YAML when present, else synthesizes the config from the current env
 (``legacy_shim``), validates it, stores it in the module global ``PIPELINE``, and
-runs the identity self-check. ``get_pipeline()`` lazily configures on first use so
-request paths and tests never see ``None``.
+runs the resolvability self-check. ``get_pipeline()`` lazily configures on first
+use so request paths and tests never see ``None``.
 
-Identity self-check (the P0 bar): for the current ``.env`` it logs the resolved
-(provider, base_url, model, timeout) per step and asserts they equal the legacy
-singletons (``agents.models`` / ``translation.py``). A mismatch raises only when
-``LLM_CORE_ENABLED`` is on — so a flag-off boot can never be broken by a shim
-edge case, while flipping the flag on is gated on true identity.
-
-Both ``agents.models`` and ``app.services.translation`` are imported LAZILY inside
-``self_check`` and guarded: under the local pydantic-ai version mismatch (0.2.4 vs
-the pinned 1.x) those modules fail to import, so the corresponding checks are
-skipped-with-a-log rather than crashing the boot. In the deploy env (pinned 1.x)
-they import and the identity checks run for real.
+Self-check (P4): the unified config-driven pipeline is now the ONLY model-selection
+path, so there is no longer a legacy wiring to compare against. The check resolves
+every configured (profile, step) primary tier, logs the resolved
+(provider, base_url, model, timeout), and WARNS — never raises — on any step that
+fails to resolve, so a materialize edge case can never block startup. Genuine
+config-shape errors are caught by ``PipelineConfig``'s validator at load time.
 """
 
 from __future__ import annotations
@@ -105,12 +100,10 @@ def configure(*, run_self_check: bool = True) -> PipelineConfig:
             "llm_core: synthesized pipeline config from env (profiles=%s)",
             [f"{p.name}:{p.weight}" for p in PIPELINE.profiles],
         )
-    # Fail-fast config validation (E) — only when the core actually drives requests
-    # (LLM_CORE_ENABLED). A legacy-revert deploy (flag off) never consults this
-    # config, so we don't fail its boot on a RAW-provider it won't use.
-    from app.config import settings as _settings
-    if bool(getattr(_settings, "llm_core_enabled", False)):
-        validate_config(PIPELINE)
+    # Fail-fast config validation (E). The unified pipeline is the only path after
+    # P4 (the LLM_CORE_ENABLED kill-switch was removed), so this config always
+    # drives requests and must always be buildable: validate unconditionally.
+    validate_config(PIPELINE)
     # Tracing-only: dump the COMPLETE loaded config (all profiles, step tiers,
     # triggers) as one structured boot log line so the full wiring is greppable
     # in logs even before any turn arrives (`grep llm_core.full_config`).
@@ -119,8 +112,6 @@ def configure(*, run_self_check: bool = True) -> PipelineConfig:
     if run_self_check:
         try:
             self_check()
-        except AssertionError:
-            raise
         except Exception as exc:  # never break config load on a self-check bug
             logger.warning("llm_core: self-check skipped (%s)", exc)
     return PIPELINE
@@ -141,112 +132,45 @@ def _base_url(handle) -> Optional[str]:
 
 
 def self_check() -> None:
-    """Assert flag-on resolution == legacy wiring for the current env."""
+    """Startup validation: every profile's every step must resolve to a live
+    primary tier (build a handle without raising) for the current config.
+
+    This is the P4 successor to the P0/P1 identity self-check. There is no longer a
+    legacy wiring to compare against — the unified pipeline is the only path — so
+    the check now just logs the resolved (provider, base_url, model, timeout) per
+    configured step and WARNS on any step that fails to resolve. It is
+    intentionally non-fatal: a materialize edge case (e.g. a fallback-tier key
+    absent in this env) must never block startup, exactly as the flag-off boot was
+    robust before. Genuine config-shape errors are already caught by
+    ``PipelineConfig``'s validator at load time.
+    """
     from app.llm_core import resolver
-    from app.config import settings
 
-    enforce = bool(getattr(settings, "llm_core_enabled", False))
-    managed_timeout = settings.fallback_managed_timeout_ms / 1000.0
-    mismatches: list[str] = []
+    pipeline = get_pipeline()
+    failures: list[str] = []
 
-    # ── agent: identity with agents.models.get_model_for_variant ──────────────
-    # Guarded: agents/models fails to import under a pydantic-ai version mismatch.
-    try:
-        from agents.models import (
-            get_model_for_variant,
-            provider_for_variant,
-            oss_model_available,
+    for profile in pipeline.profiles:
+        variant = "oss" if profile.name == "oss" else "legacy"
+        for step in Step:
+            step_cfg = pipeline.step_config(profile, step)
+            if step_cfg is None:
+                continue  # a profile need not configure every step (post-trans lives in defaults)
+            try:
+                mt = resolver.primary_tier(step, variant)
+                logger.info(
+                    "llm_core self-check profile=%s step=%s -> provider=%s base_url=%s model=%s timeout=%s",
+                    profile.name, step.value, mt.provider, _base_url(mt.handle), mt.model_name, mt.timeout,
+                )
+            except Exception as exc:
+                failures.append(f"{profile.name}/{step.value}: {type(exc).__name__}: {exc}")
+
+    if failures:
+        logger.warning(
+            "llm_core self-check: %d step(s) did not resolve in this env (non-fatal):\n  - %s",
+            len(failures), "\n  - ".join(failures),
         )
-    except Exception as exc:  # pragma: no cover - env-dependent
-        get_model_for_variant = None
-        logger.warning("llm_core self-check: agent checks skipped (%s)", exc)
-
-    if get_model_for_variant is not None:
-        variants = ["legacy"]
-        if oss_model_available():
-            variants.append("oss")
-        for variant in variants:
-            legacy_model = get_model_for_variant(variant)
-            legacy_provider = provider_for_variant(variant)
-            legacy_name = getattr(legacy_model, "model_name", None)
-            mt = resolver.primary_tier(Step.AGENT, variant)
-            r_url = _base_url(mt.handle)
-            l_url = _base_url(legacy_model)
-            logger.info(
-                "llm_core self-check step=agent variant=%s -> provider=%s base_url=%s model=%s timeout=%s",
-                variant, mt.provider, r_url, mt.model_name, mt.timeout,
-            )
-            if legacy_name is not None and mt.model_name != legacy_name:
-                mismatches.append(f"agent/{variant} model {mt.model_name!r} != legacy {legacy_name!r}")
-            if l_url is not None and r_url != l_url:
-                mismatches.append(f"agent/{variant} base_url {r_url!r} != legacy {l_url!r}")
-            if mt.provider != legacy_provider:
-                mismatches.append(f"agent/{variant} provider {mt.provider!r} != legacy {legacy_provider!r}")
-
-    # ── pre-translation / moderation / non-meaningful / post-translation ──────
-    # RAW_OPENAI steps + TranslateGemma: identity with translation.py singletons.
-    # Guarded: translation.py transitively imports agents.tools, which fails to
-    # build under the pydantic-ai version mismatch.
-    try:
-        from app.services import translation as tr
-    except Exception as exc:  # pragma: no cover - env-dependent
-        tr = None
-        logger.warning("llm_core self-check: translation checks skipped (%s)", exc)
-
-    if tr is not None:
-        # pre-translation (managed RAW_OPENAI) == translation._get_openai_client()
-        # + OPENAI_PRETRANSLATION_MODEL.
-        managed_pre = resolver.primary_tier(Step.PRE_TRANSLATION, "legacy")
-        logger.info(
-            "llm_core self-check step=pre_translation variant=legacy -> provider=%s base_url=%s model=%s timeout=%s",
-            managed_pre.provider, _base_url(managed_pre.handle), managed_pre.model_name, managed_pre.timeout,
-        )
-        if managed_pre.model_name != tr.OPENAI_PRETRANSLATION_MODEL:
-            mismatches.append(
-                f"pre_translation model {managed_pre.model_name!r} != legacy {tr.OPENAI_PRETRANSLATION_MODEL!r}"
-            )
-        try:
-            legacy_client = tr._get_openai_client()
-            l_url = _base_url(legacy_client)
-            r_url = _base_url(managed_pre.handle)
-            if l_url is not None and r_url != l_url:
-                mismatches.append(f"pre_translation base_url {r_url!r} != legacy {l_url!r}")
-        except Exception as exc:  # client init may need a key not present in tests
-            logger.info("llm_core self-check: pre_translation client compare skipped (%s)", exc)
-
-        # moderation (managed RAW_OPENAI) shares the SAME managed pretranslation
-        # model — verify the resolver agrees.
-        managed_mod = resolver.primary_tier(Step.MODERATION, "legacy")
-        if managed_mod.model_name != tr.OPENAI_PRETRANSLATION_MODEL:
-            mismatches.append(
-                f"moderation model {managed_mod.model_name!r} != legacy {tr.OPENAI_PRETRANSLATION_MODEL!r}"
-            )
-
-        # post-translation: identity with translation TranslateGemma endpoints.
-        post = resolver.primary_tier(Step.POST_TRANSLATION, "legacy")
-        legacy_eps = [e.rstrip("/") for e in tr.TRANSLATION_ENDPOINTS_27B_BASE]
-        legacy_tg_model = tr.TRANSLATION_MODEL_IDS.get("27b-base")
-        logger.info(
-            "llm_core self-check step=post_translation variant=legacy -> model=%s endpoints=%s",
-            post.model_name, legacy_eps,
-        )
-        if post.endpoint.rstrip("/") not in legacy_eps:
-            mismatches.append(f"post_translation endpoint {post.endpoint!r} not in legacy {legacy_eps!r}")
-        if legacy_tg_model is not None and post.model_name != legacy_tg_model:
-            mismatches.append(f"post_translation model {post.model_name!r} != legacy {legacy_tg_model!r}")
-
-    # managed timeout parity (sample the agent managed tier).
-    managed_agent_mt = resolver.primary_tier(Step.AGENT, "legacy")
-    if managed_agent_mt.timeout not in (None, managed_timeout):
-        mismatches.append(f"agent/legacy timeout {managed_agent_mt.timeout} != managed {managed_timeout}")
-
-    if mismatches:
-        msg = "llm_core self-check FAILED (resolve != legacy wiring):\n  - " + "\n  - ".join(mismatches)
-        if enforce:
-            raise AssertionError(msg)
-        logger.warning("%s\n(LLM_CORE_ENABLED is off; not raising)", msg)
     else:
         logger.info(
-            "llm_core self-check PASSED: resolve == legacy wiring (LLM_CORE_ENABLED=%s)",
-            enforce,
+            "llm_core self-check PASSED: every configured step resolves (profiles=%s)",
+            [p.name for p in pipeline.profiles],
         )

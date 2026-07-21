@@ -267,8 +267,10 @@ def build_handle(tier: Tier, kind: StepClientKind) -> Any:
 
 @dataclass(frozen=True)
 class MaterializedTier:
-    """Drop-in successor to ``fallback.Attempt``. Carries the live handle plus
-    telemetry labels + per-attempt timeout (seconds)."""
+    """The per-tier unit the fallback walkers consume. Carries the live handle
+    plus telemetry labels + per-attempt timeout (seconds). The walkers read only
+    ``.kind`` / ``.model`` / ``.model_name`` / ``.provider`` / ``.endpoint`` /
+    ``.timeout``."""
 
     kind: str
     handle: Any
@@ -279,7 +281,7 @@ class MaterializedTier:
 
     @property
     def model(self) -> Any:
-        """Back-compat: existing walkers read ``attempt.model``."""
+        """The walkers pass ``attempt.model`` as the per-run ``model=``."""
         return self.handle
 
 
@@ -289,11 +291,11 @@ def materialize(step_client_kind: StepClientKind, tiers: list[Tier]) -> list[Mat
     out: list[MaterializedTier] = []
     for tier in tiers:
         handle = build_handle(tier, step_client_kind)
-        # kind label mirrors fallback.Attempt exactly: a vLLM (self-hosted) tier is
-        # "oss"; every other provider is "managed". The fallback closures branch
-        # only on ``kind == "oss"`` and moderation maps "oss" -> vLLM / else managed,
-        # so this reproduces attempt_chain's [oss, managed] / [managed] labels and
-        # keeps ``emit`` telemetry (from_variant/to_variant) byte-identical.
+        # kind label: a vLLM (self-hosted) tier is "oss"; every other provider is
+        # "managed". The fallback closures branch only on ``kind == "oss"`` and
+        # moderation maps "oss" -> vLLM / else managed, so a config-driven
+        # [oss, managed] / [managed] chain keeps ``emit`` telemetry
+        # (from_variant/to_variant) byte-identical to the old hardwired chain.
         out.append(
             MaterializedTier(
                 kind="oss" if tier.provider is Provider.VLLM else "managed",

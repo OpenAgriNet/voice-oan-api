@@ -61,7 +61,6 @@ from app.services.non_meaningful import NonMeaningfulVerdict, check_non_meaningf
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
-    OSS_PRETRANSLATION_MODEL,
     translate_text,
     translate_text_stream_fast,
     translate_to_english_with_gpt5_mini,
@@ -72,12 +71,8 @@ from app.services.voice_trace import VoiceTrace, create_voice_trace, sanitize_te
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerAccount, FarmerContext
-from agents.models import (
-    LLM_MODEL_NAME,
-    OSS_LLM_MODEL_NAME,
-    get_model_for_variant,
-    provider_for_variant,
-)
+from app.llm_core import resolver as _llm_resolver
+from app.llm_core.config_model import Step as _LlmStep
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 try:  # Langfuse is optional at import time
     from langfuse import get_client as _get_langfuse_client
@@ -1013,23 +1008,17 @@ async def stream_voice_message(
     # gemma pretranslation). 'legacy' keeps current prod behaviour byte-for-byte;
     # with OSS_PIPELINE_PCT=0 (or OSS endpoint unset) every session is 'legacy'.
     is_oss = pipeline_variant == "oss"
-    if settings.llm_core_enabled:
-        # Flag-on: obtain the agent model handle + provider from the unified
-        # pipeline resolver instead of the legacy singletons. P0 identity — for the
-        # current env this resolves the same provider/base_url/model as
-        # get_model_for_variant (verified at startup by llm_core.runtime.self_check).
-        # P1 generalizes this to the weighted split + config-driven fallback chain
-        # behind the same resolver API. The fallback-path agent stream
-        # (settings.fallback_enabled) still uses attempt.model from
-        # fallback.attempt_chain — untouched in P0.
-        from app.llm_core import resolver as _llm_resolver
-        from app.llm_core.config_model import Step as _LlmStep
-        request_model = _llm_resolver.primary_handle(_LlmStep.AGENT, pipeline_variant)
-        request_provider = _llm_resolver.primary_provider(_LlmStep.AGENT, pipeline_variant)
-    else:
-        request_model = get_model_for_variant(pipeline_variant)
-        request_provider = provider_for_variant(pipeline_variant)
-    request_model_name = OSS_LLM_MODEL_NAME if is_oss else LLM_MODEL_NAME
+    # Model selection is resolved by the unified pipeline (the only path): the agent
+    # handle, provider, and display model name all come from the resolved primary
+    # AGENT tier for this session's variant. For the current env this is the same
+    # provider/base_url/model the removed get_model_for_variant/provider_for_variant
+    # returned, generalized to the weighted-profile split. ``is_oss`` is retained
+    # only as a variant-string flag for downstream tier-kind telemetry labels +
+    # pretranslation dispatch (it no longer selects the model).
+    _agent_tier = _llm_resolver.primary_tier(_LlmStep.AGENT, pipeline_variant)
+    request_model = _agent_tier.handle
+    request_provider = _agent_tier.provider
+    request_model_name = _agent_tier.model_name
     last_owner_refresh_at = 0.0
     last_emitted_sig_char: str | None = None
     trace = trace or create_voice_trace(
@@ -1443,25 +1432,16 @@ async def stream_voice_message(
             )
 
             if requested_source_lang not in {"en", "english"}:
-                if settings.llm_core_enabled:
-                    # Flag-on: source the pretranslation tier decision (provider
-                    # label + model + tier) from the resolver's PRE_TRANSLATION
-                    # primary tier. P0 identity: for the shim config this equals the
-                    # `is_oss` toggle exactly (oss variant -> vLLM/OSS model, else
-                    # managed/OpenAI model). The dispatch below still branches on
-                    # is_oss (== resolver kind for the shim), so behaviour is
-                    # unchanged; P1 makes pretranslation a fully tier-parameterized
-                    # RAW_OPENAI call from the factory.
-                    from app.llm_core import resolver as _llm_resolver
-                    from app.llm_core.config_model import Step as _LlmStep
-                    _pre_mt = _llm_resolver.primary_tier(_LlmStep.PRE_TRANSLATION, pipeline_variant)
-                    _pretrans_provider_label = "vllm" if _pre_mt.kind == "oss" else "openai"
-                    _pretrans_model = _pre_mt.model_name
-                    _pretrans_requested_tier = _pre_mt.kind
-                else:
-                    _pretrans_provider_label = "vllm" if is_oss else "openai"
-                    _pretrans_model = OSS_PRETRANSLATION_MODEL if is_oss else OPENAI_PRETRANSLATION_MODEL
-                    _pretrans_requested_tier = "oss" if is_oss else "managed"
+                # Pretranslation tier decision (provider label + model + tier) comes
+                # from the resolved PRE_TRANSLATION primary tier (the only path). For
+                # the current env this equals the removed `is_oss` toggle exactly (an
+                # OSS session's primary is the vLLM/OSS-model tier, else the
+                # managed/OpenAI-model tier). The per-attempt dispatch below routes
+                # to the OSS vs managed pretranslation twin by the tier kind.
+                _pre_mt = _llm_resolver.primary_tier(_LlmStep.PRE_TRANSLATION, pipeline_variant)
+                _pretrans_provider_label = "vllm" if _pre_mt.kind == "oss" else "openai"
+                _pretrans_model = _pre_mt.model_name
+                _pretrans_requested_tier = _pre_mt.kind
                 _pretranslation_attempts: list[dict[str, object]] = []
                 _pretranslation_actual_tier = _pretrans_requested_tier
                 _pretranslation_actual_provider = _pretrans_provider_label
@@ -1605,7 +1585,7 @@ async def stream_voice_message(
                             },
                             model=_pretrans_model,
                         ):
-                            if is_oss:
+                            if _pretrans_requested_tier == "oss":
                                 processing_query = await translate_to_english_with_oss_vllm(
                                     text=query,
                                     source_lang=requested_source_lang,

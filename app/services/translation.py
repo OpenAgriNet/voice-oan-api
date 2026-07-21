@@ -314,10 +314,9 @@ def _post_normalize_gu_translation(
     return out.strip() if strip_outer else out
 
 
+# Only the 27b-base TranslateGemma is deployed — the 4b/12b/27b maps were dead
+# (every translation resolves to 27b-base via _resolve_model). Removed at P4.
 TRANSLATION_ENDPOINTS = {
-    "4b": os.getenv("TRANSLATEGEMMA_4B_ENDPOINT", "http://10.128.170.2:8081/v1"),
-    "12b": os.getenv("TRANSLATEGEMMA_12B_ENDPOINT", "http://10.128.170.2:8082/v1"),
-    "27b": os.getenv("TRANSLATEGEMMA_27B_ENDPOINT", "http://localhost:8085/v1"),
     "27b-base": os.getenv("TRANSLATEGEMMA_27B_BASE_ENDPOINT", "http://localhost:18002/v1"),
 }
 
@@ -329,12 +328,7 @@ TRANSLATION_ENDPOINTS_27B_BASE: list[str] = (
     else [TRANSLATION_ENDPOINTS["27b-base"]]
 )
 
-DEFAULT_TRANSLATION_MODEL = os.getenv("DEFAULT_TRANSLATION_MODEL", "27b-base")
-
 TRANSLATION_MODEL_IDS = {
-    "4b": os.getenv("TRANSLATEGEMMA_4B_MODEL", "translategemma-4b"),
-    "12b": os.getenv("TRANSLATEGEMMA_12B_MODEL", "translategemma-12b"),
-    "27b": os.getenv("TRANSLATEGEMMA_27B_MODEL", "marathi-translategemma-27b-2250"),
     "27b-base": os.getenv("TRANSLATEGEMMA_27B_BASE_MODEL", "translategemma-27b-base"),
 }
 
@@ -714,17 +708,22 @@ def _build_structured_pretranslation_prompt(source_name: str, source_code: str, 
     )
 
 
-async def _create_openai_pretranslation_response(
+async def _create_pretranslation_response(
     client: AsyncOpenAI,
+    model: str,
     *,
     source_name: str,
     source_code: str,
     text: str,
     max_tokens: int,
 ):
+    """Single OpenAI-compatible pretranslation call, parametrized by (client, model).
+
+    Replaces the former ``_create_openai_pretranslation_response`` /
+    ``_create_oss_pretranslation_response`` twins (identical bodies bar the model)."""
     return await asyncio.wait_for(
         client.chat.completions.create(
-            model=OPENAI_PRETRANSLATION_MODEL,
+            model=model,
             messages=_build_openai_pretranslation_messages(source_name, source_code, text),
             max_completion_tokens=max_tokens,
             response_format={"type": "json_object"},
@@ -839,19 +838,25 @@ async def translate_to_english_with_structured_fallback(
             return translated_text
 
 
-async def translate_to_english_with_gpt5_mini(
+async def _translate_to_english_pretranslation(
     text: str,
     source_lang: str,
     *,
+    client: AsyncOpenAI,
+    model: str,
+    label: str,
+    translation_provider_label: str,
+    extra_metadata: Optional[dict] = None,
     max_tokens: int = 1024,
-    session_id: str = "",
-    user_id: str = "",
-    process_id: str = "",
-    pipeline_variant: str = "",
 ) -> str:
-    """Translate input text to English using OpenAI for pipeline pre-translation.
+    """Single parametrized pretranslation body — the collapse of the former
+    ``translate_to_english_with_gpt5_mini`` / ``translate_to_english_with_oss_vllm``
+    twins (identical bodies bar the client/model/langfuse-label). The two public
+    wrappers below supply the managed-OpenAI vs OSS-vLLM (client, model, label);
+    everything else — early-returns, glossary replacement, empty/timeout handling,
+    the Langfuse ``query_pretranslation`` observation — is shared verbatim.
 
-    Returns the translated text, or an empty string on empty/failed output.
+    Returns the translated text, or the original text on empty output.
     """
     if not text or not text.strip():
         return text
@@ -859,15 +864,14 @@ async def translate_to_english_with_gpt5_mini(
     if source_lang.lower() in {"english", "en"}:
         return text
 
-    client = _get_openai_client()
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
 
     langfuse = _get_langfuse()
     try:
         if not langfuse:
-            response = await _create_openai_pretranslation_response(
-                client,
+            response = await _create_pretranslation_response(
+                client, model,
                 source_name=source_name,
                 source_code=source_code,
                 text=text,
@@ -876,8 +880,8 @@ async def translate_to_english_with_gpt5_mini(
             translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 logger.warning(
-                    "OpenAI pretranslation returned empty - source_lang=%s query=%r",
-                    source_lang, (text or "")[:100],
+                    "%s pretranslation returned empty - source_lang=%s query=%r",
+                    label, source_lang, (text or "")[:100],
                 )
                 return text
             translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
@@ -891,14 +895,15 @@ async def translate_to_english_with_gpt5_mini(
                 "target_lang": "english",
                 "text": text,
             },
-            model=OPENAI_PRETRANSLATION_MODEL,
+            model=model,
             metadata={
-                "translation_provider": PRETRANSLATION_PROVIDER,
+                "translation_provider": translation_provider_label,
                 "pipeline_stage": "query_pretranslation",
+                **(extra_metadata or {}),
             },
         ) as observation:
-            response = await _create_openai_pretranslation_response(
-                client,
+            response = await _create_pretranslation_response(
+                client, model,
                 source_name=source_name,
                 source_code=source_code,
                 text=text,
@@ -907,8 +912,8 @@ async def translate_to_english_with_gpt5_mini(
             translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 logger.warning(
-                    "OpenAI pretranslation returned empty - source_lang=%s query=%r",
-                    source_lang, (text or "")[:100],
+                    "%s pretranslation returned empty - source_lang=%s query=%r",
+                    label, source_lang, (text or "")[:100],
                 )
                 observation.update(output="__EMPTY__")
                 return text
@@ -917,33 +922,41 @@ async def translate_to_english_with_gpt5_mini(
             return translated_text
     except asyncio.TimeoutError as e:
         logger.error(
-            "OpenAI pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
+            "%s pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
+            label,
             source_lang,
-            OPENAI_PRETRANSLATION_MODEL,
+            model,
             settings.openai_pretranslation_timeout_seconds,
             len(text or ""),
             (text or "")[:160],
         )
-        raise TimeoutError("OpenAI pretranslation timed out") from e
+        raise TimeoutError(f"{label} pretranslation timed out") from e
 
 
-async def _create_oss_pretranslation_response(
-    client: AsyncOpenAI,
-    *,
-    source_name: str,
-    source_code: str,
+async def translate_to_english_with_gpt5_mini(
     text: str,
-    max_tokens: int,
-):
-    """Mirror of _create_openai_pretranslation_response, pinned to the OSS vLLM endpoint."""
-    return await asyncio.wait_for(
-        client.chat.completions.create(
-            model=OSS_PRETRANSLATION_MODEL,
-            messages=_build_openai_pretranslation_messages(source_name, source_code, text),
-            max_completion_tokens=max_tokens,
-            response_format={"type": "json_object"},
-        ),
-        timeout=settings.openai_pretranslation_timeout_seconds,
+    source_lang: str,
+    *,
+    max_tokens: int = 1024,
+    session_id: str = "",
+    user_id: str = "",
+    process_id: str = "",
+    pipeline_variant: str = "",
+) -> str:
+    """Pretranslate to English via the managed OpenAI client (legacy sessions).
+
+    Thin wrapper over the unified ``_translate_to_english_pretranslation`` body;
+    supplies the managed (client, model, label). Behaviour-identical to the former
+    twin. Returns the translated text, or the original text on empty output.
+    """
+    return await _translate_to_english_pretranslation(
+        text,
+        source_lang,
+        client=_get_openai_client(),
+        model=OPENAI_PRETRANSLATION_MODEL,
+        label="OpenAI",
+        translation_provider_label=PRETRANSLATION_PROVIDER,
+        max_tokens=max_tokens,
     )
 
 
@@ -959,85 +972,20 @@ async def translate_to_english_with_oss_vllm(
 ) -> str:
     """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
 
-    Same return contract as translate_to_english_with_gpt5_mini: the translated
-    text, or an empty string on empty/failed output.
-
-    Legacy sessions never hit this — the function is only called when the
-    sticky pipeline router returns variant='oss'.
+    Thin wrapper over the unified ``_translate_to_english_pretranslation`` body;
+    supplies the OSS (client, model, label) + the ``pipeline_variant`` observation
+    tag. Behaviour-identical to the former twin. Legacy sessions never hit this.
     """
-    if not text or not text.strip():
-        return text
-
-    if source_lang.lower() in {"english", "en"}:
-        return text
-
-    client = _get_oss_pretranslation_client()
-    source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
-    source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
-
-    langfuse = _get_langfuse()
-    try:
-        if not langfuse:
-            response = await _create_oss_pretranslation_response(
-                client,
-                source_name=source_name,
-                source_code=source_code,
-                text=text,
-                max_tokens=max_tokens,
-            )
-            translated_text = _extract_translation_from_response(response)
-            if not translated_text:
-                logger.warning(
-                    "OSS vLLM pretranslation returned empty - source_lang=%s query=%r",
-                    source_lang, (text or "")[:100],
-                )
-                return text
-            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
-            return translated_text
-
-        with langfuse.start_as_current_observation(
-            name="query_pretranslation",
-            as_type="generation",
-            input={
-                "source_lang": source_lang,
-                "target_lang": "english",
-                "text": text,
-            },
-            model=OSS_PRETRANSLATION_MODEL,
-            metadata={
-                "translation_provider": "vllm",
-                "pipeline_stage": "query_pretranslation",
-                "pipeline_variant": pipeline_variant or "oss",
-            },
-        ) as observation:
-            response = await _create_oss_pretranslation_response(
-                client,
-                source_name=source_name,
-                source_code=source_code,
-                text=text,
-                max_tokens=max_tokens,
-            )
-            translated_text = _extract_translation_from_response(response)
-            if not translated_text:
-                logger.warning(
-                    "OSS vLLM pretranslation returned empty - source_lang=%s query=%r",
-                    source_lang, (text or "")[:100],
-                )
-                observation.update(output="__EMPTY__")
-                return text
-            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
-            observation.update(output=translated_text)
-            return translated_text
-    except asyncio.TimeoutError as e:
-        logger.error(
-            "OSS vLLM pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
-            source_lang,
-            OSS_PRETRANSLATION_MODEL,
-            settings.openai_pretranslation_timeout_seconds,
-            len(text or ""),
-            (text or "")[:160],
-        )
-        raise TimeoutError("OSS vLLM pretranslation timed out") from e
+    return await _translate_to_english_pretranslation(
+        text,
+        source_lang,
+        client=_get_oss_pretranslation_client(),
+        model=OSS_PRETRANSLATION_MODEL,
+        label="OSS vLLM",
+        translation_provider_label="vllm",
+        extra_metadata={"pipeline_variant": pipeline_variant or "oss"},
+        max_tokens=max_tokens,
+    )
 
 
 async def translate_text_stream_fast(

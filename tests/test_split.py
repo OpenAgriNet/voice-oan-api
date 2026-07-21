@@ -139,21 +139,6 @@ def test_split_variant_is_bit_compatible_independent():
             assert new == _ref_variant(sid, pct), f"pct={pct} sid={sid}"
 
 
-def test_split_variant_bit_compatible_with_real_pipeline_router(monkeypatch):
-    """Cross-check against the ACTUAL voice pipeline_router (guarded: it imports
-    agents.models, which fails under the local pydantic-ai mismatch)."""
-    pipeline_router = pytest.importorskip("app.services.pipeline_router")
-    monkeypatch.setattr(pipeline_router, "oss_model_available", lambda: True)
-    for pct in (0, 25, 80, 100):
-        cfg = two_profile_config(pct)
-        monkeypatch.setattr(pipeline_router.settings, "oss_pipeline_pct", pct)
-        for i in range(300):
-            sid = f"xcheck-{pct}-{i}"
-            legacy = pipeline_router._deterministic_variant(sid)
-            new = split.variant_for_profile(split.deterministic_profile(sid, cfg))
-            assert new == legacy, f"pct={pct} sid={sid}: {new} != {legacy}"
-
-
 def test_cumulative_buckets_over_three_profiles():
     """Generalization past 2: profile i owns [sum(w[:i]), sum(w[:i+1]))."""
     cfg = PipelineConfig(profiles=[
@@ -259,127 +244,15 @@ def test_zero_to_fifty_moves_about_half_of_continuing_sessions():
     assert 150 <= moved <= 250                            # ~50% of continuing sessions moved
 
 
-# ── (B) voice router gates the variant resolver on PROFILES_ENABLED ───────────
+# ── (d) the walkers receive the config-driven chain (the only path) ───────────
 
-def test_voice_router_gates_variant_on_profiles_enabled(monkeypatch):
-    """The voice router resolves the variant ONCE — via ``split.resolve_variant``
-    when PROFILES_ENABLED, else the legacy ``pipeline_router`` (MUST-FIX B).
-    Guarded: the router transitively imports agents.* (fails under the local
-    pydantic-ai mismatch), so this runs in CI and skips locally."""
-    import asyncio
-    from types import SimpleNamespace
-
-    voice_router = pytest.importorskip("app.routers.voice")
-
-    trace = SimpleNamespace(attach_stage_timing=lambda *a, **k: None, metadata={})
-    monkeypatch.setattr(voice_router, "create_voice_trace", lambda **k: trace)
-
-    async def _own(session_id):
-        return SimpleNamespace(epoch=1, request_token="tok")
-    monkeypatch.setattr(voice_router, "claim_session_request_ownership", _own)
-
-    async def _hist(session_id):
-        return []
-    monkeypatch.setattr(voice_router, "_get_message_history", _hist)
-
-    async def _empty_stream(**k):
-        if False:  # pragma: no cover - never yields; StreamingResponse won't consume it
-            yield
-    monkeypatch.setattr(voice_router, "stream_voice_message", lambda **k: _empty_stream(**k))
-
-    calls = {"split": 0, "legacy": 0}
-
-    async def _split_resolve(session_id):
-        calls["split"] += 1
-        return "oss"
-
-    async def _legacy_resolve(session_id):
-        calls["legacy"] += 1
-        return "legacy"
-
-    monkeypatch.setattr(voice_router.split, "resolve_variant", _split_resolve)
-    monkeypatch.setattr(voice_router, "resolve_pipeline_variant", _legacy_resolve)
-
-    req = SimpleNamespace(session_id="s", user_id="u", query="q", source_lang="gu",
-                          target_lang="gu", provider="p", process_id="pid")
-    http_request = SimpleNamespace()
-
-    monkeypatch.setattr(voice_router.settings, "profiles_enabled", True)
-    asyncio.run(voice_router.voice_endpoint(http_request=http_request, request=req, user_info={}))
-    assert calls == {"split": 1, "legacy": 0}     # PROFILES on -> split resolver
-
-    monkeypatch.setattr(voice_router.settings, "profiles_enabled", False)
-    asyncio.run(voice_router.voice_endpoint(http_request=http_request, request=req, user_info={}))
-    assert calls == {"split": 1, "legacy": 1}     # PROFILES off -> legacy resolver
-
-
-# ── (d) flags-OFF path untouched + composition with fallback walkers ──────────
-
-def test_profiles_enabled_defaults_on_and_env_overridable(monkeypatch):
-    from app.config import Settings
-    monkeypatch.delenv("PROFILES_ENABLED", raising=False)
-    assert Settings().profiles_enabled is True   # enabled by default now
-    monkeypatch.setenv("PROFILES_ENABLED", "false")
-    assert Settings().profiles_enabled is False   # still fully env-overridable
-
-
-def test_fallback_chain_uses_legacy_attempt_chain_when_flag_off(monkeypatch):
-    """With PROFILES_ENABLED off, the walkers' chain acquisition is byte-identical
-    to today: exactly what attempt_chain returns, and split is never consulted.
-    (Guarded: fallback imports agents.models, which fails under the local mismatch.)"""
+def test_fallback_chain_uses_split(monkeypatch):
+    """The walkers' chain acquisition delegates to the config-driven split for the
+    mapped step (moderation -> Step.MODERATION). The router-resolved variant is
+    threaded through (fix C) — asserted in the spy below."""
     import asyncio
     fb = pytest.importorskip("app.services.fallback")
 
-    monkeypatch.setattr(fb.settings, "fallback_enabled", True)
-    monkeypatch.setattr(fb.settings, "profiles_enabled", False)
-    monkeypatch.setattr(fb.settings, "llm_core_enabled", False)
-    monkeypatch.setattr(fb, "oss_model_available", lambda: True)
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL", object())
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL_NAME", "gemma-test")
-    monkeypatch.setattr(fb, "OSS_INFERENCE_ENDPOINT_URL", "http://oss:8020/v1")
-
-    def _boom(*a, **k):
-        raise AssertionError("split must not be consulted with the flag off")
-
-    monkeypatch.setattr(split, "resolve_chain", _boom)
-
-    chain = asyncio.run(fb._resolve_chain(pipeline="moderation", session_id="s", variant="oss"))
-    legacy = fb.attempt_chain("oss", "moderation")
-    assert [a.kind for a in chain] == [a.kind for a in legacy] == ["oss", "managed"]
-
-
-def test_fallback_chain_stays_legacy_when_only_profiles_on(monkeypatch):
-    """PROFILES_ENABLED on but LLM_CORE_ENABLED off -> still the legacy chain."""
-    import asyncio
-    fb = pytest.importorskip("app.services.fallback")
-
-    monkeypatch.setattr(fb.settings, "fallback_enabled", True)
-    monkeypatch.setattr(fb.settings, "profiles_enabled", True)
-    monkeypatch.setattr(fb.settings, "llm_core_enabled", False)
-    monkeypatch.setattr(fb, "oss_model_available", lambda: True)
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL", object())
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL_NAME", "gemma-test")
-    monkeypatch.setattr(fb, "OSS_INFERENCE_ENDPOINT_URL", "http://oss:8020/v1")
-
-    called = {"n": 0}
-
-    async def _spy(session_id, step, *, variant=None):
-        called["n"] += 1
-        return []
-
-    monkeypatch.setattr(split, "resolve_chain", _spy)
-    chain = asyncio.run(fb._resolve_chain(pipeline="moderation", session_id="s", variant="oss"))
-    assert called["n"] == 0
-    assert [a.kind for a in chain] == ["oss", "managed"]
-
-
-def test_fallback_chain_uses_split_when_both_flags_on(monkeypatch):
-    """Both flags on -> the walkers receive the config-driven materialized chain."""
-    import asyncio
-    fb = pytest.importorskip("app.services.fallback")
-
-    monkeypatch.setattr(fb.settings, "profiles_enabled", True)
-    monkeypatch.setattr(fb.settings, "llm_core_enabled", True)
 
     sentinel = ["MATERIALIZED_TIER"]
 
@@ -393,22 +266,19 @@ def test_fallback_chain_uses_split_when_both_flags_on(monkeypatch):
     assert chain is sentinel
 
 
-def test_fallback_chain_degrades_to_legacy_on_split_error(monkeypatch):
-    """A config/Redis edge case in split must never break the fallback path."""
+def test_fallback_chain_degrades_to_managed_on_split_error(monkeypatch):
+    """A config/Redis edge case in split must never break the fallback path: it
+    degrades to the resolver's managed-tier chain (non-empty)."""
     import asyncio
     fb = pytest.importorskip("app.services.fallback")
+    from app.llm_core import runtime
 
-    monkeypatch.setattr(fb.settings, "fallback_enabled", True)
-    monkeypatch.setattr(fb.settings, "profiles_enabled", True)
-    monkeypatch.setattr(fb.settings, "llm_core_enabled", True)
-    monkeypatch.setattr(fb, "oss_model_available", lambda: True)
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL", object())
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL_NAME", "gemma-test")
-    monkeypatch.setattr(fb, "OSS_INFERENCE_ENDPOINT_URL", "http://oss:8020/v1")
+    runtime.configure(run_self_check=False)   # synthesized (managed-only) config
 
     async def _boom(session_id, step, *, variant=None):
         raise RuntimeError("config blew up")
 
     monkeypatch.setattr(split, "resolve_chain", _boom)
     chain = asyncio.run(fb._resolve_chain(pipeline="moderation", session_id="s", variant="oss"))
-    assert [a.kind for a in chain] == ["oss", "managed"]   # fell back to attempt_chain
+    assert len(chain) >= 1                       # degrade chain is never empty
+    assert chain[-1].kind == "managed"
