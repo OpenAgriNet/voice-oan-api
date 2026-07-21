@@ -9,12 +9,12 @@ The bar these pin:
   (b) ``resolve_chain`` returns a non-empty materialized chain matching the
       resolved profile's tiers (order + models + kind labels), incl. the voice
       RAW_OPENAI moderation step.
-  (c) a config (weight) change does not re-bucket an already-sticky session.
+  (c) a config (weight) change RE-BUCKETS a continuing session — the sha256
+      bucket over the CURRENT weights is the sticky key; no Redis pin freezes it.
   (d) the flags-OFF path is byte-untouched: PROFILES_ENABLED defaults off and the
       fallback chain acquisition degrades to the legacy ``attempt_chain``.
 
-Zero network: session_id="" avoids Redis entirely (deterministic path); the
-sticky/fail-safe tests inject an in-memory fake cache. Building a factory handle
+Zero network: routing is pure deterministic (no Redis). Building a factory handle
 is lazy (no model call is ever made). Dummy OPENAI/OSS keys set before import.
 
 NOTE (env): the bit-compatibility PROOF is recomputed independently (no import of
@@ -76,29 +76,6 @@ def two_profile_config(pct: int, ttl: int = 604800) -> PipelineConfig:
         ],
         sticky_ttl_s=ttl,
     )
-
-
-class _FakeCache:
-    """In-memory async cache mirroring the aiocache surface split uses."""
-
-    def __init__(self):
-        self.store = {}
-        self.sets = []
-
-    async def get(self, key):
-        return self.store.get(key)
-
-    async def set(self, key, value, ttl=None):
-        self.store[key] = value
-        self.sets.append((key, value, ttl))
-
-
-class _BrokenCache:
-    async def get(self, key):
-        raise RuntimeError("redis down")
-
-    async def set(self, key, value, ttl=None):
-        raise RuntimeError("redis down")
 
 
 def _ref_bucket(session_id: str) -> int:
@@ -246,72 +223,40 @@ def _sid_with_bucket_between(lo, hi):
         i += 1
 
 
-def test_sticky_profile_persists_across_weight_change(monkeypatch):
+def test_resolve_profile_is_pure_deterministic():
+    """resolve_profile == deterministic bucket over the CURRENT weights; no Redis
+    state, so nothing pins a session across weight changes."""
     import asyncio
 
-    fake = _FakeCache()
-    monkeypatch.setattr(split, "cache", fake)
+    cfg = two_profile_config(70)
+    for sid in ("a", "b", "sess-xyz", ""):
+        assert asyncio.run(split.resolve_profile(sid, cfg)) == split.deterministic_profile(sid, cfg)
+
+
+def test_weight_change_rebuckets_continuing_session():
+    """The refresh-on-change contract: a session assigned to one model at a given
+    weight MOVES to the other model when the weight changes — it is not frozen."""
+    import asyncio
 
     sid, bucket = _sid_with_bucket_between(30, 60)
-    cfg_a = two_profile_config(bucket + 5)   # bucket < pct -> 'oss'
-    cfg_b = two_profile_config(bucket - 5)   # bucket >= pct -> deterministic 'managed'
-
-    first = asyncio.run(split.resolve_profile(sid, cfg_a))
-    assert first == "oss"
-    assert fake.store[f"voice_pipeline_profile:{sid}"] == "oss"   # stored under the voice P1 key
-
-    assert split.deterministic_profile(sid, cfg_b) == "managed"
-    assert asyncio.run(split.resolve_profile(sid, cfg_b)) == "oss"
+    cfg_hi = two_profile_config(bucket + 5)   # bucket < pct -> 'oss'
+    cfg_lo = two_profile_config(bucket - 5)   # bucket >= pct -> 'managed'
+    assert asyncio.run(split.resolve_profile(sid, cfg_hi)) == "oss"
+    # SAME session id, weight changed -> re-buckets to the new model (does NOT stick).
+    assert asyncio.run(split.resolve_profile(sid, cfg_lo)) == "managed"
 
 
-def test_sticky_hit_short_circuits_bucketing(monkeypatch):
+def test_zero_to_fifty_moves_about_half_of_continuing_sessions():
+    """0 -> 50% for the oss model moves ~half of continuing (same-id) sessions onto
+    it — exactly the redeploy scenario, not 0%."""
     import asyncio
 
-    fake = _FakeCache()
-    fake.store["voice_pipeline_profile:preset"] = "managed"
-    monkeypatch.setattr(split, "cache", fake)
-    cfg = two_profile_config(100)
-    assert asyncio.run(split.resolve_profile("preset", cfg)) == "managed"
-    assert fake.sets == []   # a hit must not re-write
-
-
-def test_sticky_ttl_comes_from_config(monkeypatch):
-    import asyncio
-
-    fake = _FakeCache()
-    monkeypatch.setattr(split, "cache", fake)
-    cfg = two_profile_config(50, ttl=12345)
-    asyncio.run(split.resolve_profile("ttl-sess", cfg))
-    assert fake.sets and fake.sets[0][2] == 12345
-
-
-def test_stale_stored_name_is_rebucketed(monkeypatch):
-    import asyncio
-
-    fake = _FakeCache()
-    fake.store["voice_pipeline_profile:x"] = "no-such-profile"
-    monkeypatch.setattr(split, "cache", fake)
-    cfg = two_profile_config(100)
-    assert asyncio.run(split.resolve_profile("x", cfg)) == "oss"
-
-
-def test_resolve_profile_fail_safe_on_cache_error(monkeypatch):
-    import asyncio
-
-    monkeypatch.setattr(split, "cache", _BrokenCache())
-    cfg = two_profile_config(70)
-    got = asyncio.run(split.resolve_profile("err-sess", cfg))
-    assert got == split.deterministic_profile("err-sess", cfg)
-
-
-def test_empty_session_id_skips_cache(monkeypatch):
-    import asyncio
-
-    fake = _FakeCache()
-    monkeypatch.setattr(split, "cache", fake)
-    cfg = two_profile_config(50)
-    asyncio.run(split.resolve_profile("", cfg))
-    assert fake.sets == [] and fake.store == {}   # no id -> no Redis touch
+    ids = [f"s{i}" for i in range(400)]
+    at_zero = [asyncio.run(split.resolve_profile(s, two_profile_config(0))) for s in ids]
+    at_fifty = [asyncio.run(split.resolve_profile(s, two_profile_config(50))) for s in ids]
+    assert all(p == "managed" for p in at_zero)          # 0% oss -> everyone on managed
+    moved = sum(1 for a, b in zip(at_zero, at_fifty) if a != b and b == "oss")
+    assert 150 <= moved <= 250                            # ~50% of continuing sessions moved
 
 
 # ── (B) voice router gates the variant resolver on PROFILES_ENABLED ───────────
