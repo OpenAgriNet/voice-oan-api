@@ -133,7 +133,7 @@ Relevant tuning env vars:
 
 Voice request tracing is enabled by default with `ENABLE_VOICE_TRACING=true`.
 When Langfuse is configured, each streamed voice request opens one root
-`voice_request` observation and nests moderation, translation, agent, and tool
+`agent_journey` observation and nests moderation, translation, agent, and tool
 spans below it. The service also emits one structured `VOICE_TRACE_SUMMARY`
 log line per request when `VOICE_TRACE_LOG_SUMMARY=true`.
 
@@ -165,7 +165,11 @@ VOICE_PIPELINE_INTEGRATION=1 pytest tests/test_voice_regressions_apr11_12_integr
 
 For the real model-backed checks in that file, set the relevant endpoints/keys first:
 - `OPENAI_API_KEY`
-- `TRANSLATEGEMMA_27B_BASE_ENDPOINT` or `TRANSLATEGEMMA_27B_BASE_ENDPOINTS`
+- `TRANSLATEGEMMA_27B_BASE_ENDPOINT` — the SINGULAR nginx LB endpoint (it fans out to
+  replicas server-side). Post-translation flows through the unified llm_core config
+  chain (`Step.POST_TRANSLATION = [TranslateGemma(LB), managed-LLM overflow]`).
+  `TRANSLATEGEMMA_27B_BASE_ENDPOINTS` (plural client-side list) is DEPRECATED and no
+  longer read by code — any value is ignored.
 
 Live vLLM pretranslation glossary regressions across every active glossary row:
 ```bash

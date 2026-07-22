@@ -26,14 +26,29 @@ DEAD_OSS_URL = "http://127.0.0.1:1/v1"  # port 1 -> connection refused
 @pytest.fixture
 def oss_dead(monkeypatch):
     from app.services import fallback as fb
+    from app.llm_core.factory import MaterializedTier
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
     dead = OpenAIChatModel("gemma-dead", provider=OpenAIProvider(base_url=DEAD_OSS_URL, api_key="x"))
     monkeypatch.setattr(fb.settings, "fallback_enabled", True)
-    monkeypatch.setattr(fb, "oss_model_available", lambda: True)
-    monkeypatch.setattr(fb, "OSS_LLM_MODEL", dead)
-    monkeypatch.setattr(fb, "OSS_INFERENCE_ENDPOINT_URL", DEAD_OSS_URL)
+
+    def _managed_model():
+        return OpenAIChatModel(os.getenv("LLM_MODEL_NAME", "gpt-4.1"),
+                               provider=OpenAIProvider(api_key=_KEY))
+
+    # Config-driven chain (the only path post-P4): a DEAD OSS vLLM tier (connection
+    # refused) first, then the real managed model — the walker must classify the
+    # connection failure and fall back before commit.
+    async def _resolve_chain(*, pipeline, session_id, variant):
+        return [
+            MaterializedTier(kind="oss", handle=dead, model_name="gemma-dead",
+                             provider="vllm", endpoint=DEAD_OSS_URL, timeout=5.0),
+            MaterializedTier(kind="managed", handle=_managed_model(), model_name="gpt-4.1",
+                             provider="openai", endpoint="managed", timeout=20.0),
+        ]
+
+    monkeypatch.setattr(fb, "_resolve_chain", _resolve_chain)
     events = []
     monkeypatch.setattr(fb, "emit", events.append)
     return fb, events, dead
