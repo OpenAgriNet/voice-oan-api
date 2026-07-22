@@ -4,7 +4,7 @@ from app.auth.jwt_auth import get_current_user
 from app.config import settings
 from app.services.voice_trace import create_voice_trace
 from app.services.voice import stream_voice_message
-from app.services.pipeline_router import resolve_pipeline_variant
+from app.llm_core import split as _llm_split
 from app.utils import _get_message_history, claim_session_request_ownership
 from app.models.requests import ChatRequest
 from helpers.utils import get_logger
@@ -65,9 +65,11 @@ async def voice_endpoint(
     )
     logger.debug(f"Retrieved message history for session {session_id} - length: {len(history)}")
 
-    # Sticky per-session OSS/legacy routing (no-op while OSS_PIPELINE_PCT=0
-    # or OSS_INFERENCE_ENDPOINT_URL unset — resolver returns 'legacy').
-    pipeline_variant = await resolve_pipeline_variant(session_id)
+    # Sticky per-session routing via the unified weighted named-profile split
+    # (the only path). Mapped back to the "oss"/"legacy" variant string the
+    # downstream voice pipeline branches on. Distribution-identical to the removed
+    # pipeline_router (same sha256 bucket + Redis-sticky assignment).
+    pipeline_variant = await _llm_split.resolve_variant(session_id)
 
     return StreamingResponse(
         stream_voice_message(

@@ -8,9 +8,10 @@ TranslateGemma 27B base model deployed on vLLM.
 import os
 import json
 import re
-import random
+import time
 import aiohttp
 import asyncio
+import anyio
 from pathlib import Path
 from typing import Literal, Optional
 from openai import AsyncOpenAI
@@ -18,6 +19,31 @@ from helpers.utils import get_logger, normalize_voice_output
 from dotenv import load_dotenv
 from agents.tools.terms import get_mini_glossary_for_text, get_ambiguity_hints_for_query, TERM_PAIRS
 from app.config import settings
+
+# Post-translation now flows through the unified llm_core config chain
+# (Step.POST_TRANSLATION = [TranslateGemma(LB), managed-LLM overflow]). These are
+# the seams the adapter walks; the disconnect-safe first-token primitive
+# (with_first_token_deadline) and the failure classifier are reused verbatim — the
+# translation logic (incl. voice's per-chunk normalize_voice_output + rstrip decode)
+# is preserved, only the tier walk + cross-provider overflow are new.
+from app.llm_core import resolver as _llm_resolver
+from app.llm_core import health as _llm_health
+from app.llm_core import trace as _llm_trace
+from app import metrics as _metrics
+from app.llm_core.config_model import (
+    Step as _Step,
+    Tier as _Tier,
+    Provider as _Provider,
+    StepClientKind as _StepClientKind,
+)
+from app.llm_core.factory import TGDescriptor as _TGDescriptor, build_handle as _build_handle
+from app.services.fallback import (
+    FALLBACKABLE as _FALLBACKABLE,
+    FallbackEvent as _FallbackEvent,
+    classify as _classify,
+    emit as _emit,
+    with_first_token_deadline as _with_first_token_deadline,
+)
 
 try:
     from langfuse import get_client as get_langfuse_client
@@ -27,6 +53,18 @@ except ImportError:
 load_dotenv()
 
 logger = get_logger(__name__)
+
+
+class _TranslationHTTPError(Exception):
+    """A non-200 from the TranslateGemma endpoint, carrying ``status_code`` so the
+    shared ``classify`` sees the real HTTP status (HTTP_5XX / RATE_LIMITED / OOM)
+    instead of collapsing every failure to UNKNOWN. ``classify`` reads
+    ``exc.status_code`` first, so exposing it here restores honest fallback-reason
+    telemetry and 4xx-vs-5xx slicing across the post-translation chain."""
+
+    def __init__(self, status: int, body: str = ""):
+        self.status_code = status
+        super().__init__(f"Translation failed with status {status}: {body}")
 
 
 # Pretranslation provider — follows main LLM_PROVIDER by default.
@@ -314,29 +352,15 @@ def _post_normalize_gu_translation(
     return out.strip() if strip_outer else out
 
 
-TRANSLATION_ENDPOINTS = {
-    "4b": os.getenv("TRANSLATEGEMMA_4B_ENDPOINT", "http://10.128.170.2:8081/v1"),
-    "12b": os.getenv("TRANSLATEGEMMA_12B_ENDPOINT", "http://10.128.170.2:8082/v1"),
-    "27b": os.getenv("TRANSLATEGEMMA_27B_ENDPOINT", "http://localhost:8085/v1"),
-    "27b-base": os.getenv("TRANSLATEGEMMA_27B_BASE_ENDPOINT", "http://localhost:18002/v1"),
-}
-
-# Multi-endpoint support: comma-separated list for load-balanced 27b-base
-_27b_base_ep_raw = os.getenv("TRANSLATEGEMMA_27B_BASE_ENDPOINTS", "").strip()
-TRANSLATION_ENDPOINTS_27B_BASE: list[str] = (
-    [e.strip() for e in _27b_base_ep_raw.split(",") if e.strip()]
-    if _27b_base_ep_raw
-    else [TRANSLATION_ENDPOINTS["27b-base"]]
-)
-
-DEFAULT_TRANSLATION_MODEL = os.getenv("DEFAULT_TRANSLATION_MODEL", "27b-base")
-
-TRANSLATION_MODEL_IDS = {
-    "4b": os.getenv("TRANSLATEGEMMA_4B_MODEL", "translategemma-4b"),
-    "12b": os.getenv("TRANSLATEGEMMA_12B_MODEL", "translategemma-12b"),
-    "27b": os.getenv("TRANSLATEGEMMA_27B_MODEL", "marathi-translategemma-27b-2250"),
-    "27b-base": os.getenv("TRANSLATEGEMMA_27B_BASE_MODEL", "translategemma-27b-base"),
-}
+# Only the 27b-base TranslateGemma is deployed, BEHIND AN NGINX LB — the SINGULAR
+# TRANSLATEGEMMA_27B_BASE_ENDPOINT IS that LB (it fans out to replicas server-side),
+# so there is exactly one client-facing endpoint (no client-side endpoint list /
+# random.choice anymore). Post-translation model+endpoint selection now flows
+# through the llm_core config chain (Step.POST_TRANSLATION); these singular
+# constants also back the voice pretranslation structured fallback, which still
+# speaks TranslateGemma ``/completions`` directly.
+TRANSLATEGEMMA_27B_BASE_ENDPOINT = os.getenv("TRANSLATEGEMMA_27B_BASE_ENDPOINT", "http://localhost:18002/v1")
+TRANSLATEGEMMA_27B_BASE_MODEL = os.getenv("TRANSLATEGEMMA_27B_BASE_MODEL", "translategemma-27b-base")
 
 LANG_NAMES = {
     "marathi": "Marathi", "english": "English", "hindi": "Hindi",
@@ -367,15 +391,19 @@ INDIAN_LANGUAGES = [
 ]
 
 
-def _format_translation_prompt(
+def _build_translation_instruction(
     text: str,
     source_lang: str,
     target_lang: str,
     mini_glossary: Optional[str] = None,
 ) -> str:
-    """Format the translation prompt using TranslateGemma's official chat template.
-    When target is Gujarati and mini_glossary is provided, injects a dynamic term list
-    so the model uses consistent domain terminology."""
+    """Build the translation INSTRUCTION text (voice spoken-language preamble +
+    glossary Rules + voice GU style rules) — the same wording used for BOTH tiers:
+    TranslateGemma consumes it wrapped in the Gemma chat template
+    (:func:`_wrap_translategemma_prompt`), while the cross-provider LLM overflow tier
+    consumes it verbatim as the chat.completions user message. Kept byte-identical to
+    the prior inline instruction (voice's spoken-language preamble, no length rule) so
+    the two paths are indistinguishable in prompt."""
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     target_name = LANG_NAMES.get(target_lang.lower(), target_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
@@ -404,24 +432,32 @@ def _format_translation_prompt(
             + "\n"
         )
     instruction += f"\n\nPlease translate the following {source_name} text into {target_name}:\n\n\n{text.strip()}"
+    return instruction
 
-    prompt = (
+
+def _wrap_translategemma_prompt(instruction: str) -> str:
+    """Wrap an instruction in TranslateGemma's official chat template."""
+    return (
         f"<bos><start_of_turn>user\n"
         f"{instruction}<end_of_turn>\n"
         f"<start_of_turn>model\n"
     )
-    return prompt
 
 
-def _resolve_model(model_size: Optional[str], target_lang: str) -> tuple[str, Optional[str], Optional[str]]:
-    """
-    Resolve to 27b-base model/endpoint for all translations.
-    Returns (model_size, endpoint, model_id).
-    """
-    model_size = "27b-base"
-    endpoint = random.choice(TRANSLATION_ENDPOINTS_27B_BASE)
-    model_id = TRANSLATION_MODEL_IDS.get(model_size)
-    return model_size, endpoint, model_id
+def _format_translation_prompt(
+    text: str,
+    source_lang: str,
+    target_lang: str,
+    mini_glossary: Optional[str] = None,
+) -> str:
+    """Format the TranslateGemma text-completion prompt (instruction + chat template).
+    When target is Gujarati and mini_glossary is provided, injects a dynamic term list
+    so the model uses consistent domain terminology."""
+    return _wrap_translategemma_prompt(
+        _build_translation_instruction(
+            text, source_lang, target_lang, mini_glossary=mini_glossary,
+        )
+    )
 
 
 def _get_langfuse():
@@ -433,6 +469,554 @@ def _get_langfuse():
         return None
 
 
+def _is_untranslatable_fragment(text: str) -> bool:
+    """True when there is nothing to translate — the fragment has no letters or
+    digits in any script (pure punctuation / markdown / symbols, e.g. ``**``).
+
+    TranslateGemma free-generates an unrelated canned paragraph when handed such a
+    degenerate fragment (a streaming chunk boundary can isolate ``**`` on its own),
+    so we must short-circuit and return it verbatim instead of calling the model.
+    This matters MORE for voice than chat: voice drives ``translate_text_stream_fast``
+    per streaming chunk, so a lone ``**`` chunk is exactly the degenerate-chunk case
+    behind the TG "appended-garbage" hallucination whose prescribed fix is this
+    pre-model chunk guard (ported verbatim from chat)."""
+    return not re.search(r"[^\W_]", text, flags=re.UNICODE)
+
+
+# ── post-translation tier-chain adapter ───────────────────────────────────────
+# translate_text / translate_text_stream_fast route through the llm_core
+# POST_TRANSLATION chain: [TranslateGemma(LB), managed-LLM overflow]. Per tier the
+# handle is a TGDescriptor (aiohttp text-completion) or an AsyncOpenAI client
+# (chat.completions). The SAME instruction (voice spoken-language preamble + glossary
+# Rules + voice GU style rules, no length rule) and the SAME per-chunk transform
+# pipeline (``_fix_dandas -> _post_normalize_gu_translation(strip_outer=False) ->
+# normalize_voice_output(streaming=True)`` for streams;
+# ``_fix_dandas -> _post_normalize_gu_translation -> normalize_voice_output`` for the
+# unary path) apply to BOTH tiers. First-token-commit + classify-based overflow mirror
+# ``stream_with_fallback``; the disconnect-safe TTFT primitive
+# (``with_first_token_deadline``) is reused verbatim. Post-translation is
+# profile-invariant (llm_core ``defaults``), so the chain is variant-independent — we
+# resolve with "legacy". A dedicated walker (not ``stream_with_fallback`` /
+# ``execute_with_fallback``) is used because those resolve their chain internally from
+# a pipeline-string + session_id + weighted split, which post-translation has none of.
+_POST_TRANSLATION_PIPELINE = "posttranslation"
+
+
+def _prepare_translation_inputs(text, source_lang, target_lang):
+    """Mini-glossary fetch + build the translation instruction ONCE (shared by both
+    tiers) + the Gemma-wrapped TranslateGemma prompt. Verbatim to the prior inline
+    logic (mini glossary for gu at threshold 0.90 / max 40). Voice has no
+    max_output_chars length rule."""
+    mini_glossary = ""
+    if target_lang.lower() in ("gujarati", "gu"):
+        mini_glossary = get_mini_glossary_for_text(text, threshold=0.90, max_terms=40)
+        if mini_glossary:
+            logger.info(f"Translation prompt: injected mini glossary ({len(mini_glossary.splitlines())} terms)")
+    instruction = _build_translation_instruction(
+        text, source_lang, target_lang, mini_glossary=mini_glossary,
+    )
+    tg_prompt = _wrap_translategemma_prompt(instruction)
+    return instruction, tg_prompt
+
+
+def _is_translategemma_tier(tier) -> bool:
+    """A tier whose handle speaks TranslateGemma ``/completions`` over aiohttp.
+    Decided from the provider label alone so it never forces a lazy handle build."""
+    return getattr(tier, "provider", "") == "translategemma"
+
+
+class _PostTranslationTier:
+    """One entry in the post-translation fallback chain. Carries the telemetry
+    metadata the walkers read (``kind``/``provider``/``model_name``/``endpoint``/
+    ``timeout``) but builds its client handle LAZILY, memoized, on first access.
+
+    TranslateGemma serves ~every turn and its ``TGDescriptor`` primary is a cheap,
+    provider-independent URL holder; the managed-LLM overflow is an ``AsyncOpenAI``
+    client that is expensive to construct and can legitimately fail to build in a
+    healthy-TG env. Building lazily means the overflow client is constructed ONLY
+    when a request actually falls through to it — never eagerly per call, and a
+    misconfigured overflow tier can never take a healthy primary down (its build
+    error, if reached, is just this tier's failure and hits the caller degrade net,
+    exactly like the old pure-TG path)."""
+
+    __slots__ = ("_tier", "kind", "model_name", "endpoint", "timeout", "ttft", "_memo")
+
+    def __init__(self, tier: _Tier):
+        self._tier = tier
+        self.kind = "oss" if tier.provider is _Provider.VLLM else "managed"
+        self.model_name = tier.model
+        self.endpoint = tier.endpoint or "managed"
+        self.timeout = (tier.timeout_ms / 1000.0) if tier.timeout_ms is not None else None
+        # Distinct SHORT first-token deadline (seconds) — the stream walker bounds
+        # time-to-first-token by this, keeping ``timeout`` as the overall/total cap.
+        # ``None`` (e.g. the managed overflow tier) -> walker falls back to ``timeout``.
+        self.ttft = (tier.ttft_ms / 1000.0) if tier.ttft_ms is not None else None
+        self._memo: list = []
+
+    @property
+    def provider(self) -> str:
+        return self._tier.provider.value
+
+    @property
+    def handle(self):
+        if not self._memo:
+            kind = (
+                _StepClientKind.TRANSLATEGEMMA
+                if self._tier.provider is _Provider.TRANSLATEGEMMA
+                else _StepClientKind.RAW_OPENAI
+            )
+            self._memo.append(_build_handle(self._tier, kind))
+        return self._memo[0]
+
+
+class _TtftDeadlineView:
+    """Minimal view exposing ONLY the attributes ``with_first_token_deadline`` reads
+    (``timeout``/``kind``/``endpoint``), so a post-translation tier can present a
+    SHORT first-token bound (its ``ttft``) to that primitive while its real
+    ``timeout`` stays the 60s overall/total cap the unary walker + aiohttp honor.
+    A saturated-but-ALIVE TranslateGemma thus overflows in single-digit seconds
+    instead of blocking a voice turn for up to the full 60s."""
+
+    __slots__ = ("timeout", "kind", "endpoint")
+
+    def __init__(self, tier, ttft):
+        self.timeout = ttft
+        self.kind = tier.kind
+        self.endpoint = tier.endpoint
+
+
+def _record_served_tier(tier, index: int) -> None:
+    """Record the tier that actually served this post-translation turn: onto the
+    per-turn Langfuse pipeline trace (served kind + 0-based chain index) and the
+    Prometheus served counter (the managed-share KPI). Both hooks are best-effort
+    no-ops off-path (no active trace context / prometheus_client absent)."""
+    _llm_trace.record_served(_Step.POST_TRANSLATION, tier.kind, index)
+    _metrics.record_served(
+        _Step.POST_TRANSLATION.value, tier.kind, tier.provider, tier.model_name
+    )
+
+
+def _post_translation_chain():
+    """Resolve the INERT POST_TRANSLATION tiers, HEALTH-PRUNE known-down endpoints,
+    wrap the survivors as lazy-handle chain entries + record the trace chain.
+    Post-translation is profile-invariant (llm_core ``defaults``), so we resolve
+    with ``"legacy"``.
+
+    The prune is why this exists: the post-translation walkers DO feed the breaker
+    (``record_failure``/``record_success``) and the poller polls the TG ``/health``,
+    but without pruning here a down TG is re-attempted (and re-timed-out) EVERY turn
+    on the most-traveled path. ``prune_unhealthy`` drops tiers whose endpoint breaker
+    is ``open`` and is contractually never-empty (all-open -> chain returned
+    unchanged), and it is a settings-gated identity no-op when the health flags are
+    off, so the flags-off path is byte-identical."""
+    tiers = _llm_resolver.post_translation_tiers("legacy")
+    tiers = _llm_health.prune_unhealthy(_Step.POST_TRANSLATION, tiers)
+    chain = [_PostTranslationTier(t) for t in tiers]
+    _llm_trace.record_step_chain(_Step.POST_TRANSLATION, chain)
+    return chain
+
+
+async def _translategemma_stream(descriptor, prompt, source_lang, target_lang, text, temperature, max_tokens):
+    """VERBATIM TranslateGemma streaming SSE decode (aiohttp), incl. the
+    ``stream_translation`` Langfuse observation and its ``if not langfuse:`` branch.
+    Voice per-chunk pipeline: ``_fix_dandas -> _post_normalize_gu_translation ->
+    normalize_voice_output(streaming=True)``; line decode via ``.rstrip('\\r')``."""
+    translated_parts: list[str] = []
+    langfuse = _get_langfuse()
+
+    if not langfuse:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                descriptor.completions_url,
+                json={
+                    "model": descriptor.model_id,
+                    "prompt": prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                },
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Translation API error {response.status}: {error_text}")
+                    raise _TranslationHTTPError(response.status, error_text)
+
+                buffer = b''
+                async for chunk in response.content.iter_chunked(64):
+                    buffer += chunk
+                    while b'\n' in buffer:
+                        line, buffer = buffer.split(b'\n', 1)
+                        line = line.decode('utf-8').rstrip('\r')
+                        if line.startswith('data: '):
+                            data = line[6:]
+                            if data == '[DONE]':
+                                break
+                            try:
+                                chunk_data = json.loads(data)
+                                content = chunk_data['choices'][0].get('text', '')
+                                if content:
+                                    content = _fix_dandas(content)
+                                    content = _post_normalize_gu_translation(
+                                        content, target_lang, strip_outer=False,
+                                    )
+                                    content = normalize_voice_output(
+                                        content, target_lang, streaming=True,
+                                    )
+                                    translated_parts.append(content)
+                                    yield content
+                            except json.JSONDecodeError:
+                                continue
+        return
+
+    with langfuse.start_as_current_observation(
+        name="stream_translation",
+        as_type="generation",
+        input={
+            "source_lang": source_lang,
+            "target_lang": target_lang,
+            "text": text,
+        },
+        model=descriptor.model_id,
+        metadata={
+            "translation_provider": "translategemma",
+            "model_size": "27b-base",
+            "stream": "true",
+            "pipeline_stage": "stream_translation",
+        },
+    ) as observation:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                descriptor.completions_url,
+                json={
+                    "model": descriptor.model_id,
+                    "prompt": prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                },
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Translation API error {response.status}: {error_text}")
+                    raise _TranslationHTTPError(response.status, error_text)
+
+                buffer = b''
+                async for chunk in response.content.iter_chunked(64):
+                    buffer += chunk
+                    while b'\n' in buffer:
+                        line, buffer = buffer.split(b'\n', 1)
+                        line = line.decode('utf-8').rstrip('\r')
+                        if line.startswith('data: '):
+                            data = line[6:]
+                            if data == '[DONE]':
+                                break
+                            try:
+                                chunk_data = json.loads(data)
+                                content = chunk_data['choices'][0].get('text', '')
+                                if content:
+                                    content = _fix_dandas(content)
+                                    content = _post_normalize_gu_translation(
+                                        content, target_lang, strip_outer=False,
+                                    )
+                                    content = normalize_voice_output(
+                                        content, target_lang, streaming=True,
+                                    )
+                                    translated_parts.append(content)
+                                    yield content
+                            except json.JSONDecodeError:
+                                continue
+        observation.update(output="".join(translated_parts))
+
+
+async def _llm_translation_stream(client, model_name, instruction, source_lang, target_lang, text, temperature, max_tokens):
+    """Cross-provider overflow: a managed chat LLM does en->target translation with
+    the SAME instruction (glossary + rules), piping each ``delta.content`` through the
+    SAME voice per-chunk pipeline (``_fix_dandas -> _post_normalize_gu_translation ->
+    normalize_voice_output(streaming=True)``). Mirrors the TG observation for parity."""
+    langfuse = _get_langfuse()
+
+    if not langfuse:
+        stream = await client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": instruction}],
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+            stream=True,
+        )
+        async for chunk in stream:
+            if not getattr(chunk, "choices", None):
+                continue
+            content = getattr(chunk.choices[0].delta, "content", None) or ""
+            if content:
+                content = _fix_dandas(content)
+                content = _post_normalize_gu_translation(content, target_lang, strip_outer=False)
+                content = normalize_voice_output(content, target_lang, streaming=True)
+                yield content
+        return
+
+    translated_parts: list[str] = []
+    with langfuse.start_as_current_observation(
+        name="stream_translation",
+        as_type="generation",
+        input={
+            "source_lang": source_lang,
+            "target_lang": target_lang,
+            "text": text,
+        },
+        model=model_name,
+        metadata={
+            "translation_provider": "llm-fallback",
+            "stream": "true",
+            "pipeline_stage": "stream_translation",
+        },
+    ) as observation:
+        stream = await client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": instruction}],
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+            stream=True,
+        )
+        async for chunk in stream:
+            if not getattr(chunk, "choices", None):
+                continue
+            content = getattr(chunk.choices[0].delta, "content", None) or ""
+            if content:
+                content = _fix_dandas(content)
+                content = _post_normalize_gu_translation(content, target_lang, strip_outer=False)
+                content = normalize_voice_output(content, target_lang, streaming=True)
+                translated_parts.append(content)
+                yield content
+        observation.update(output="".join(translated_parts))
+
+
+async def _translategemma_unary(descriptor, prompt, source_lang, target_lang, text, temperature, max_tokens):
+    """VERBATIM non-stream TranslateGemma call (reads full body ``choices[0].text``)
+    incl. the ``text_translation`` Langfuse observation and its ``if not langfuse:``
+    branch. Voice per-response transforms: ``_fix_dandas ->
+    _post_normalize_gu_translation -> normalize_voice_output`` (unconditional)."""
+    langfuse = _get_langfuse()
+
+    if not langfuse:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                descriptor.completions_url,
+                json={
+                    "model": descriptor.model_id,
+                    "prompt": prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Translation API error {response.status}: {error_text}")
+                    raise _TranslationHTTPError(response.status, error_text)
+
+                result = await response.json()
+                translated_text = result["choices"][0]["text"].strip()
+                translated_text = _fix_dandas(translated_text)
+                translated_text = _post_normalize_gu_translation(translated_text, target_lang)
+                translated_text = normalize_voice_output(translated_text, target_lang)
+                logger.info(f"Translation successful ({len(text)} -> {len(translated_text)} chars)")
+                return translated_text
+
+    with langfuse.start_as_current_observation(
+        name="text_translation",
+        as_type="generation",
+        input={
+            "source_lang": source_lang,
+            "target_lang": target_lang,
+            "text": text,
+        },
+        model=descriptor.model_id,
+        metadata={
+            "translation_provider": "translategemma",
+            "model_size": "27b-base",
+            "pipeline_stage": "text_translation",
+        },
+    ) as observation:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                descriptor.completions_url,
+                json={
+                    "model": descriptor.model_id,
+                    "prompt": prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Translation API error {response.status}: {error_text}")
+                    raise _TranslationHTTPError(response.status, error_text)
+
+                result = await response.json()
+                translated_text = result["choices"][0]["text"].strip()
+                translated_text = _fix_dandas(translated_text)
+                translated_text = _post_normalize_gu_translation(translated_text, target_lang)
+                translated_text = normalize_voice_output(translated_text, target_lang)
+                observation.update(output=translated_text)
+                logger.info(f"Translation successful ({len(text)} -> {len(translated_text)} chars)")
+                return translated_text
+
+
+async def _llm_translation_unary(client, model_name, instruction, source_lang, target_lang, text, temperature, max_tokens):
+    """Cross-provider overflow (non-stream): chat.completions with the SAME
+    instruction, reading ``choices[0].message.content`` and applying the SAME voice
+    transforms (``_fix_dandas -> _post_normalize_gu_translation ->
+    normalize_voice_output`` unconditional)."""
+    langfuse = _get_langfuse()
+
+    if not langfuse:
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": instruction}],
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+        )
+        translated_text = (response.choices[0].message.content or "").strip()
+        translated_text = _fix_dandas(translated_text)
+        translated_text = _post_normalize_gu_translation(translated_text, target_lang)
+        translated_text = normalize_voice_output(translated_text, target_lang)
+        logger.info(f"Translation successful ({len(text)} -> {len(translated_text)} chars)")
+        return translated_text
+
+    with langfuse.start_as_current_observation(
+        name="text_translation",
+        as_type="generation",
+        input={
+            "source_lang": source_lang,
+            "target_lang": target_lang,
+            "text": text,
+        },
+        model=model_name,
+        metadata={
+            "translation_provider": "llm-fallback",
+            "pipeline_stage": "text_translation",
+        },
+    ) as observation:
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": instruction}],
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+        )
+        translated_text = (response.choices[0].message.content or "").strip()
+        translated_text = _fix_dandas(translated_text)
+        translated_text = _post_normalize_gu_translation(translated_text, target_lang)
+        translated_text = normalize_voice_output(translated_text, target_lang)
+        observation.update(output=translated_text)
+        logger.info(f"Translation successful ({len(text)} -> {len(translated_text)} chars)")
+        return translated_text
+
+
+async def _stream_post_translation_chain(chain, make_stream, *, source_lang, target_lang):
+    """First-token-commit walker over the POST_TRANSLATION chain — mirrors
+    ``fallback.stream_with_fallback`` (commit on first chunk; pre-commit fallbackable
+    failure swaps to the next tier; post-commit failure propagates) but drives a
+    PRE-RESOLVED chain and calls ``with_first_token_deadline`` for the disconnect-safe
+    TTFT bound. Cross-provider overflow (translategemma -> managed LLM) is just the
+    next tier."""
+    last_exc: Optional[BaseException] = None
+    for i, tier in enumerate(chain):
+        t0 = time.monotonic()
+        committed = False
+        try:
+            # Bound the FIRST-token wait by the tier's short ``ttft`` (falling back to
+            # its ``timeout`` when unset); the 60s ``timeout`` remains the overall/total
+            # cap (aiohttp total + unary walker), so a saturated-but-alive TG overflows
+            # fast instead of holding a voice turn for the whole 60s.
+            _ttft = getattr(tier, "ttft", None)
+            _deadline_view = _TtftDeadlineView(
+                tier, _ttft if _ttft is not None else tier.timeout
+            )
+            async for chunk in _with_first_token_deadline(_deadline_view, make_stream(tier)):
+                committed = True
+                yield chunk
+            _llm_health.record_success(tier.endpoint)
+            _record_served_tier(tier, i)
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            reason = _classify(exc)
+            is_last = i == len(chain) - 1
+            if committed:
+                _emit(_FallbackEvent(
+                    pipeline=_POST_TRANSLATION_PIPELINE, session_id="-",
+                    from_variant=tier.kind, to_variant=None, reason=reason,
+                    error_class=type(exc).__name__, error_detail=str(exc)[:500],
+                    oss_endpoint=tier.endpoint, oss_model=tier.model_name,
+                    latency_ms=int((time.monotonic() - t0) * 1000),
+                    fell_back=False, committed=True,
+                ))
+                raise
+            will_fall_back = reason in _FALLBACKABLE and not is_last
+            if reason in _FALLBACKABLE:
+                _llm_health.record_failure(tier.endpoint)
+            _emit(_FallbackEvent(
+                pipeline=_POST_TRANSLATION_PIPELINE, session_id="-",
+                from_variant=tier.kind,
+                to_variant=chain[i + 1].kind if will_fall_back else None,
+                reason=reason, error_class=type(exc).__name__, error_detail=str(exc)[:500],
+                oss_endpoint=tier.endpoint, oss_model=tier.model_name,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                fell_back=will_fall_back, committed=False,
+            ))
+            last_exc = exc
+            if will_fall_back:
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
+
+
+async def _run_post_translation_chain(chain, run):
+    """Unary walker over the POST_TRANSLATION chain — mirrors
+    ``fallback.execute_with_fallback`` (per-tier timeout via ``anyio.fail_after``;
+    fall back on a classified infrastructure failure) over a PRE-RESOLVED chain."""
+    last_exc: Optional[BaseException] = None
+    for i, tier in enumerate(chain):
+        t0 = time.monotonic()
+        try:
+            if tier.timeout is None:
+                result = await run(tier)
+            else:
+                with anyio.fail_after(tier.timeout):
+                    result = await run(tier)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            reason = _classify(exc)
+            is_last = i == len(chain) - 1
+            will_fall_back = reason in _FALLBACKABLE and not is_last
+            if reason in _FALLBACKABLE:
+                _llm_health.record_failure(tier.endpoint)
+            _emit(_FallbackEvent(
+                pipeline=_POST_TRANSLATION_PIPELINE, session_id="-",
+                from_variant=tier.kind,
+                to_variant=chain[i + 1].kind if will_fall_back else None,
+                reason=reason, error_class=type(exc).__name__, error_detail=str(exc)[:500],
+                oss_endpoint=tier.endpoint, oss_model=tier.model_name,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                fell_back=will_fall_back, committed=False,
+            ))
+            last_exc = exc
+            if not will_fall_back:
+                raise
+        else:
+            _llm_health.record_success(tier.endpoint)
+            _record_served_tier(tier, i)
+            return result
+    if last_exc is not None:
+        raise last_exc
+
+
 async def translate_text(
     text: str,
     source_lang: str,
@@ -441,103 +1025,39 @@ async def translate_text(
     temperature: float = 0.0,
     max_tokens: int = 2048
 ) -> str:
-    """Translate text using TranslateGemma."""
+    """Translate text via the post-translation tier chain.
+
+    Chain = [TranslateGemma(LB), managed-LLM overflow]. Guards / prompt / per-response
+    transforms are byte-identical to the prior TranslateGemma-only path (incl. the
+    unconditional ``normalize_voice_output`` after post-normalize); the only additions
+    are the cross-provider overflow (chat.completions with the SAME instruction) when
+    TranslateGemma fails, and config-driven endpoint/model selection (no more
+    client-side ``random.choice``)."""
     if not text or not text.strip():
+        return text
+
+    if _is_untranslatable_fragment(text):
         return text
 
     if source_lang.lower() == target_lang.lower():
         logger.info("Source and target languages are the same, skipping translation")
         return text
 
-    model_size, endpoint, model_id = _resolve_model(model_size, target_lang)
-    if not endpoint or not model_id:
-        raise ValueError(f"Invalid translation model size: {model_size}")
+    instruction, tg_prompt = _prepare_translation_inputs(text, source_lang, target_lang)
+    logger.info(f"Translating {source_lang} -> {target_lang} via post-translation chain")
 
-    mini_glossary = ""
-    if target_lang.lower() in ("gujarati", "gu"):
-        mini_glossary = get_mini_glossary_for_text(text, threshold=0.90, max_terms=40)
-        if mini_glossary:
-            logger.info(f"Translation prompt: injected mini glossary ({len(mini_glossary.splitlines())} terms)")
-    prompt = _format_translation_prompt(text, source_lang, target_lang, mini_glossary=mini_glossary)
-    logger.info(f"Translating {source_lang} -> {target_lang} using {model_size} model")
+    chain = _post_translation_chain()
 
-    langfuse = _get_langfuse()
+    async def _run(tier):
+        if _is_translategemma_tier(tier):
+            return await _translategemma_unary(
+                tier.handle, tg_prompt, source_lang, target_lang, text, temperature, max_tokens
+            )
+        return await _llm_translation_unary(
+            tier.handle, tier.model_name, instruction, source_lang, target_lang, text, temperature, max_tokens
+        )
 
-    try:
-        if not langfuse:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{endpoint}/completions",
-                    json={
-                        "model": model_id,
-                        "prompt": prompt,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                    },
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Translation API error {response.status}: {error_text}")
-                        raise Exception(f"Translation failed with status {response.status}")
-
-                    result = await response.json()
-                    translated_text = result["choices"][0]["text"].strip()
-                    translated_text = _fix_dandas(translated_text)
-                    translated_text = _post_normalize_gu_translation(
-                        translated_text,
-                        target_lang,
-                    )
-                    translated_text = normalize_voice_output(translated_text, target_lang)
-                    logger.info(f"Translation successful ({len(text)} -> {len(translated_text)} chars)")
-                    return translated_text
-
-        with langfuse.start_as_current_observation(
-            name="text_translation",
-            as_type="generation",
-            input={
-                "source_lang": source_lang,
-                "target_lang": target_lang,
-                "text": text,
-            },
-            model=model_id,
-            metadata={
-                "translation_provider": "translategemma",
-                "model_size": model_size,
-                "pipeline_stage": "text_translation",
-            },
-        ) as observation:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{endpoint}/completions",
-                    json={
-                        "model": model_id,
-                        "prompt": prompt,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                    },
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Translation API error {response.status}: {error_text}")
-                        raise Exception(f"Translation failed with status {response.status}")
-
-                    result = await response.json()
-                    translated_text = result["choices"][0]["text"].strip()
-                    translated_text = _fix_dandas(translated_text)
-                    translated_text = _post_normalize_gu_translation(
-                        translated_text,
-                        target_lang,
-                    )
-                    translated_text = normalize_voice_output(translated_text, target_lang)
-                    observation.update(output=translated_text)
-                    logger.info(f"Translation successful ({len(text)} -> {len(translated_text)} chars)")
-                    return translated_text
-
-    except aiohttp.ClientError as e:
-        logger.error(f"Translation API connection error: {str(e)}")
-        raise Exception(f"Failed to connect to translation service: {str(e)}")
+    return await _run_post_translation_chain(chain, _run)
 
 
 def _get_openai_client() -> AsyncOpenAI:
@@ -714,17 +1234,22 @@ def _build_structured_pretranslation_prompt(source_name: str, source_code: str, 
     )
 
 
-async def _create_openai_pretranslation_response(
+async def _create_pretranslation_response(
     client: AsyncOpenAI,
+    model: str,
     *,
     source_name: str,
     source_code: str,
     text: str,
     max_tokens: int,
 ):
+    """Single OpenAI-compatible pretranslation call, parametrized by (client, model).
+
+    Replaces the former ``_create_openai_pretranslation_response`` /
+    ``_create_oss_pretranslation_response`` twins (identical bodies bar the model)."""
     return await asyncio.wait_for(
         client.chat.completions.create(
-            model=OPENAI_PRETRANSLATION_MODEL,
+            model=model,
             messages=_build_openai_pretranslation_messages(source_name, source_code, text),
             max_completion_tokens=max_tokens,
             response_format={"type": "json_object"},
@@ -804,9 +1329,11 @@ async def translate_to_english_with_structured_fallback(
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
     prompt = _build_structured_pretranslation_prompt(source_name, source_code, text)
-    model_size, endpoint, model_id = _resolve_model(None, "english")
-    if not endpoint or not model_id:
-        raise ValueError(f"Invalid translation model size: {model_size}")
+    # Voice pretranslation structured fallback still speaks TranslateGemma
+    # /completions directly (not the post-translation chain). Uses the SINGULAR
+    # LB endpoint/model — the client-side endpoint list + _resolve_model were removed.
+    endpoint = TRANSLATEGEMMA_27B_BASE_ENDPOINT
+    model_id = TRANSLATEGEMMA_27B_BASE_MODEL
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
@@ -839,15 +1366,25 @@ async def translate_to_english_with_structured_fallback(
             return translated_text
 
 
-async def translate_to_english_with_gpt5_mini(
+async def _translate_to_english_pretranslation(
     text: str,
     source_lang: str,
     *,
+    client: AsyncOpenAI,
+    model: str,
+    label: str,
+    translation_provider_label: str,
+    extra_metadata: Optional[dict] = None,
     max_tokens: int = 1024,
 ) -> str:
-    """Translate input text to English using OpenAI for pipeline pre-translation.
+    """Single parametrized pretranslation body — the collapse of the former
+    ``translate_to_english_with_gpt5_mini`` / ``translate_to_english_with_oss_vllm``
+    twins (identical bodies bar the client/model/langfuse-label). The two public
+    wrappers below supply the managed-OpenAI vs OSS-vLLM (client, model, label);
+    everything else — early-returns, glossary replacement, empty/timeout handling,
+    the Langfuse ``query_pretranslation`` observation — is shared verbatim.
 
-    Returns the translated text, or an empty string on empty/failed output.
+    Returns the translated text, or the original text on empty output.
     """
     if not text or not text.strip():
         return text
@@ -855,16 +1392,14 @@ async def translate_to_english_with_gpt5_mini(
     if source_lang.lower() in {"english", "en"}:
         return text
 
-    client = _get_openai_client()
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
 
     langfuse = _get_langfuse()
-
     try:
         if not langfuse:
-            response = await _create_openai_pretranslation_response(
-                client,
+            response = await _create_pretranslation_response(
+                client, model,
                 source_name=source_name,
                 source_code=source_code,
                 text=text,
@@ -873,8 +1408,8 @@ async def translate_to_english_with_gpt5_mini(
             translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 logger.warning(
-                    "OpenAI pretranslation returned empty - source_lang=%s query=%r",
-                    source_lang, (text or "")[:100],
+                    "%s pretranslation returned empty - source_lang=%s query=%r",
+                    label, source_lang, (text or "")[:100],
                 )
                 return text
             translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
@@ -888,14 +1423,15 @@ async def translate_to_english_with_gpt5_mini(
                 "target_lang": "english",
                 "text": text,
             },
-            model=OPENAI_PRETRANSLATION_MODEL,
+            model=model,
             metadata={
-                "translation_provider": PRETRANSLATION_PROVIDER,
+                "translation_provider": translation_provider_label,
                 "pipeline_stage": "query_pretranslation",
+                **(extra_metadata or {}),
             },
         ) as observation:
-            response = await _create_openai_pretranslation_response(
-                client,
+            response = await _create_pretranslation_response(
+                client, model,
                 source_name=source_name,
                 source_code=source_code,
                 text=text,
@@ -904,8 +1440,8 @@ async def translate_to_english_with_gpt5_mini(
             translated_text = _extract_translation_from_response(response)
             if not translated_text:
                 logger.warning(
-                    "OpenAI pretranslation returned empty - source_lang=%s query=%r",
-                    source_lang, (text or "")[:100],
+                    "%s pretranslation returned empty - source_lang=%s query=%r",
+                    label, source_lang, (text or "")[:100],
                 )
                 observation.update(output="__EMPTY__")
                 return text
@@ -914,33 +1450,41 @@ async def translate_to_english_with_gpt5_mini(
             return translated_text
     except asyncio.TimeoutError as e:
         logger.error(
-            "OpenAI pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
+            "%s pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
+            label,
             source_lang,
-            OPENAI_PRETRANSLATION_MODEL,
+            model,
             settings.openai_pretranslation_timeout_seconds,
             len(text or ""),
             (text or "")[:160],
         )
-        raise TimeoutError("OpenAI pretranslation timed out") from e
+        raise TimeoutError(f"{label} pretranslation timed out") from e
 
 
-async def _create_oss_pretranslation_response(
-    client: AsyncOpenAI,
-    *,
-    source_name: str,
-    source_code: str,
+async def translate_to_english_with_gpt5_mini(
     text: str,
-    max_tokens: int,
-):
-    """Mirror of _create_openai_pretranslation_response, pinned to the OSS vLLM endpoint."""
-    return await asyncio.wait_for(
-        client.chat.completions.create(
-            model=OSS_PRETRANSLATION_MODEL,
-            messages=_build_openai_pretranslation_messages(source_name, source_code, text),
-            max_completion_tokens=max_tokens,
-            response_format={"type": "json_object"},
-        ),
-        timeout=settings.openai_pretranslation_timeout_seconds,
+    source_lang: str,
+    *,
+    max_tokens: int = 1024,
+    session_id: str = "",
+    user_id: str = "",
+    process_id: str = "",
+    pipeline_variant: str = "",
+) -> str:
+    """Pretranslate to English via the managed OpenAI client (legacy sessions).
+
+    Thin wrapper over the unified ``_translate_to_english_pretranslation`` body;
+    supplies the managed (client, model, label). Behaviour-identical to the former
+    twin. Returns the translated text, or the original text on empty output.
+    """
+    return await _translate_to_english_pretranslation(
+        text,
+        source_lang,
+        client=_get_openai_client(),
+        model=OPENAI_PRETRANSLATION_MODEL,
+        label="OpenAI",
+        translation_provider_label=PRETRANSLATION_PROVIDER,
+        max_tokens=max_tokens,
     )
 
 
@@ -949,89 +1493,27 @@ async def translate_to_english_with_oss_vllm(
     source_lang: str,
     *,
     max_tokens: int = 1024,
+    session_id: str = "",
+    user_id: str = "",
+    process_id: str = "",
+    pipeline_variant: str = "",
 ) -> str:
     """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
 
-    Same return contract as translate_to_english_with_gpt5_mini: the translated
-    text, or an empty string on empty/failed output.
-
-    Legacy sessions never hit this — the function is only called when the
-    sticky pipeline router returns variant='oss'.
+    Thin wrapper over the unified ``_translate_to_english_pretranslation`` body;
+    supplies the OSS (client, model, label) + the ``pipeline_variant`` observation
+    tag. Behaviour-identical to the former twin. Legacy sessions never hit this.
     """
-    if not text or not text.strip():
-        return text
-
-    if source_lang.lower() in {"english", "en"}:
-        return text
-
-    client = _get_oss_pretranslation_client()
-    source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
-    source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
-
-    langfuse = _get_langfuse()
-
-    try:
-        if not langfuse:
-            response = await _create_oss_pretranslation_response(
-                client,
-                source_name=source_name,
-                source_code=source_code,
-                text=text,
-                max_tokens=max_tokens,
-            )
-            translated_text = _extract_translation_from_response(response)
-            if not translated_text:
-                logger.warning(
-                    "OSS vLLM pretranslation returned empty - source_lang=%s query=%r",
-                    source_lang, (text or "")[:100],
-                )
-                return text
-            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
-            return translated_text
-
-        with langfuse.start_as_current_observation(
-            name="query_pretranslation",
-            as_type="generation",
-            input={
-                "source_lang": source_lang,
-                "target_lang": "english",
-                "text": text,
-            },
-            model=OSS_PRETRANSLATION_MODEL,
-            metadata={
-                "translation_provider": "vllm",
-                "pipeline_stage": "query_pretranslation",
-                "pipeline_variant": "oss",
-            },
-        ) as observation:
-            response = await _create_oss_pretranslation_response(
-                client,
-                source_name=source_name,
-                source_code=source_code,
-                text=text,
-                max_tokens=max_tokens,
-            )
-            translated_text = _extract_translation_from_response(response)
-            if not translated_text:
-                logger.warning(
-                    "OSS vLLM pretranslation returned empty - source_lang=%s query=%r",
-                    source_lang, (text or "")[:100],
-                )
-                observation.update(output="__EMPTY__")
-                return text
-            translated_text = _apply_exact_glossary_transliteration_replacements(text, translated_text)
-            observation.update(output=translated_text)
-            return translated_text
-    except asyncio.TimeoutError as e:
-        logger.error(
-            "OSS vLLM pretranslation timed out - source_lang=%s model=%s timeout_seconds=%.2f query_chars=%s query_preview=%r",
-            source_lang,
-            OSS_PRETRANSLATION_MODEL,
-            settings.openai_pretranslation_timeout_seconds,
-            len(text or ""),
-            (text or "")[:160],
-        )
-        raise TimeoutError("OSS vLLM pretranslation timed out") from e
+    return await _translate_to_english_pretranslation(
+        text,
+        source_lang,
+        client=_get_oss_pretranslation_client(),
+        model=OSS_PRETRANSLATION_MODEL,
+        label="OSS vLLM",
+        translation_provider_label="vllm",
+        extra_metadata={"pipeline_variant": pipeline_variant or "oss"},
+        max_tokens=max_tokens,
+    )
 
 
 async def translate_text_stream_fast(
@@ -1042,143 +1524,45 @@ async def translate_text_stream_fast(
     temperature: float = 0.0,
     max_tokens: int = 2048
 ):
-    """Stream translated text token by token (no artificial delay)."""
+    """Stream translated text token by token (no artificial delay) via the
+    post-translation tier chain [TranslateGemma(LB), managed-LLM overflow].
+
+    First-token-commit semantics: if TranslateGemma fails BEFORE the first chunk on a
+    fallbackable reason, the managed-LLM overflow tier transparently serves; a failure
+    AFTER the first chunk propagates (the caller-side degrade net yields the English
+    batch). Guards, prompt, and the voice per-chunk transform pipeline
+    (``_fix_dandas -> _post_normalize_gu_translation -> normalize_voice_output(
+    streaming=True)``) are unchanged."""
     if not text or not text.strip():
+        return
+
+    if _is_untranslatable_fragment(text):
+        yield text
         return
 
     if source_lang.lower() == target_lang.lower():
         yield text
         return
 
-    model_size, endpoint, model_id = _resolve_model(model_size, target_lang)
-    if not endpoint or not model_id:
-        raise ValueError(f"Invalid translation model size: {model_size}")
+    instruction, tg_prompt = _prepare_translation_inputs(text, source_lang, target_lang)
+    logger.info(f"Fast streaming translation {source_lang} -> {target_lang} via post-translation chain")
 
-    mini_glossary = ""
-    if target_lang.lower() in ("gujarati", "gu"):
-        mini_glossary = get_mini_glossary_for_text(text, threshold=0.90, max_terms=40)
-        if mini_glossary:
-            logger.info(f"Translation prompt: injected mini glossary ({len(mini_glossary.splitlines())} terms)")
-    prompt = _format_translation_prompt(text, source_lang, target_lang, mini_glossary=mini_glossary)
-    logger.info(f"Fast streaming translation {source_lang} -> {target_lang} using {model_size} model")
+    chain = _post_translation_chain()
 
-    translated_parts: list[str] = []
-    langfuse = _get_langfuse()
+    def _make_stream(tier):
+        if _is_translategemma_tier(tier):
+            return _translategemma_stream(
+                tier.handle, tg_prompt, source_lang, target_lang, text, temperature, max_tokens
+            )
+        return _llm_translation_stream(
+            tier.handle, tier.model_name, instruction, source_lang, target_lang, text, temperature, max_tokens
+        )
 
     try:
-        if not langfuse:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{endpoint}/completions",
-                    json={
-                        "model": model_id,
-                        "prompt": prompt,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "stream": True
-                    },
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Translation API error {response.status}: {error_text}")
-                        raise Exception(f"Translation failed with status {response.status}")
-
-                    buffer = b''
-                    async for chunk in response.content.iter_chunked(64):
-                        buffer += chunk
-                        while b'\n' in buffer:
-                            line, buffer = buffer.split(b'\n', 1)
-                            line = line.decode('utf-8').rstrip('\r')
-                            if line.startswith('data: '):
-                                data = line[6:]
-                                if data == '[DONE]':
-                                    break
-                                try:
-                                    chunk_data = json.loads(data)
-                                    content = chunk_data['choices'][0].get('text', '')
-                                    if content:
-                                        content = _fix_dandas(content)
-                                        content = _post_normalize_gu_translation(
-                                            content,
-                                            target_lang,
-                                            strip_outer=False,
-                                        )
-                                        content = normalize_voice_output(
-                                            content,
-                                            target_lang,
-                                            streaming=True,
-                                        )
-                                        translated_parts.append(content)
-                                        yield content
-                                except json.JSONDecodeError:
-                                    continue
-            return
-
-        with langfuse.start_as_current_observation(
-            name="stream_translation",
-            as_type="generation",
-            input={
-                "source_lang": source_lang,
-                "target_lang": target_lang,
-                "text": text,
-            },
-            model=model_id,
-            metadata={
-                "translation_provider": "translategemma",
-                "model_size": model_size,
-                "stream": "true",
-                "pipeline_stage": "stream_translation",
-            },
-        ) as observation:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{endpoint}/completions",
-                    json={
-                        "model": model_id,
-                        "prompt": prompt,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "stream": True
-                    },
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Translation API error {response.status}: {error_text}")
-                        raise Exception(f"Translation failed with status {response.status}")
-
-                    buffer = b''
-                    async for chunk in response.content.iter_chunked(64):
-                        buffer += chunk
-                        while b'\n' in buffer:
-                            line, buffer = buffer.split(b'\n', 1)
-                            line = line.decode('utf-8').rstrip('\r')
-                            if line.startswith('data: '):
-                                data = line[6:]
-                                if data == '[DONE]':
-                                    break
-                                try:
-                                    chunk_data = json.loads(data)
-                                    content = chunk_data['choices'][0].get('text', '')
-                                    if content:
-                                        content = _fix_dandas(content)
-                                        content = _post_normalize_gu_translation(
-                                            content,
-                                            target_lang,
-                                            strip_outer=False,
-                                        )
-                                        content = normalize_voice_output(
-                                            content,
-                                            target_lang,
-                                            streaming=True,
-                                        )
-                                        translated_parts.append(content)
-                                        yield content
-                                except json.JSONDecodeError:
-                                    continue
-            observation.update(output="".join(translated_parts))
-
+        async for chunk in _stream_post_translation_chain(
+            chain, _make_stream, source_lang=source_lang, target_lang=target_lang
+        ):
+            yield chunk
     except Exception as e:
         logger.error(f"Translation streaming error: {str(e)}")
         raise
