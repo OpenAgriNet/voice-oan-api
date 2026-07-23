@@ -609,7 +609,7 @@ def _post_translation_chain():
     is ``open`` and is contractually never-empty (all-open -> chain returned
     unchanged), and it is a settings-gated identity no-op when the health flags are
     off, so the flags-off path is byte-identical."""
-    tiers = _llm_resolver.post_translation_tiers("legacy")
+    tiers = _llm_resolver.post_translation_tiers()  # profile-invariant (lives in defaults)
     tiers = _llm_health.prune_unhealthy(_Step.POST_TRANSLATION, tiers)
     chain = [_PostTranslationTier(t) for t in tiers]
     _llm_trace.record_step_chain(_Step.POST_TRANSLATION, chain)
@@ -1469,7 +1469,7 @@ async def translate_to_english_with_gpt5_mini(
     session_id: str = "",
     user_id: str = "",
     process_id: str = "",
-    pipeline_variant: str = "",
+    pipeline_profile: str = "",
 ) -> str:
     """Pretranslate to English via the managed OpenAI client (legacy sessions).
 
@@ -1496,12 +1496,12 @@ async def translate_to_english_with_oss_vllm(
     session_id: str = "",
     user_id: str = "",
     process_id: str = "",
-    pipeline_variant: str = "",
+    pipeline_profile: str = "",
 ) -> str:
     """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
 
     Thin wrapper over the unified ``_translate_to_english_pretranslation`` body;
-    supplies the OSS (client, model, label) + the ``pipeline_variant`` observation
+    supplies the OSS (client, model, label) + the ``pipeline_profile`` observation
     tag. Behaviour-identical to the former twin. Legacy sessions never hit this.
     """
     return await _translate_to_english_pretranslation(
@@ -1511,7 +1511,7 @@ async def translate_to_english_with_oss_vllm(
         model=OSS_PRETRANSLATION_MODEL,
         label="OSS vLLM",
         translation_provider_label="vllm",
-        extra_metadata={"pipeline_variant": pipeline_variant or "oss"},
+        extra_metadata={"pipeline_profile": pipeline_profile or "oss"},
         max_tokens=max_tokens,
     )
 

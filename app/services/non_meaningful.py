@@ -37,7 +37,7 @@ def _non_meaningful_client_and_model() -> tuple[AsyncOpenAI, str, str]:
     config synthesis. Fail-open behaviour is unchanged."""
     from app.llm_core import resolver as _llm_resolver
     from app.llm_core.config_model import Step as _LlmStep
-    mt = _llm_resolver.primary_tier(_LlmStep.NON_MEANINGFUL, "legacy")
+    mt = _llm_resolver.primary_tier(_LlmStep.NON_MEANINGFUL)  # profile-invariant (defaults)
     return mt.handle, mt.model_name, mt.provider
 
 

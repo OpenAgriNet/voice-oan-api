@@ -279,11 +279,11 @@ async def check_moderation(
     text: str,
     source_lang: str,
     recent_history_text: str = "",
-    variant: str = "legacy",
+    profile_name: str = "managed",
     session_id: str = "",
     user_id: str = "",
     process_id: str = "",
-    pipeline_variant: str = "",
+    pipeline_profile: str = "",
 ) -> ModerationVerdict:
     """Classify a caller utterance. Returns a ModerationVerdict.
 
@@ -319,14 +319,14 @@ async def check_moderation(
             session_id=session_id,
             user_id=user_id,
             process_id=process_id,
-            pipeline_variant=pipeline_variant,
+            pipeline_profile=pipeline_profile,
         )
 
-    # Requested (primary) tier for this session's variant. Identity with the
-    # removed ``attempt_chain(variant, "moderation")[0].kind``: an OSS session's
-    # primary is the vLLM tier, everything else is the managed tier. The actual
-    # walk (execute_with_fallback) resolves the config-driven chain internally.
-    requested_kind = "oss" if variant == "oss" else "managed"
+    # Requested (primary) tier for this session's profile — resolved by NAME from the
+    # unified config, so a 3rd profile's kind is honoured (vllm -> "oss"; managed
+    # provider -> "managed"), not collapsed via a variant string. The actual walk
+    # (execute_with_fallback) resolves the config-driven chain internally.
+    requested_kind = _llm_resolver.primary_tier(_LlmStep.MODERATION, profile_name).kind
     _, requested_model, requested_provider = _client_model_for_kind(requested_kind)
     attempts: list[dict[str, object]] = []
     actual_tier = requested_kind
@@ -363,7 +363,7 @@ async def check_moderation(
         verdict = await execute_with_fallback(
             pipeline="moderation",
             session_id=session_id or "",
-            variant=variant,
+            profile_name=profile_name,
             run=_run,
         )
         fallback_used = len(attempts) > 1 and attempts[0].get("status") == "error"
@@ -406,7 +406,7 @@ async def _check_moderation_legacy(
     session_id: str = "",
     user_id: str = "",
     process_id: str = "",
-    pipeline_variant: str = "",
+    pipeline_profile: str = "",
 ) -> ModerationVerdict:
     """Legacy moderation: single global provider (VOICE_MODERATION_PROVIDER),
     fails OPEN. Used when ``settings.fallback_enabled`` is false."""
