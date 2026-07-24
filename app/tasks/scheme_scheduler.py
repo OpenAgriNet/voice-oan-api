@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 from app.config import settings
 from app.services.scheme_ingestion import (
     get_scheme_sources,
-    refresh_all_scheme_sources,
     refresh_scheme_source,
     source_cache_exists,
 )
@@ -25,20 +24,11 @@ def get_scheme_scheduler():
 def _create_scheduler():
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
     except ModuleNotFoundError:
         logger.exception("APScheduler dependency is unavailable for scheme scheduler")
         raise
 
     scheduler = AsyncIOScheduler(timezone=ZoneInfo(settings.timezone))
-    scheduler.add_job(
-        refresh_all_scheme_sources,
-        trigger=CronTrigger(hour=0, minute=0, second=0, timezone=ZoneInfo(settings.timezone)),
-        id="refresh_milk_producer_schemes",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
     return scheduler
 
 
