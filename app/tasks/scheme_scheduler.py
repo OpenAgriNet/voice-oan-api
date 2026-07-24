@@ -1,4 +1,10 @@
-"""Scheduler bootstrap for union scheme refresh tasks."""
+"""Scheduler bootstrap for union scheme refresh tasks.
+
+Periodic scheme cache refresh is intentionally owned by the chat service,
+which runs the midnight refresh pipeline with OCR support required for Banas
+scheme parsing. This module only performs startup backfill for missing cache
+entries in voice service.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +35,8 @@ def _create_scheduler():
         raise
 
     scheduler = AsyncIOScheduler(timezone=ZoneInfo(settings.timezone))
+    # Intentionally no recurring refresh cron job in voice service.
+    # Nightly refresh is executed by the chat service pipeline.
     return scheduler
 
 
