@@ -18,6 +18,19 @@ from app.observability import start_observation
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
+
+# Marqo's sync client has no client-side timeout; a stalled keep-alive TCP flow
+# (server healthy, but a pooled connection silently NAT-dropped) makes the blocking
+# call hang until nginx's 60s proxy-read-timeout drops the voice call. Bound every
+# Marqo call so it fails fast and the existing handlers degrade instead.
+_MARQO_TIMEOUT_S = float(os.getenv("MARQO_SEARCH_TIMEOUT_S", "15"))
+
+
+async def _to_thread_bounded(fn, *args):
+    """Run a blocking Marqo call in a worker thread, bounded by _MARQO_TIMEOUT_S.
+    On timeout raises asyncio.TimeoutError, which callers already treat like any other
+    Marqo failure (hybrid->tensor fallback, then the outer try's graceful degrade)."""
+    return await asyncio.wait_for(asyncio.to_thread(fn, *args), timeout=_MARQO_TIMEOUT_S)
 _index_capabilities_cache: Dict[str, Dict[str, Any]] = {}
 _TOKEN_RE = re.compile(r"[\w\-]+", re.UNICODE)
 _GUJARATI_CHAR_RE = re.compile(r"[\u0A80-\u0AFF]")
@@ -339,7 +352,7 @@ async def search_documents(
         if not index_name:
             raise ValueError("Marqo index name is required")
 
-        capabilities = await asyncio.to_thread(_get_index_capabilities_sync, endpoint_url, index_name)
+        capabilities = await _to_thread_bounded(_get_index_capabilities_sync, endpoint_url, index_name)
         if capabilities.get("exists"):
             logger.info(
                 "Index capabilities: tensor_fields=%s, text_tensor=%s, text_for_embedding_tensor=%s, has_is_reference=%s",
@@ -404,7 +417,7 @@ async def search_documents(
             },
         ) as observation:
             try:
-                results = await asyncio.to_thread(_marqo_search_sync, endpoint_url, index_name, search_params)
+                results = await _to_thread_bounded(_marqo_search_sync, endpoint_url, index_name, search_params)
             except Exception as e:
                 if search_mode == "hybrid":
                     logger.warning("Hybrid search failed, retrying with tensor search for query '%s'", query)
@@ -426,7 +439,7 @@ async def search_documents(
                                 "tool": "search_documents",
                             }
                         )
-                    results = await asyncio.to_thread(_marqo_search_sync, endpoint_url, index_name, fallback_params)
+                    results = await _to_thread_bounded(_marqo_search_sync, endpoint_url, index_name, fallback_params)
                 else:
                     if observation is not None:
                         observation.update(
