@@ -19,6 +19,14 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Bake the scheme-search embedding model into the image. Prod has no egress to
+# huggingface.co, so downloading it lazily on first search_schemes call fails
+# with "Can't load the model for 'intfloat/multilingual-e5-large'".
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('intfloat/multilingual-e5-large')"
+
+# Model is cached in the layer above — never reach for the Hub at runtime.
+ENV HF_HUB_OFFLINE=1
+
 # Copy application code
 COPY . .
 
