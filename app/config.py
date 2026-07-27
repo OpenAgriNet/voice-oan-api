@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     marqo_index_name: Optional[str] = None
     marqo_pests_diseases_index_name: Optional[str] = None
 
+    # Qdrant vector search (scheme documents — MIF, PKVY, PM-KMY)
+    qdrant_url: Optional[str] = os.getenv("QDRANT_URL")
+    qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
+    qdrant_collection_name: str = os.getenv("QDRANT_COLLECTION_NAME", "schemes-index")
+
     class Config:
         env_file = ".env"
         extra = 'ignore'  # Ignore extra fields from .env

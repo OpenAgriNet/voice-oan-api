@@ -9,7 +9,7 @@ from agents.tools.pmfby_scheme_status import initiate_pmfby_status_check, check_
 from agents.tools.shc_scheme_status import check_shc_status
 from agents.tools.grievance import submit_pmkisan_grievance, grievance_status
 from agents.tools.terms import search_terms
-from agents.tools.search import search_documents, search_videos, search_pests_diseases
+from agents.tools.search import search_documents, search_videos, search_pests_diseases, search_schemes
 from agents.tools.weather import weather_forecast
 from agents.tools.maps import reverse_geocode, forward_geocode
 from agents.tools.mandi import get_mandi_prices
@@ -71,6 +71,11 @@ TOOLS = [
     ),
     Tool(
         search_documents,
+        takes_ctx=False,
+        strict=False,
+    ),
+    Tool(
+        search_schemes,
         takes_ctx=False,
         strict=False,
     ),
