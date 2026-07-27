@@ -1,6 +1,7 @@
 """
 Marqo client implementation for vector search.
 """
+import asyncio
 import os
 import re
 import marqo
@@ -9,6 +10,8 @@ from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
 from helpers.utils import get_logger
 from agents.tools.terms import normalize_text_with_glossary
+from helpers.scheme_qdrant_search import format_qdrant_scheme_codes_for_doc
+from langfuse import observe
 
 logger = get_logger(__name__)
 
@@ -35,9 +38,71 @@ class SearchHit(BaseModel):
 
     def __str__(self) -> str:
         if self.type == 'document':
-            return f"**{self.name}**\n" + "```\n" + self.processed_text +  "\n```\n" 
+            return f"**{self.name}**\n" + "```\n" + self.processed_text +  "\n```\n"
         else:
             return f"**[{self.name}]({self.source})**\n" + "```\n" + self.processed_text + "\n```\n"
+
+
+@observe(name="tool:search_schemes", as_type="tool")
+async def search_schemes(query: str, top_k: int = 10) -> str:
+    """
+    Semantic search for Bharat Vistaar scheme guideline PDFs stored in Qdrant.
+
+    PLACEHOLDER_SCHEME_CODES
+
+    Do NOT use for legacy integrated schemes handled by get_scheme_info
+    (pmkisan, pmfby, kcc, pmksy, shc, sathi, pmasha, aif, smam, pdmc, nfsm, rad, ffs, nbhm).
+
+    Args:
+        query: Natural-language question in English (eligibility, benefits, application process)
+        top_k: Maximum number of chunks to return (default: 10)
+
+    Returns:
+        Formatted scheme document chunks with scheme names and relevance scores
+    """
+    try:
+        from helpers.scheme_qdrant_search import (
+            format_scheme_unavailable,
+            format_search_results,
+            get_builtin_scheme_list,
+            query_names_unindexed_scheme,
+            search_schemes as qdrant_search_schemes,
+        )
+
+        collection_name = os.getenv("QDRANT_COLLECTION_NAME", "schemes-index")
+        if not os.getenv("QDRANT_URL"):
+            raise ValueError("QDRANT_URL is required")
+
+        logger.info("Searching schemes for %r in collection %r", query, collection_name)
+
+        scheme_list = get_builtin_scheme_list()
+        if query_names_unindexed_scheme(query, scheme_list):
+            logger.info("Scheme not in indexed list for query %r", query)
+            return format_scheme_unavailable(query)
+
+        results = await asyncio.to_thread(
+            qdrant_search_schemes,
+            query,
+            collection_name,
+            None,
+            top_k,
+            None,
+            None,
+        )
+
+        return format_search_results(results, query, scheme_list)
+
+    except Exception as e:
+        logger.error("Error searching schemes: %s for query: %s", e, query)
+        raise ModelRetry("Error searching schemes, please try again") from e
+
+
+if search_schemes.__doc__:
+    search_schemes.__doc__ = search_schemes.__doc__.replace(
+        "PLACEHOLDER_SCHEME_CODES",
+        f"Available Qdrant scheme codes: {format_qdrant_scheme_codes_for_doc()}.",
+    )
+
 
 async def search_documents(
     query: str, 

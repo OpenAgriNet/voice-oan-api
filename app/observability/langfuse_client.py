@@ -1,4 +1,4 @@
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from typing import Any, Dict, Generator, Optional
 
 from helpers.utils import get_logger
@@ -41,23 +41,28 @@ def safe_propagate_attributes(
     metadata: Optional[Dict[str, Any]] = None,
     version: Optional[str] = None,
 ) -> Generator[None, None, None]:
-    if get_langfuse() is None:
-        yield
-        return
-    try:
-        from langfuse import propagate_attributes  # type: ignore
+    # Only the Langfuse setup is guarded — the yield must stay outside the
+    # try, otherwise exceptions raised by the caller's block get thrown into
+    # this generator, swallowed, and replaced by "generator didn't stop after
+    # throw()", hiding the real error.
+    with ExitStack() as stack:
+        if get_langfuse() is not None:
+            try:
+                from langfuse import propagate_attributes  # type: ignore
 
-        with propagate_attributes(
-            **_compact_kwargs(
-                user_id=user_id,
-                session_id=session_id,
-                tags=tags,
-                metadata=metadata,
-                version=version,
-            )
-        ):
-            yield
-    except Exception:
+                stack.enter_context(
+                    propagate_attributes(
+                        **_compact_kwargs(
+                            user_id=user_id,
+                            session_id=session_id,
+                            tags=tags,
+                            metadata=metadata,
+                            version=version,
+                        )
+                    )
+                )
+            except Exception as e:
+                logger.warning("Langfuse propagate_attributes skipped (err=%r)", e)
         yield
 
 

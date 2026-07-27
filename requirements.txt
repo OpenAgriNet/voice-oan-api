@@ -19,6 +19,13 @@ tiktoken
 tenacity
 langfuse
 
+# opentelemetry-api 1.44.0 removed the private `_events` module that
+# pydantic-ai imports at startup (ModuleNotFoundError: opentelemetry._events).
+# Still present in pydantic-ai 1.2.1 — cap below 1.44.
+opentelemetry-api>=1.33.1,<1.44
+opentelemetry-sdk>=1.33.1,<1.44
+opentelemetry-exporter-otlp-proto-http>=1.33.1,<1.44
+
 # Logfire
 logfire
 gevent>=22.10.0
@@ -76,6 +83,8 @@ pycryptodome
 
 # Search and Data
 marqo  # Vector search
+qdrant-client  # Qdrant vector search (scheme documents)
+sentence-transformers  # Embeddings for Qdrant scheme search
 rapidfuzz  # Fuzzy string matching
 
 # Cloud Services
