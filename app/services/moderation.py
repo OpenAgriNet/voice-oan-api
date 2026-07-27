@@ -326,7 +326,20 @@ async def check_moderation(
     # unified config, so a 3rd profile's kind is honoured (vllm -> "oss"; managed
     # provider -> "managed"), not collapsed via a variant string. The actual walk
     # (execute_with_fallback) resolves the config-driven chain internally.
-    requested_kind = _llm_resolver.primary_tier(_LlmStep.MODERATION, profile_name).kind
+    #
+    # Finding voice#1 (fail-CLOSED): this resolution MUST NOT escape check_moderation.
+    # It sat outside the fail-closed try below, so a resolver error (e.g. an N-way
+    # config whose profile omits the ``moderation`` step -> ``resolve_chain`` raises
+    # ``ValueError("no config for step=moderation")``) propagated to voice's
+    # ``_resolve_moderation`` handler, which fails OPEN -> moderation bypassed. Default
+    # to a managed kind on ANY error: a managed default NEVER bypasses, and the walk
+    # below still fail-CLOSEs if every tier is unavailable.
+    try:
+        from app.llm_core import resolver as _llm_resolver
+        from app.llm_core.config_model import Step as _LlmStep
+        requested_kind = _llm_resolver.primary_tier(_LlmStep.MODERATION, profile_name).kind
+    except Exception:
+        requested_kind = "managed"
     _, requested_model, requested_provider = _client_model_for_kind(requested_kind)
     attempts: list[dict[str, object]] = []
     actual_tier = requested_kind
