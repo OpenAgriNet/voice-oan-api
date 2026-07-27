@@ -380,15 +380,35 @@ _EXTRACTION_SYSTEM = (
     "irrigation, soil_type, language, preferred_call_time, "
     "livestock (list of strings), schemes (list of strings), notes (list of strings), "
     "crops (list of {name, variety, area_acres, sowing_date YYYY-MM-DD, season}), "
-    "open_threads (list of {topic, advice_given}) for unresolved issues to follow up on. "
-    "Include EVERY crop, livestock animal, or scheme the farmer names as something they "
-    "grow/own/use, even if mentioned only briefly or in passing rather than as the main "
-    "topic of the call. "
+    "open_threads (list of {topic, advice_given}), "
+    "resolved_threads (list of strings). "
+    "\n\n"
+    "SCAN THE ENTIRE TRANSCRIPT, not just its main topic. Include EVERY crop, livestock "
+    "animal, or scheme the farmer names as something they grow/own/use, even if mentioned "
+    "only once, in passing, or as a side remark unrelated to the call's main subject. "
+    "Example: a call is mainly about cotton mandi prices, but the farmer also says in "
+    "passing 'मी थोडी पुदिना पण लावली आहे' (I've also planted a little mint) — you MUST "
+    "still include mint/pudina in crops; do not drop it for being a minor aside. "
     "Only include stable facts, not one-off price/weather questions — that exclusion is "
     "for price/weather lookups only, not for crops, livestock, or schemes the farmer names. "
     "preferred_mandi ONLY if the farmer explicitly says where they sell their produce — "
     "NEVER infer it from a warehouse/godown location, a staff contact, or a price lookup "
     "the assistant performed. "
+    "\n\n"
+    "open_threads: create one whenever the farmer states a planned future action they "
+    "intend to take — spraying, applying fertilizer, sowing, visiting a market or office — "
+    "not just unresolved problems. Example: 'बोंडअळीसाठी मी उद्या फवारणी करणार आहे' (I'll "
+    "spray for bollworm tomorrow) IS an open thread ('bollworm spraying') even though "
+    "nothing is wrong yet — the point is to check in next call whether they did it. Do not "
+    "create one for a question the assistant already answered in full this call. "
+    "\n\n"
+    "resolved_threads: you will be shown a list of 'Currently open follow-up threads' "
+    "below the transcript, if any exist. If the transcript shows the farmer responding to, "
+    "answering, or giving an update on one of them (e.g. they were asked about it and said "
+    "yes/no/what happened), copy its topic text EXACTLY into resolved_threads so it stops "
+    "being raised in future calls. Only resolve threads that were actually addressed in "
+    "this transcript. "
+    "\n\n"
     "Return {} if nothing durable was learned. Output JSON only, no prose."
 )
 
@@ -405,8 +425,13 @@ def _transcript_to_text(history: list[ModelMessage]) -> str:
     return "\n".join(lines)
 
 
-def _extract_partial_sync(transcript: str) -> dict:
-    """Blocking call to the vLLM extraction model. Returns a partial-profile dict."""
+def _extract_partial_sync(transcript: str, open_threads: Optional[list[str]] = None) -> dict:
+    """Blocking call to the vLLM extraction model. Returns a partial-profile dict.
+
+    `open_threads` are the farmer's currently-open topics (from the profile
+    fetched just before this call), so the model can report which of them this
+    transcript resolved — see 'resolved_threads' in _EXTRACTION_SYSTEM.
+    """
     from openai import OpenAI
     from agents.models import LLM_AGRINET_MODEL_NAME, _vllm_openai_base_url
 
@@ -415,12 +440,20 @@ def _extract_partial_sync(transcript: str) -> dict:
     if not base_url:
         return {}
 
+    user_content = transcript
+    if open_threads:
+        listed = "\n".join(f"- {t}" for t in open_threads)
+        user_content = (
+            f"Currently open follow-up threads for this farmer:\n{listed}\n\n"
+            f"Transcript:\n{transcript}"
+        )
+
     client = OpenAI(base_url=base_url, api_key=os.getenv("INFERENCE_API_KEY") or "not-required")
     resp = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": _EXTRACTION_SYSTEM},
-            {"role": "user", "content": transcript},
+            {"role": "user", "content": user_content},
         ],
         temperature=0.0,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -577,7 +610,11 @@ class ProfileStore:
         elif field == "open_threads" and value:
             v = value.strip().lower()
             for t in data["open_threads"]:
-                if v in t.get("topic", "").strip().lower():
+                topic = t.get("topic", "").strip().lower()
+                # Bidirectional containment: the resolving text should be an exact
+                # copy of the topic, but tolerate the model paraphrasing/truncating
+                # it slightly in either direction.
+                if topic and (v in topic or topic in v):
                     t["status"] = "resolved"
                     changed = True
 
@@ -608,16 +645,24 @@ class ProfileStore:
             return False
 
     async def extract_and_merge(self, user_id: str, history: list[ModelMessage]) -> None:
-        """Post-call: extract structured facts from the transcript and merge them."""
+        """Post-call: extract structured facts from the transcript and merge them.
+
+        Also closes the loop on proactive follow-ups: the farmer's currently-open
+        threads are shown to the extraction model so it can report which ones this
+        call resolved (see 'resolved_threads' in _EXTRACTION_SYSTEM) — otherwise an
+        open thread, once raised, would never stop being raised on every future call.
+        """
         if not user_id:
             return
         transcript = _transcript_to_text(history)
         if not transcript.strip():
             logger.info("profile.extract_and_merge: empty transcript for user %s", user_id)
             return
+        existing = await self.get(user_id)
+        open_topics = [t.topic for t in existing.open_threads if t.status == "open"] if existing else []
         try:
             partial = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _extract_partial_sync(transcript)
+                None, lambda: _extract_partial_sync(transcript, open_topics)
             )
         except Exception:
             logger.error("profile extraction failed for user %s", user_id, exc_info=True)
@@ -625,12 +670,16 @@ class ProfileStore:
         if not partial:
             logger.info("profile.extract_and_merge: no durable facts for user %s", user_id)
             return
+        resolved = partial.pop("resolved_threads", None) or []
         # Visibility into what we're about to persist (quality gate / debugging).
-        logger.info("profile.extract_and_merge user=%s extracted=%s", user_id, partial)
+        logger.info("profile.extract_and_merge user=%s extracted=%s resolved=%s", user_id, partial, resolved)
         merged = await self.apply_update(user_id, partial)
+        for topic in resolved:
+            if isinstance(topic, str) and topic.strip():
+                await self.forget(user_id, "open_threads", topic)
         logger.info(
-            "profile saved for user %s (crops=%d, threads=%d)",
-            user_id, len(merged.crops), len(merged.open_threads),
+            "profile saved for user %s (crops=%d, threads=%d, resolved=%d)",
+            user_id, len(merged.crops), len(merged.open_threads), len(resolved),
         )
 
 
