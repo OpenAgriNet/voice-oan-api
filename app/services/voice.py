@@ -998,24 +998,25 @@ async def stream_voice_message(
     owner: Optional[SessionRequestOwner] = None,
     http_request: Optional[Request] = None,
     trace: Optional[VoiceTrace] = None,
-    pipeline_variant: str = "legacy",
+    pipeline_profile: str = "managed",
 #    background_tasks: BackgroundTasks,
 
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming chat messages."""
     request_started_at = time.monotonic()
-    # OSS sticky variant => run the dev OSS path (vLLM gemma agent + vLLM
-    # gemma pretranslation). 'legacy' keeps current prod behaviour byte-for-byte;
-    # with OSS_PIPELINE_PCT=0 (or OSS endpoint unset) every session is 'legacy'.
-    is_oss = pipeline_variant == "oss"
     # Model selection is resolved by the unified pipeline (the only path): the agent
     # handle, provider, and display model name all come from the resolved primary
-    # AGENT tier for this session's variant. For the current env this is the same
+    # AGENT tier for this session's profile NAME. For the current env this is the same
     # provider/base_url/model the removed get_model_for_variant/provider_for_variant
-    # returned, generalized to the weighted-profile split. ``is_oss`` is retained
-    # only as a variant-string flag for downstream tier-kind telemetry labels +
-    # pretranslation dispatch (it no longer selects the model).
-    _agent_tier = _llm_resolver.primary_tier(_LlmStep.AGENT, pipeline_variant)
+    # returned, generalized to the weighted-profile split.
+    _agent_tier = _llm_resolver.primary_tier(_LlmStep.AGENT, pipeline_profile)
+    # oss-vs-managed behavioural split from the resolved AGENT primary tier KIND, not
+    # a variant string: a vllm/self-hosted primary (gemma, qwen, ...) -> kind "oss";
+    # a managed provider (openai/anthropic/gemini) -> "managed". With the 2-way
+    # env-shim (profile named oss/managed) this equals the old
+    # ``pipeline_variant == "oss"`` bit exactly. Retained downstream for tier-kind
+    # telemetry labels + pretranslation dispatch (it no longer selects the model).
+    is_oss = _agent_tier.kind == "oss"
     request_model = _agent_tier.handle
     request_provider = _agent_tier.provider
     request_model_name = _agent_tier.model_name
@@ -1037,7 +1038,7 @@ async def stream_voice_message(
     # (Langfuse v4: "Operations that depend on an active span will be
     # skipped"; mirror of amul-oan-api#70).
     try:
-        trace.metadata["pipeline_variant"] = pipeline_variant
+        trace.metadata["pipeline_profile"] = pipeline_profile
         trace.metadata["request_model"] = request_model_name
         trace.metadata["request_provider"] = request_provider
     except Exception:  # pragma: no cover - never break the call
@@ -1052,9 +1053,9 @@ async def stream_voice_message(
         from app.llm_core import trace as _pipeline_trace
         from app.llm_core import resolver as _lr, runtime as _lrt
         from app.llm_core.config_model import Step as _LS
-        _pt = _pipeline_trace.begin(pipeline_variant)
+        _pt = _pipeline_trace.begin(pipeline_profile)
         _pipeline_trace.populate(
-            _pt, _lrt.get_pipeline(), _lr.primary_tier, pipeline_variant,
+            _pt, _lrt.get_pipeline(), _lr.primary_tier, pipeline_profile,
             (_LS.PRE_TRANSLATION, _LS.MODERATION, _LS.NON_MEANINGFUL, _LS.AGENT, _LS.POST_TRANSLATION),
         )
         _pipeline_trace.add_compact_metadata(_pt, trace.metadata)
@@ -1063,7 +1064,7 @@ async def stream_voice_message(
     logger.info(
         "voice request_variant session_id=%s variant=%s model=%s provider=%s",
         session_id,
-        pipeline_variant,
+        pipeline_profile,
         request_model_name,
         request_provider,
     )
@@ -1151,7 +1152,7 @@ async def stream_voice_message(
         # generator so downstream model calls and pydantic-ai spans nest under
         # this agent_journey.
         with trace.request_context():
-            # Emit the per-session pipeline_variant categorical score from
+            # Emit the per-session pipeline_profile categorical score from
             # *inside* the trace context (chat #70 fix). score_id is
             # deterministic per session so subsequent voice turns in the
             # same session upsert the same score (no duplicates).
@@ -1159,14 +1160,14 @@ async def stream_voice_message(
                 try:
                     _lf = _get_langfuse_client()
                     _lf.score_current_trace(
-                        name="pipeline_variant",
-                        value=pipeline_variant,
+                        name="pipeline_profile",
+                        value=pipeline_profile,
                         data_type="CATEGORICAL",
                         score_id=f"voice-variant-{(session_id or '')[:180]}",
                         comment="Sticky pipeline variant for this voice session",
                     )
                 except Exception as e:  # pragma: no cover
-                    logger.debug("Langfuse: voice pipeline_variant score failed: %s", e)
+                    logger.debug("Langfuse: voice pipeline_profile score failed: %s", e)
             requested_source_lang = (source_lang or "gu").strip().lower()
             requested_target_lang = (target_lang or "gu").strip().lower()
             trace.set_language(requested_source_lang, requested_target_lang)
@@ -1409,11 +1410,11 @@ async def stream_voice_message(
                     text=query,
                     source_lang=requested_source_lang,
                     recent_history_text=moderation_recent_history,
-                    variant=pipeline_variant,
+                    profile_name=pipeline_profile,
                     session_id=session_id,
                     user_id=user_id,
                     process_id=process_id or "",
-                    pipeline_variant=pipeline_variant,
+                    pipeline_profile=pipeline_profile,
                 )
             )
             moderation_task.add_done_callback(
@@ -1438,7 +1439,7 @@ async def stream_voice_message(
                 # OSS session's primary is the vLLM/OSS-model tier, else the
                 # managed/OpenAI-model tier). The per-attempt dispatch below routes
                 # to the OSS vs managed pretranslation twin by the tier kind.
-                _pre_mt = _llm_resolver.primary_tier(_LlmStep.PRE_TRANSLATION, pipeline_variant)
+                _pre_mt = _llm_resolver.primary_tier(_LlmStep.PRE_TRANSLATION, pipeline_profile)
                 _pretrans_provider_label = "vllm" if _pre_mt.kind == "oss" else "openai"
                 _pretrans_model = _pre_mt.model_name
                 _pretrans_requested_tier = _pre_mt.kind
@@ -1451,7 +1452,7 @@ async def stream_voice_message(
                     "Translation pipeline enabled; pretranslating %s -> en with %s (variant=%s)",
                     requested_source_lang,
                     _pretrans_model,
-                    pipeline_variant,
+                    pipeline_profile,
                 )
                 if await _request_is_stale("before_query_pretranslation"):
                     moderation_task.cancel()
@@ -1481,7 +1482,7 @@ async def stream_voice_message(
                                         session_id=session_id,
                                         user_id=user_id,
                                         process_id=process_id or "",
-                                        pipeline_variant=pipeline_variant,
+                                        pipeline_profile=pipeline_profile,
                                     )
                                 else:
                                     translated = await translate_to_english_with_gpt5_mini(
@@ -1490,7 +1491,7 @@ async def stream_voice_message(
                                         session_id=session_id,
                                         user_id=user_id,
                                         process_id=process_id or "",
-                                        pipeline_variant=pipeline_variant,
+                                        pipeline_profile=pipeline_profile,
                                     )
                             except Exception as _attempt_exc:
                                 attempt_info["status"] = "error"
@@ -1510,14 +1511,14 @@ async def stream_voice_message(
                             metadata={
                                 "provider": _pretrans_provider_label,
                                 "source_lang": requested_source_lang,
-                                "pipeline_variant": pipeline_variant,
+                                "pipeline_profile": pipeline_profile,
                             },
                             model=_pretrans_model,
                         ):
                             processing_query = await execute_with_fallback(
                                 pipeline="pretranslation",
                                 session_id=session_id,
-                                variant=pipeline_variant,
+                                profile_name=pipeline_profile,
                                 run=_run_pretranslation_attempt,
                             )
                         _pretranslation_fallback_used = (
@@ -1581,7 +1582,7 @@ async def stream_voice_message(
                             metadata={
                                 "provider": _pretrans_provider_label,
                                 "source_lang": requested_source_lang,
-                                "pipeline_variant": pipeline_variant,
+                                "pipeline_profile": pipeline_profile,
                             },
                             model=_pretrans_model,
                         ):
@@ -1592,7 +1593,7 @@ async def stream_voice_message(
                                     session_id=session_id,
                                     user_id=user_id,
                                     process_id=process_id or "",
-                                    pipeline_variant=pipeline_variant,
+                                    pipeline_profile=pipeline_profile,
                                 )
                             else:
                                 processing_query = await translate_to_english_with_gpt5_mini(
@@ -1601,7 +1602,7 @@ async def stream_voice_message(
                                     session_id=session_id,
                                     user_id=user_id,
                                     process_id=process_id or "",
-                                    pipeline_variant=pipeline_variant,
+                                    pipeline_profile=pipeline_profile,
                                 )
                         _legacy_primary_attempt["status"] = "ok"
                         _pretranslation_actual_tier = _pretrans_requested_tier
@@ -1791,7 +1792,7 @@ async def stream_voice_message(
                         "duration_ms": round(moderation_duration_ms, 2),
                         "status": moderation_status,
                         "source_lang": requested_source_lang,
-                        "pipeline_variant": pipeline_variant,
+                        "pipeline_profile": pipeline_profile,
                         "requested_tier": moderation_payload.get("requested_tier"),
                         "requested_provider": moderation_payload.get("requested_provider"),
                         "requested_model": moderation_payload.get("requested_model"),
@@ -2468,7 +2469,7 @@ async def stream_voice_message(
                     _src = stream_with_fallback(
                         pipeline="chat",
                         session_id=session_id,
-                        variant=pipeline_variant,
+                        profile_name=pipeline_profile,
                         make_stream=_make_stream,
                     ).__aiter__()
 
@@ -2627,7 +2628,7 @@ async def stream_voice_message(
                     (time.monotonic() - agent_started_at) * 1000.0,
                     signed_in=bool(signed_in and mobile),
                     request_limit=usage_limits.request_limit,
-                    pipeline_variant=pipeline_variant,
+                    pipeline_profile=pipeline_profile,
                     requested_tier=_agent_requested_tier,
                     requested_model=request_model_name,
                     requested_provider=request_provider,

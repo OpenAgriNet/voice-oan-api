@@ -42,15 +42,6 @@ logger = get_logger(__name__)
 
 
 
-def profile_for_variant(variant: str) -> str:
-    """Inverse of :func:`variant_for_profile`: the profile a resolved legacy
-    ``"oss"``/``"legacy"`` variant selects — ``oss`` -> the OSS-primary profile
-    (``"oss"``), anything else -> the managed profile (``"managed"``). Mirrors
-    ``resolver._profile_name_for_variant`` so the router-resolved variant and the
-    fallback chain agree on the profile."""
-    return "oss" if variant == "oss" else "managed"
-
-
 def _bucket(session_id: str) -> int:
     """The exact bucket voice pipeline_router uses: 0-99 from a stable sha256 of
     the id. Kept character-for-character identical to
@@ -106,29 +97,29 @@ async def resolve_chain(
     step: Step,
     pipeline: Optional[PipelineConfig] = None,
     *,
-    variant: Optional[str] = None,
+    profile_name: Optional[str] = None,
 ) -> list[MaterializedTier]:
     """The P1 seam: (session, step) -> ordered materialized tier chain.
 
     Resolves the session's sticky weighted profile, looks up the step's tiers
     (profile override, else ``defaults``), and materializes them via the P0
     factory (primary first, never empty). This is the config-driven successor to
-    ``fallback.attempt_chain(variant, pipeline)``; ``MaterializedTier`` satisfies
-    the ``Attempt`` interface the fallback walkers read (``.kind`` / ``.model`` /
-    ``.model_name`` / ``.provider`` / ``.endpoint`` / ``.timeout``).
+    ``fallback.attempt_chain``; ``MaterializedTier`` satisfies the ``Attempt``
+    interface the fallback walkers read (``.kind`` / ``.model`` / ``.model_name`` /
+    ``.provider`` / ``.endpoint`` / ``.timeout``).
 
-    ``variant`` (when given) is the variant ALREADY resolved at the router seam
-    (``split.resolve_variant``): the profile is selected directly from it
-    (``profile_for_variant``) with NO independent re-bucketing, so the fallback
-    chain can never pick a different profile than the primary request path for the
-    same session id. When ``variant`` is None (direct callers / tests), the sticky
-    weighted profile is resolved from ``session_id`` as before.
+    ``profile_name`` (when given) is the profile NAME ALREADY resolved at the router
+    seam (``split.resolve_profile``): that profile is selected DIRECTLY (via
+    ``_profile_for``, fail-safe to managed) with NO independent re-bucketing, so the
+    fallback chain can never pick a different profile than the primary request path
+    for the same session id. When ``profile_name`` is None (direct callers / tests),
+    the sticky weighted profile is resolved from ``session_id`` as before.
 
     Fixed composition order (plan §2): health-prune -> concurrency-reorder ->
     materialize -> classify-walk."""
     pipeline = pipeline or runtime.get_pipeline()
-    if variant is not None:
-        name = profile_for_variant(variant)
+    if profile_name is not None:
+        name = profile_name
     else:
         name = await resolve_profile(session_id, pipeline)
     profile = _profile_for(pipeline, name)
@@ -163,24 +154,3 @@ async def resolve_chain(
     # tracing-only: the resolved primary tier + full chain for this step.
     _trace.record_step_chain(step, chain)
     return chain
-
-
-def variant_for_profile(name: str) -> str:
-    """Back-compat bridge: map a profile name to the legacy variant string the
-    downstream voice code still branches on (``is_oss`` / prompt selection /
-    token caps). The shim names the OSS profile ``oss`` and the closed-source
-    profile ``managed``; every non-``oss`` profile reads as ``legacy``. P4 removes
-    this bridge once downstream consumes the resolved profile/config directly."""
-    return "oss" if name == "oss" else "legacy"
-
-
-async def resolve_variant(
-    session_id: str, pipeline: Optional[PipelineConfig] = None
-) -> str:
-    """Weighted-split analog of ``pipeline_router.resolve_pipeline_variant``.
-
-    Same sticky assignment as :func:`resolve_profile`, mapped back to the legacy
-    ``"oss"``/``"legacy"`` variant string so the existing downstream code path is
-    unchanged. With the shim's seeded 2-profile config this is distribution-
-    identical to ``resolve_pipeline_variant`` (same bit-compatible bucket)."""
-    return variant_for_profile(await resolve_profile(session_id, pipeline))
