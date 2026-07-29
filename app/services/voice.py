@@ -934,7 +934,16 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
             )
             technicians = _dedupe_technicians(group.get("technicians") or [])
             if not technicians:
-                lines.append("- AI technician option: none available for this farmer group.")
+                if group.get("lookupFailed"):
+                    # Distinct from "none exist": the lookup errored, so the
+                    # agent must not assert the society has no technicians.
+                    lines.append(
+                        "- AI technician option: could not be retrieved for this farmer group "
+                        "right now; say technician details are temporarily unavailable and ask "
+                        "the caller to try again later. Do not say the society has no technicians."
+                    )
+                else:
+                    lines.append("- AI technician option: none available for this farmer group.")
                 continue
             for technician in technicians:
                 name = technician.get("fullName")
