@@ -766,7 +766,9 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
         lines.append("- For AI booking, first ask which farmer name the caller wants to use.")
         lines.append("- Use the selected farmer's society and codes only after the farmer is identified.")
 
-    for index, record in enumerate(envelope.farmers[:5], start=1):
+    # No cap: a farmer omitted here cannot be selected for booking, and its
+    # technician group in _build_ai_technician_summary becomes unreachable.
+    for index, record in enumerate(envelope.farmers, start=1):
         record_data = record.model_dump()
         farmer_name = record_data.get("farmerName") or "Unknown farmer"
         society_name = record_data.get("societyName") or "Unknown society"
@@ -887,6 +889,23 @@ async def _build_union_scheme_summary(farmer_unions: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _dedupe_technicians(technicians: list[dict]) -> list[dict]:
+    """Drop duplicate technician rows, preserving order.
+
+    The upstream GetAITUserDetailsBySocietyCode endpoint can return the same
+    technician more than once; chat dedupes identically in
+    agents/farmer_context.py. Keyed on userId, falling back to name+mobile when
+    the id is absent.
+    """
+    unique: dict[str, dict] = {}
+    for technician in technicians:
+        key = technician.get("userId") or (
+            f"{technician.get('fullName')}|{technician.get('mobileNumber')}"
+        )
+        unique.setdefault(key, technician)
+    return list(unique.values())
+
+
 def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
     if envelope is None:
         return ""
@@ -901,7 +920,10 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
         lines.append("- When asking the farmer to choose a technician, use the technician full name in natural spoken form.")
         lines.append("- Do not ask by technician position, number, option index, or ordinal words such as first, second, or third.")
         lines.append("- Mention phone only if a disambiguating mobile number is needed.")
-        for group in technician_groups[:5]:
+        # Every group and every technician is listed. A cap here is silent: the
+        # model cannot offer a technician it never saw, nor match one the caller
+        # names, and nothing marks the list as partial (AMUL-39).
+        for group in technician_groups:
             farmer_name = group.get("farmerName") or "Unknown farmer"
             society_name = group.get("societyName") or "Unknown society"
             society_code = group.get("societyCode")
@@ -910,11 +932,11 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
                 f"- Technician group: farmer_name={farmer_name}, society_name={society_name}, "
                 f"union_code={union_code}, society_code={society_code}"
             )
-            technicians = group.get("technicians") or []
+            technicians = _dedupe_technicians(group.get("technicians") or [])
             if not technicians:
                 lines.append("- AI technician option: none available for this farmer group.")
                 continue
-            for technician in technicians[:5]:
+            for technician in technicians:
                 name = technician.get("fullName")
                 mobile = technician.get("mobileNumber")
                 user_id = technician.get("userId")
