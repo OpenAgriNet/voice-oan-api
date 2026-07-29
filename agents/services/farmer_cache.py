@@ -71,6 +71,16 @@ def _record_needs_animals(record: FarmerRecord) -> bool:
     return bool(_record_tags(record)) and not record.animals
 
 
+def _has_failed_technician_lookup(envelope: FarmerDataEnvelope) -> bool:
+    """True when any cached technician group came from a FAILED lookup rather
+    than a society that genuinely has no technicians.
+
+    Envelopes written before the lookupFailed flag existed omit the key; those
+    are treated as successful so old cache entries are not refreshed forever.
+    """
+    return any(group.get("lookupFailed") for group in (envelope.aiTechnicians or []))
+
+
 def _refresh_lock_key(phone: str) -> str:
     return build_cache_key(_cache_key(phone), namespace=FARMER_REFRESH_LOCK_NAMESPACE)
 
@@ -127,6 +137,15 @@ async def get_cached_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             if envelope.farmers and "aiTechnicians" not in raw:
                 envelope.stale = True
                 envelope.staleReason = "missing_ai_technicians"
+                envelope.refreshAfter = datetime.now(timezone.utc).isoformat()
+            elif _has_failed_technician_lookup(envelope):
+                # A failed lookup was cached as an empty technician list. The
+                # key IS present, so the check above cannot catch it and the
+                # envelope is not stale by age — without this the blip would
+                # persist for the full TTL and voice would keep telling callers
+                # no technicians are available.
+                envelope.stale = True
+                envelope.staleReason = "ai_technician_lookup_failed"
                 envelope.refreshAfter = datetime.now(timezone.utc).isoformat()
             elif any(_record_needs_animals(f) for f in envelope.farmers):
                 # Backfill per-animal records (incl. AI history) for envelopes
@@ -460,6 +479,12 @@ async def _fetch_ai_technicians(records: list[FarmerRecord]) -> list[dict]:
             )
             technicians = None
 
+        # get_ai_technicians_by_society_api returns None when the lookup FAILED
+        # and [] when the society genuinely has no technicians. Both used to be
+        # flattened to [], so a transient upstream blip was cached as a
+        # confident "no technicians" for the life of the envelope. Record the
+        # difference so get_cached_farmer_data can mark the envelope stale and
+        # let the background worker retry.
         return {
             "farmerName": data.get("farmerName"),
             "farmerCode": data.get("farmerCode"),
@@ -467,6 +492,7 @@ async def _fetch_ai_technicians(records: list[FarmerRecord]) -> list[dict]:
             "societyCode": str(society_code),
             "unionCode": str(union_code),
             "technicians": [technician.model_dump() for technician in (technicians or [])],
+            "lookupFailed": technicians is None,
         }
 
     groups = await asyncio.gather(*[_fetch_for_farmer(record) for record in records])
