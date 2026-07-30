@@ -41,7 +41,7 @@ async def voice_endpoint(
         f"Voice request received - session_id: {session_id}, user_id: {request.user_id}, "
         f"source_lang: {request.source_lang}, "
         f"target_lang: {request.target_lang}, provider: {request.provider}, process_id: {request.process_id}, "
-        f"query: {request.query}"
+        f"call_type: {request.call_type}, query: {request.query}"
     )
     # These two steps happen before StreamingResponse starts iterating the
     # generator, so the router attaches their timings to the request trace.
