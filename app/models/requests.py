@@ -11,4 +11,8 @@ class ChatRequest(BaseModel):
     target_lang: str = Field('gu', description="Target language code")
     user_id: str = Field('anonymous', description="User identifier (expected to be phone number for farmer context)")
     provider: Optional[Literal['RAYA']] = Field(None, description="Provider for the voice service - can be RAYA or None")
-    process_id: Optional[str] = Field(None, description="Process ID for tracking and hold messages") 
+    process_id: Optional[str] = Field(None, description="Process ID for tracking and hold messages")
+    call_type: Literal['inbound', 'outbound'] = Field(
+        'inbound',
+        description="Direction of the call as reported by the provider (inbound=farmer called us, outbound=we called the farmer). Optional; defaults to inbound.",
+    )
