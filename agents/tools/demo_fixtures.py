@@ -105,7 +105,7 @@ def health_call_booked(case_type: Any = None) -> str:
     """Mirrors the real tool's ticket-number success string."""
     return (
         "Health call booked successfully. Ticket number four four seven two. "
-        "Doctor Meeraben Shah will visit today between four and six in the evening. "
+        "Doctor Nileshbhai Patel will visit today between four and six in the evening. "
         "Please keep the animal in the shed and do not milk before the visit."
     )
 

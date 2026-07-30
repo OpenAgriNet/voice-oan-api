@@ -12,8 +12,8 @@ NS, TTL = "farmer", 60 * 60 * 24 * 7
 
 envelope = {
     "farmers": [{
-        "farmerName": "Kanubhai Patel",
-        "societyName": "Demo Dudh Mandali",
+        "farmerName": "Bharatbhai Chaudhary",
+        "societyName": "Thara Dudh Mandali",
         "farmerCode": "DEMO001",
         "unionCode": "BANAS",
         "societyCode": "DEMOSOC01",
@@ -43,13 +43,13 @@ envelope = {
     # of {id, fullName, mobileNumber}. A flat list yields "technician details
     # are not available", and the agent then never calls create_ai_call.
     "aiTechnicians": [{
-        "farmerName": "Kanubhai Patel",
-        "societyName": "Demo Dudh Mandali",
+        "farmerName": "Bharatbhai Chaudhary",
+        "societyName": "Thara Dudh Mandali",
         "societyCode": "DEMOSOC01",
         "unionCode": "BANAS",
         "technicians": [
             {"id": "T001", "fullName": "Rameshbhai Patel", "mobileNumber": "9876500011"},
-            {"id": "T002", "fullName": "Dineshbhai Chaudhary", "mobileNumber": "9876500022"},
+            {"id": "T002", "fullName": "Dineshbhai Thakor", "mobileNumber": "9876500022"},
         ],
     }],
     "fetchedAt": "2026-07-30T14:00:00+00:00",
