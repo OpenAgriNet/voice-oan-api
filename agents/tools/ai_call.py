@@ -12,6 +12,7 @@ from agents.models.ai_call import AICallRequestModel, AISpecies
 from agents.tools.farmer_animal_backends import create_ai_call_api
 from app.core.cache import cache, try_reserve, release_reservation
 from helpers.utils import get_logger
+from agents.tools import demo_fixtures
 
 logger = get_logger(__name__)
 
@@ -59,6 +60,13 @@ async def create_ai_call(
     if not await ctx.deps.ensure_in_scope():
         logger.info("AI call blocked: query failed moderation; session=%s", session_id)
         return "This helpline only handles dairy farming and animal husbandry questions."
+
+    # Demo mock mode. Placed AFTER the moderation gate so a rejected query can
+    # never reach a fixture either. Inert unless DEMO_MOCK_ENABLED and this
+    # caller is listed in DEMO_MOCK_USER_IDS.
+    if demo_fixtures.is_demo_caller(ctx):
+        demo_fixtures.log_fixture_served("create_ai_call", ctx)
+        return demo_fixtures.ai_call_booked(species)
 
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:

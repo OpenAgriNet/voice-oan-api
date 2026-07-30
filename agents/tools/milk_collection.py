@@ -8,6 +8,7 @@ from agents.deps import FarmerAccount, FarmerContext
 from app.models.milk_collection import FarmerMilkCollectionRequestModel
 from agents.tools.farmer_animal_backends import get_farmer_milk_collection_details_api
 from helpers.utils import get_logger
+from agents.tools import demo_fixtures
 
 logger = get_logger(__name__)
 
@@ -131,6 +132,13 @@ async def get_farmer_milk_collection_details(
         str: Formatted milk collection and deduction details across all of the
              farmer's accounts, or a clear failure message.
     """
+    # Demo mock mode: the demo number has no real collections, and this is the
+    # slowest tool in the stack (20s timeouts; can hang into the 60s nginx cut
+    # that drops the call). Inert unless explicitly enabled for this caller.
+    if demo_fixtures.is_demo_caller(ctx):
+        demo_fixtures.log_fixture_served("get_farmer_milk_collection_details", ctx)
+        return demo_fixtures.milk_collection_summary()
+
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
         logger.error("PASHUGPT_TOKEN is not set")

@@ -11,6 +11,7 @@ from agents.models.health_call import HealthCallRequestModel, HealthCaseType
 from agents.tools.farmer_animal_backends import create_health_call_api
 from app.core.cache import cache, try_reserve, release_reservation
 from helpers.utils import get_logger
+from agents.tools import demo_fixtures
 
 logger = get_logger(__name__)
 
@@ -60,6 +61,11 @@ async def create_health_call(
     if not await ctx.deps.ensure_in_scope():
         logger.info("Health call blocked: query failed moderation; session=%s", session_id)
         return "This helpline only handles dairy farming and animal husbandry questions."
+
+    # Demo mock mode — see ai_call. After moderation, before any write.
+    if demo_fixtures.is_demo_caller(ctx):
+        demo_fixtures.log_fixture_served("create_health_call", ctx)
+        return demo_fixtures.health_call_booked(case_type)
 
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
