@@ -97,23 +97,45 @@ def test_multiple_ids(monkeypatch):
     assert df.is_demo_caller(_ctx("9978522592")) is False
 
 
-# --- fixtures are voice-shaped ----------------------------------------------
+# --- fixtures must match the REAL tool return shapes ------------------------
+# Verified against production tool observations (voice-production, 2026-07-30).
+# These are consumed by the agent, which renders the spoken sentence itself —
+# so they are deliberately NOT prose.
 
 
-def test_fixtures_are_plain_speakable_strings(monkeypatch):
+def test_milk_fixture_matches_formatter_shape(monkeypatch):
+    """Mirrors _format_milk_collection_summary: labelled, one record per line."""
     df = _reload_fixtures(monkeypatch, enabled="true", ids="8035454078")
-    for text in (
-        df.milk_collection_summary(),
-        df.ai_call_booked("cow"),
-        df.health_call_booked("mastitis"),
-    ):
-        assert isinstance(text, str) and text.strip()
-        # The voice prompt forbids markdown/brackets; TTS reads these literally.
-        for bad in ("*", "#", "[", "]", "|", "\n\n"):
-            assert bad not in text, f"{bad!r} would be spoken aloud: {text!r}"
+    text = df.milk_collection_summary()
+    assert text.startswith("Milk collection records (")
+    # Field labels are what stop the small OSS model confusing qty/fat/SNF/amount.
+    for label in ("quantity", "liters", "fat", "SNF", "amount", "rupees"):
+        assert label in text
+    assert "Deduction records (" in text
+    body = [ln for ln in text.splitlines() if ln.startswith("  ")]
+    assert len(body) >= 2
 
 
-def test_ai_call_fixture_reflects_species(monkeypatch):
+def test_ai_call_fixture_matches_prod_shape(monkeypatch):
+    """Real shape: prefix line, blank line, JSON with ait_name + ticket_number."""
+    import json
+
     df = _reload_fixtures(monkeypatch, enabled="true", ids="8035454078")
-    assert "buffalo" in df.ai_call_booked("Buffalo").lower()
-    assert "cow" in df.ai_call_booked("Cow").lower()
+    text = df.ai_call_booked("cow")
+    prefix, _, payload = text.partition("\n\n")
+    assert prefix == "Artificial insemination call booked successfully:"
+    parsed = json.loads(payload)
+    assert set(parsed) == {"ait_name", "ticket_number"}
+    # prod ait_name looks like "518 HARESHKUMAR-GANESHBHAI-PATEL"
+    code, _, name = parsed["ait_name"].partition(" ")
+    assert code.isdigit() and name.isupper() and "-" in name
+    assert parsed["ticket_number"].isdigit()
+
+
+def test_health_call_fixture_matches_prod_shape(monkeypatch):
+    df = _reload_fixtures(monkeypatch, enabled="true", ids="8035454078")
+    text = df.health_call_booked("normal")
+    assert text.startswith("Health call booked successfully. Ticket number: ")
+    ticket = text.rsplit(": ", 1)[1]
+    # Prod tickets are DDMMYYYY + a 4-digit serial.
+    assert ticket.isdigit() and len(ticket) == 12

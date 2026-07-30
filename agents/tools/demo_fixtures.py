@@ -75,39 +75,68 @@ def is_demo_caller(ctx: Any) -> bool:
 
 
 # --- fixtures ---------------------------------------------------------------
-# Written to read aloud naturally: numbers spelled the way the voice prompt asks
-# for, no markdown, no brackets. These are spoken by TTS, not rendered.
+# These mirror the REAL tool return shapes, verified against production tool
+# observations in Langfuse (voice-production, 2026-07-30). They are NOT prose:
+# each tool hands the agent a structured/labelled block and the agent renders
+# the spoken sentence itself. Returning prose here would bypass that step and
+# put my wording in Sarlaben's mouth instead of the model's.
+#
+# Reference observations:
+#   create_ai_call     trace 0a071d0c8b001e5d15efa1e4bcf677ab
+#   create_health_call trace c403567dd00de45adb22d6c81d978d4a
+#   milk               agents/tools/milk_collection.py:_format_milk_collection_summary
+
+import json
+
+# Ticket numbers observed in prod are DDMMYYYY + a 4-digit serial,
+# e.g. "300720263150" booked on 30-07-2026.
+_DEMO_TICKET = "310720264417"
 
 
 def milk_collection_summary() -> str:
-    """Roughly a month of collections, believable fat/SNF and a payment total."""
-    return (
-        "Here is your milk collection summary for the last thirty days. "
-        "You supplied a total of two hundred and eighty four litres, "
-        "with an average fat of four point one and average SNF of eight point six. "
-        "Your total payment for this period is eleven thousand three hundred and sixty rupees. "
-        "The last collection was yesterday evening, seven point five litres, "
-        "fat four point two."
-    )
+    """
+    Same flat, labelled, one-record-per-line shape `_format_milk_collection_summary`
+    produces — the small OSS model relies on the field labels to avoid confusing
+    quantity with fat/SNF/amount.
+    """
+    records = [
+        ("2026-07-29", "Evening", "7.5", "4.2", "8.6", "312"),
+        ("2026-07-29", "Morning", "8.1", "4.0", "8.5", "334"),
+        ("2026-07-28", "Evening", "7.2", "4.1", "8.6", "299"),
+        ("2026-07-28", "Morning", "8.4", "4.3", "8.7", "352"),
+        ("2026-07-27", "Evening", "7.8", "4.1", "8.5", "324"),
+    ]
+    lines = [f"Milk collection records ({len(records)}):"]
+    for i, (date, shift, qty, fat, snf, amount) in enumerate(records, 1):
+        lines.append(
+            f"  {i}. Date {date}, {shift} shift: "
+            f"quantity {qty} liters, fat {fat}, SNF {snf}, amount {amount} rupees."
+        )
+    lines.append("Deduction records (1):")
+    lines.append("  1. Date 2026-07-25, cattle feed: amount 450 rupees.")
+    return "\n".join(lines)
 
 
 def ai_call_booked(species: Any = None) -> str:
-    """Mirrors the real tool's success string so downstream handling is identical."""
-    animal = "buffalo" if str(species).lower().endswith("buffalo") else "cow"
+    """
+    Real shape: a prefix line, blank line, then a JSON object with `ait_name`
+    and `ticket_number`. `ait_name` in prod looks like
+    "518 HARESHKUMAR-GANESHBHAI-PATEL" — a numeric code then an
+    uppercase, hyphenated name.
+    """
+    payload = {
+        "ait_name": "407 RAMESHBHAI-KANTIBHAI-PATEL",
+        "ticket_number": _DEMO_TICKET,
+    }
     return (
-        f"Artificial insemination call booked successfully for your {animal}. "
-        "Technician Rameshbhai Patel will visit tomorrow morning between "
-        "eight and ten. You will get a confirmation call before the visit."
+        "Artificial insemination call booked successfully:\n\n"
+        + json.dumps(payload, indent=2)
     )
 
 
 def health_call_booked(case_type: Any = None) -> str:
-    """Mirrors the real tool's ticket-number success string."""
-    return (
-        "Health call booked successfully. Ticket number four four seven two. "
-        "Doctor Nileshbhai Patel will visit today between four and six in the evening. "
-        "Please keep the animal in the shed and do not milk before the visit."
-    )
+    """Real shape: one line, digits not words — the agent spells them aloud."""
+    return f"Health call booked successfully. Ticket number: {_DEMO_TICKET}"
 
 
 def log_fixture_served(tool: str, ctx: Any) -> None:
