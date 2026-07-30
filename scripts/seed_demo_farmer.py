@@ -16,6 +16,11 @@ envelope = {
         "societyName": "Thara Dudh Mandali",
         "farmerCode": "DEMO001",
         "unionCode": "BANAS",
+        # _collect_farmer_unions (app/services/voice.py:794) reads unionName /
+        # union_name, NOT unionCode. Without this the union is unresolved and
+        # prepare_get_union_scheme_data hides the scheme tool entirely.
+        # "banas" is one of SUPPORTED_SCHEME_UNIONS.
+        "unionName": "banas",
         "societyCode": "DEMOSOC01",
         "totalAnimals": 3,
         "tagNumbers": "IN0099887766, IN0099887767, IN0099887768",
