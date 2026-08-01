@@ -87,6 +87,19 @@ class Settings(BaseSettings):
     openai_pretranslation_timeout_seconds: float = float(os.getenv("OPENAI_PRETRANSLATION_TIMEOUT_SECONDS", "10.0"))
     voice_non_meaningful_timeout_seconds: float = float(os.getenv("VOICE_NON_MEANINGFUL_TIMEOUT_SECONDS", "0.60"))
     voice_non_meaningful_gate_timeout_seconds: float = float(os.getenv("VOICE_NON_MEANINGFUL_GATE_TIMEOUT_SECONDS", "0.50"))
+    # Outbound-call opening script (milk-details consent). Off by default: the
+    # opener only runs for calls Raya stamps call_type=outbound, and only once
+    # the flag is on for the environment.
+    outbound_intro_enabled: bool = _get_bool_env("OUTBOUND_INTRO_ENABLED", default=False)
+    outbound_milk_window_days: int = int(os.getenv("OUTBOUND_MILK_WINDOW_DAYS", "7"))
+    # Bounded so a hung upstream can never keep a prefetch task alive across the
+    # whole call; the caller's reply arrives long before this.
+    outbound_milk_prefetch_timeout_seconds: float = float(
+        os.getenv("OUTBOUND_MILK_PREFETCH_TIMEOUT_SECONDS", "25.0")
+    )
+    voice_outbound_consent_timeout_seconds: float = float(
+        os.getenv("VOICE_OUTBOUND_CONSENT_TIMEOUT_SECONDS", "0.60")
+    )
     enable_voice_tracing: bool = _get_bool_env("ENABLE_VOICE_TRACING", default=True)
     voice_trace_text_mode: str = os.getenv("VOICE_TRACE_TEXT_MODE", "preview_hash")
     voice_trace_preview_chars: int = int(os.getenv("VOICE_TRACE_PREVIEW_CHARS", "120"))

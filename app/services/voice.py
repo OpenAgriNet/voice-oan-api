@@ -58,6 +58,8 @@ from app.services.stt_signals import (
 from app.services.moderation import ModerationVerdict, check_moderation
 from app.services.fallback import AGENT_ACTIVITY, classify, execute_with_fallback, stream_with_fallback, with_first_token_deadline
 from app.services.non_meaningful import NonMeaningfulVerdict, check_non_meaningful_streak
+from app.services import outbound as _outbound
+from app.services.outbound_consent import ConsentVerdict, classify_consent
 from app.services.translation import (
     INDIAN_LANGUAGES,
     OPENAI_PRETRANSLATION_MODEL,
@@ -270,6 +272,7 @@ _HISTORY_MARKERS = {
     "stt_no_audio": "[stt:no-audio]",
     "stt_unclear": "[stt:unclear-speech]",
     "moderation_reject": "[moderation-rejected]",
+    "outbound_intro": "[outbound-call-started]",
 }
 
 # Markers that are dropped from the non-meaningful window entirely (neither
@@ -287,6 +290,9 @@ _NON_MEANINGFUL_EXCLUDED_TURNS = frozenset(
         #_HISTORY_MARKERS["stt_no_audio"],
         #_HISTORY_MARKERS["stt_unclear"],
         _HISTORY_MARKERS["moderation_reject"],
+        # Not a caller turn at all — it stands in for "we placed this call", so it
+        # must neither count toward a hangup streak nor break one.
+        _HISTORY_MARKERS["outbound_intro"],
     }
 )
 
@@ -1030,6 +1036,7 @@ async def stream_voice_message(
     http_request: Optional[Request] = None,
     trace: Optional[VoiceTrace] = None,
     pipeline_profile: str = "managed",
+    call_type: str = "inbound",
 #    background_tasks: BackgroundTasks,
 
 ) -> AsyncGenerator[str, None]:
@@ -1068,10 +1075,12 @@ async def stream_voice_message(
     # context is active — emitting it here would silently no-op
     # (Langfuse v4: "Operations that depend on an active span will be
     # skipped"; mirror of amul-oan-api#70).
+    call_type = _outbound.normalize_call_type(call_type)
     try:
         trace.metadata["pipeline_profile"] = pipeline_profile
         trace.metadata["request_model"] = request_model_name
         trace.metadata["request_provider"] = request_provider
+        trace.metadata["call_type"] = call_type
     except Exception:  # pragma: no cover - never break the call
         pass
     # Serialize the resolved pipeline config into COMPACT flat keys and merge them
@@ -1206,6 +1215,72 @@ async def stream_voice_message(
             nudge_lang = (requested_target_lang or "en").strip().lower()
             has_meaningful_history = _has_meaningful_history(history)
 
+            # ── Outbound opener ───────────────────────────────────────────
+            # Calls WE placed open with one scripted consent question instead of
+            # answering whatever the first turn happens to carry. The stage is
+            # read from Redis (not history) so it survives trimming, and is read
+            # on every turn while the feature flag is on because Raya is not
+            # guaranteed to re-stamp call_type after the first request.
+            outbound_stage = (
+                await _outbound.get_stage(session_id)
+                if settings.outbound_intro_enabled
+                else None
+            )
+            outbound_opener_turn = (
+                settings.outbound_intro_enabled
+                and _outbound.is_outbound(call_type)
+                and outbound_stage is None
+                and not history
+                # Only when the first turn carries no real content. If Raya
+                # forwards an actual question on connect, answer it — the farmer
+                # asking something themselves beats our script every time.
+                and (
+                    not (query or "").strip()
+                    or detect_stt_signal(query) is not None
+                    or _is_bare_greeting(query)
+                    or _is_fragment_query(query)
+                )
+            )
+            if outbound_opener_turn:
+                trace.set_route("outbound_intro")
+                logger.info(
+                    "Outbound intro emitted; session_id=%s process_id=%s user_id=%s query=%r",
+                    session_id, process_id, user_id, (query or "")[:60],
+                )
+                intro_en = _outbound.OUTBOUND_INTRO["en"]
+                intro_for_caller = await _canned_for_caller(
+                    intro_en, requested_target_lang, _outbound.OUTBOUND_INTRO,
+                )
+                intro_req, intro_resp = _history_pair(
+                    _canonical_history_user_text("outbound_intro"), intro_en,
+                )
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, intro_req, intro_resp])
+                await _outbound.set_stage(session_id, _outbound.STAGE_INTRO_SENT)
+
+                # Warm the milk summary while the farmer is answering. Bounded
+                # inside the prefetch; failure just means the agent fetches it
+                # itself on the next turn.
+                _prefetch_mobile = normalize_phone_to_mobile(user_id)
+                if _prefetch_mobile:
+                    async def _warm_outbound_milk(mobile_number: str = _prefetch_mobile):
+                        envelope = await get_or_fetch_farmer_data(mobile_number)
+                        await _outbound.prefetch_milk_summary(
+                            session_id, _collect_farmer_accounts(envelope),
+                        )
+                    _outbound.spawn(_warm_outbound_milk(), label="outbound_milk_prefetch")
+
+                trace.set_outcome("outbound_intro")
+                yield _emit(_prepare_voice_output(intro_for_caller, requested_target_lang))
+                return
+
+            # The turn that answers the outbound consent question is owned by the
+            # consent gate: the greeting / fragment / identity fast paths must not
+            # preempt it. "હા બોલો" — the single most likely affirmative reply — is
+            # itself a _GREETING_TOKENS entry, so without this an affirmative reply
+            # could be answered with the generic greeting and the readout lost.
+            outbound_consent_turn = outbound_stage == _outbound.STAGE_INTRO_SENT
+
             # ── STT signal handling (no-audio / unclear speech) ─────────────
             # These are not real user messages — skip translation & agent,
             # generate a short contextual "please repeat" via GPT-5-mini.
@@ -1269,7 +1344,7 @@ async def stream_voice_message(
             # full agent pipeline or a nudge.  Respond immediately.
             # When translation pipeline is active, let greetings flow through
             # the normal agent pipeline so history stays in English.
-            if _is_bare_greeting(query) and not has_meaningful_history:
+            if _is_bare_greeting(query) and not has_meaningful_history and not outbound_consent_turn:
                 trace.set_route("greeting_fast_path")
                 logger.info(
                     "Bare greeting detected; short-circuiting - session_id=%s process_id=%s query=%r",
@@ -1289,7 +1364,7 @@ async def stream_voice_message(
             # Pure identity queries ("What is your name?", "What is this service?")
             # should return the canonical Sarlaben identity line directly
             # without running the full agent pipeline.
-            if _fast_path_kind_for_query(query) == "identity" and not has_meaningful_history:
+            if _fast_path_kind_for_query(query) == "identity" and not has_meaningful_history and not outbound_consent_turn:
                 trace.set_route("identity_fast_path")
                 logger.info(
                     "Identity fast-path triggered; session_id=%s process_id=%s query=%r",
@@ -1308,7 +1383,7 @@ async def stream_voice_message(
             # ── Fragment short-circuit ────────────────────────────────────
             # Very short / garbled input (≤3 chars) that isn't a greeting or
             # STT signal — ask the farmer to repeat instead of routing to agent.
-            if _is_fragment_query(query) and not has_meaningful_history:
+            if _is_fragment_query(query) and not has_meaningful_history and not outbound_consent_turn:
                 trace.set_route("fragment_fast_path")
                 logger.info(
                     "Fragment query detected; short-circuiting - session_id=%s process_id=%s query=%r",
@@ -1461,6 +1536,19 @@ async def stream_voice_message(
             )
             non_meaningful_task.add_done_callback(
                 lambda _t: non_meaningful_done_at.__setitem__("t", time.monotonic())
+            )
+
+            # Outbound consent gate. Started here so the classifier runs under
+            # pretranslation and the farmer-context fetch rather than after them;
+            # it reads the raw native-language reply, so it needs neither. The
+            # verdict is consumed before the agent input is built (below),
+            # because an affirmative reply changes that input.
+            consent_task = (
+                asyncio.create_task(
+                    classify_consent(reply=query, source_lang=requested_source_lang)
+                )
+                if outbound_consent_turn
+                else None
             )
 
             if requested_source_lang not in {"en", "english"}:
@@ -1965,6 +2053,18 @@ async def stream_voice_message(
                 except asyncio.CancelledError:
                     pass
 
+            async def _cancel_consent_task_if_pending() -> None:
+                """Reap the consent classifier on paths that short-circuit before
+                the consent gate. The outbound stage is deliberately left at
+                ``intro_sent`` on those paths, so the next turn re-classifies."""
+                if consent_task is None or consent_task.done():
+                    return
+                consent_task.cancel()
+                try:
+                    await consent_task
+                except asyncio.CancelledError:
+                    pass
+
             async def _moderation_decline_stream(verdict: ModerationVerdict):
                 """Emit the canned decline and write history for a rejected query."""
                 trace.set_route("moderation_rejected")
@@ -2024,6 +2124,38 @@ async def stream_voice_message(
                 # Keep the exact telephony termination token.
                 yield _emit(goodbye)
 
+            async def _outbound_decline_stream(verdict: ConsentVerdict):
+                """Emit the scripted farewell and hang up after a declined outbound call."""
+                trace.set_route("outbound_declined")
+                if nudge_task and not nudge_task.done():
+                    nudge_task.cancel()
+                    trace.set_nudge(cancel_reason="outbound_declined")
+                    try:
+                        await nudge_task
+                    except asyncio.CancelledError:
+                        pass
+                farewell_en = _outbound.OUTBOUND_DECLINE_FAREWELL["en"]
+                farewell_for_caller = await _canned_for_caller(
+                    farewell_en, requested_target_lang, _outbound.OUTBOUND_DECLINE_FAREWELL,
+                )
+                goodbye = TELEPHONY_TERMINATE_CALL_TOKEN.get(
+                    requested_target_lang, TELEPHONY_TERMINATE_CALL_TOKEN["en"],
+                )
+                dec_req, dec_resp = _history_pair(
+                    history_user_text or query, f"{farewell_en} {TELEPHONY_TERMINATE_CALL_TOKEN['en']}",
+                )
+                with trace.stage("history_write"):
+                    await update_message_history(session_id, [*history, dec_req, dec_resp])
+                trace.set_outcome("outbound_declined")
+                logger.info(
+                    "Outbound consent declined; emitting farewell + hangup - session_id=%s process_id=%s reason=%r",
+                    session_id, process_id, verdict.reason,
+                )
+                yield _emit(_prepare_voice_output(farewell_for_caller, requested_target_lang))
+                # Termination token stays exact ASCII "Goodbye." — passing it
+                # through the Gujarati output filter would strip it to ".".
+                yield _emit(" " + goodbye)
+
             # ── Empty-pretranslation guard ───────────────────────────────
             # Only short-circuit when pretranslation produced no usable text
             # at all (i.e. both primary and fallback failed). True noise still
@@ -2039,10 +2171,12 @@ async def stream_voice_message(
                 if _verdict is not None and _verdict.rejected:
                     if await _request_is_stale("after_moderation_reject"):
                         await _cancel_non_meaningful_task_if_pending()
+                        await _cancel_consent_task_if_pending()
                         return
                     async for _c in _moderation_decline_stream(_verdict):
                         yield _c
                     await _cancel_non_meaningful_task_if_pending()
+                    await _cancel_consent_task_if_pending()
                     return
                 trace.set_route("pretranslation_empty")
                 logger.info(
@@ -2060,6 +2194,7 @@ async def stream_voice_message(
                 trace.set_outcome("pretranslation_empty")
                 yield _emit(_prepare_voice_output(low_conf_resp_for_caller, requested_target_lang))
                 await _cancel_non_meaningful_task_if_pending()
+                await _cancel_consent_task_if_pending()
                 return
 
             if farmer_cache_task is not None:
@@ -2100,6 +2235,77 @@ async def stream_voice_message(
                         )
                 except Exception as e:
                     logger.warning(f"Failed to load farmer summary for mobile {mobile}: {e}")
+
+            # ── Outbound consent gate ─────────────────────────────────────
+            # Turn 2 of an outbound call: the farmer's first reply to the scripted
+            # consent question. Three-way — a reply that is neither yes nor no
+            # (typically the farmer asking their own question) simply falls through
+            # to a normal agent turn, which is the outcome we most want to protect.
+            outbound_milk_hint: Optional[str] = None
+            if consent_task is not None:
+                _consent_wait_started = time.monotonic()
+                consent_verdict = await consent_task
+                trace.attach_stage_timing(
+                    "outbound_consent",
+                    (time.monotonic() - _consent_wait_started) * 1000.0,
+                    intent=consent_verdict.intent,
+                    failed_open=consent_verdict.failed_open,
+                )
+                try:
+                    trace.metadata["outbound_consent_intent"] = consent_verdict.intent
+                except Exception:  # pragma: no cover - tracing must never break the call
+                    pass
+                logger.info(
+                    "Outbound consent verdict - session_id=%s process_id=%s intent=%s reason=%r failed_open=%s",
+                    session_id, process_id, consent_verdict.intent,
+                    consent_verdict.reason, consent_verdict.failed_open,
+                )
+                # The opener is done either way: never re-classify on later turns.
+                await _outbound.set_stage(session_id, _outbound.STAGE_RESOLVED)
+
+                if consent_verdict.is_negative:
+                    await _cancel_non_meaningful_task_if_pending()
+                    if not moderation_task.done():
+                        moderation_task.cancel()
+                    if not await _request_is_stale("after_outbound_decline"):
+                        async for _c in _outbound_decline_stream(consent_verdict):
+                            yield _c
+                    return
+
+                if consent_verdict.is_affirmative:
+                    prefetched = await _outbound.get_prefetched_milk_summary(session_id)
+                    if prefetched:
+                        outbound_milk_hint = _outbound.milk_answer_hint(prefetched)
+                        trace.set_route("outbound_milk_readout")
+                    elif signed_in and mobile and farmer_accounts:
+                        # Prefetch missed (cold cache or slow upstream) — the agent
+                        # fetches it itself against the same pinned window.
+                        _from, _to = _outbound.milk_window(settings.outbound_milk_window_days)
+                        outbound_milk_hint = _outbound.milk_fetch_hint(_from, _to)
+                        trace.set_route("outbound_milk_readout_cold")
+                    else:
+                        # Consented, but there is nothing to read out (no account on
+                        # this number). Say so and leave the call open rather than
+                        # reading an upstream failure message aloud.
+                        await _cancel_non_meaningful_task_if_pending()
+                        if not moderation_task.done():
+                            moderation_task.cancel()
+                        trace.set_route("outbound_no_data")
+                        no_data_en = _outbound.OUTBOUND_NO_DATA["en"]
+                        no_data_for_caller = await _canned_for_caller(
+                            no_data_en, requested_target_lang, _outbound.OUTBOUND_NO_DATA,
+                        )
+                        nd_req, nd_resp = _history_pair(history_user_text or query, no_data_en)
+                        with trace.stage("history_write"):
+                            await update_message_history(session_id, [*history, nd_req, nd_resp])
+                        trace.set_outcome("outbound_no_data")
+                        logger.info(
+                            "Outbound consent affirmative but no milk data available - "
+                            "session_id=%s process_id=%s signed_in=%s accounts=%s",
+                            session_id, process_id, signed_in, len(farmer_accounts),
+                        )
+                        yield _emit(_prepare_voice_output(no_data_for_caller, requested_target_lang))
+                        return
 
             logger.info(f"User info: {user_info}")
             deps = FarmerContext(
@@ -2154,6 +2360,15 @@ async def stream_voice_message(
             query_hints_request = _build_query_hints_request(deps)
             if query_hints_request is not None:
                 model_input_history.append(query_hints_request)
+            if outbound_milk_hint is not None:
+                # Appended after the per-query hints, immediately before the user
+                # message: this turn's instruction is the readout, and it must sit
+                # closest to the reply it acts on.
+                model_input_history.append(
+                    ModelRequest(parts=[UserPromptPart(content=(
+                        "Hints for the current user query:\n" + outbound_milk_hint
+                    ))])
+                )
             active_agent = voice_agent_signed_in if (signed_in and mobile) else voice_agent
             usage_limits = UsageLimits(request_limit=6 if (signed_in and mobile) else 4)
 
