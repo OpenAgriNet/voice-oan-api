@@ -86,6 +86,7 @@ async def voice_endpoint(
             http_request=http_request,
             trace=trace,
             pipeline_profile=pipeline_profile,
+            call_type=request.call_type,
         ),
         media_type='text/event-stream'
     )
