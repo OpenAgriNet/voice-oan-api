@@ -131,11 +131,6 @@ async def get_farmer_milk_collection_details(
         str: Formatted milk collection and deduction details across all of the
              farmer's accounts, or a clear failure message.
     """
-    token = os.getenv("PASHUGPT_TOKEN")
-    if not token:
-        logger.error("PASHUGPT_TOKEN is not set")
-        return "Milk collection lookup failed. Service is not configured."
-
     # Prefer the structured accounts from context (every account on the mobile).
     # Fall back to the LLM-supplied codes only when context has none.
     accounts = list(ctx.deps.farmer_accounts) if ctx.deps and ctx.deps.farmer_accounts else []
@@ -151,6 +146,29 @@ async def get_farmer_milk_collection_details(
         "Milk collection tool invoked: accounts=%s from=%s to=%s (llm_codes=%s/%s/%s)",
         len(accounts), fromdate, todate, union_code, society_code, farmer_code,
     )
+    return await fetch_milk_summary_for_accounts(accounts, fromdate, todate)
+
+
+async def fetch_milk_summary_for_accounts(
+    accounts: list[FarmerAccount],
+    fromdate: str,
+    todate: str,
+) -> str:
+    """Fan out over every account and render one plain-text summary.
+
+    Split out of the tool body so callers without a ``RunContext`` can reuse the
+    exact same fetch + formatting — notably the outbound-call prefetch, which
+    warms this summary while the caller is still hearing the intro line (see
+    ``app.services.outbound``). Any change to the wording the agent reads must
+    therefore stay in here, not in the tool wrapper.
+    """
+    token = os.getenv("PASHUGPT_TOKEN")
+    if not token:
+        logger.error("PASHUGPT_TOKEN is not set")
+        return "Milk collection lookup failed. Service is not configured."
+
+    if not accounts:
+        return "Milk collection lookup failed. No farmer account is available."
 
     # Validate the date range once — it is the same for every account, so a bad
     # date is a single clear failure rather than a per-account error.
