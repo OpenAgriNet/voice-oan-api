@@ -249,6 +249,7 @@ async def get_voice_message_with_translation(
             query=translated_query,
             lang_code='mr',
             target_lang='mr',
+            prompt_lang='bhb',
             provider=provider,
             session_id=session_id,
             process_id=process_id

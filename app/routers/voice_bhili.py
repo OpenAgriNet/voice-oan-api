@@ -35,6 +35,6 @@ async def voice_bhili_endpoint(
     )
     
     return {
-        session_id: session_id,
+        "session_id": session_id,
         "response": response
     }
