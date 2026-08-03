@@ -32,6 +32,6 @@ voice_agent = Agent(
 def get_voice_system_prompt(ctx: RunContext[FarmerContext]) -> str:
     """Get the system prompt for the voice agent."""
     deps = ctx.deps
-    target_lang = deps.target_lang if deps.target_lang else 'mr'
-    logger.info(f"Target language: {target_lang}")
-    return get_prompt(f'voice_system_{target_lang}', context={'today_date': get_today_date_str()})
+    prompt_lang = deps.prompt_lang or deps.target_lang or 'mr'
+    logger.info(f"Prompt language: {prompt_lang}")
+    return get_prompt(f'voice_system_{prompt_lang}', context={'today_date': get_today_date_str()})
