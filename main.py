@@ -3,7 +3,6 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from contextlib import asynccontextmanager
-from app.tasks.scheme_scheduler import start_scheme_scheduler, stop_scheme_scheduler
 from app.tasks.farmer_refresh_worker import start_farmer_refresh_worker, stop_farmer_refresh_worker
 # P2 health poller: active LB /health probe feeding the per-endpoint breaker.
 # start_/stop_ are no-ops unless HEALTH_POLLER_ENABLED (flag-off boot is untouched).
@@ -42,14 +41,12 @@ async def lifespan(app: FastAPI):
         raise
     except Exception as _llm_exc:  # pragma: no cover - defensive
         print(f"⚠️  llm_core configure skipped: {_llm_exc}")
-    await start_scheme_scheduler()
     await start_farmer_refresh_worker()
     await start_health_poller()
     yield
     # Shutdown
     await stop_health_poller()
     await stop_farmer_refresh_worker()
-    await stop_scheme_scheduler()
     print(f"🛑 {settings.app_name} shutting down...")
 
 # Create FastAPI app with settings

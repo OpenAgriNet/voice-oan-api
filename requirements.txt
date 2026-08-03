@@ -30,8 +30,6 @@ prometheus-client==0.21.1
 
 # Redis for caching and stuff
 redis
-apscheduler==3.10.4
-pypdf==6.1.3
 # NOTE: not sure if needed
 # hiredis-py 
 
