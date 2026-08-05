@@ -1,8 +1,12 @@
-"""Outbound-call opener: intro line, consent gate, and the decline hangup.
+"""Outbound-call consent gate and the decline hangup.
+
+Raya speaks the opening line, so the FIRST outbound turn already carries the
+farmer's answer to it. These tests pin that we classify that first turn and never
+speak an intro ourselves (which would give the farmer two).
 
 Covers the three-way consent verdict and, importantly, that an uncertain verdict
-never ends the call. Inbound behaviour must be untouched by all of this, so the
-last test drives a plain inbound turn through the same path.
+never ends the call. Inbound behaviour must be untouched by all of this, so one
+test drives a plain inbound turn through the same path.
 """
 import os
 
@@ -46,13 +50,10 @@ def test_milk_window_is_seven_days_inclusive():
     assert date.fromisoformat(todate) - date.fromisoformat(fromdate) == timedelta(days=6)
 
 
-def test_intro_survives_the_gujarati_output_filter():
-    """Regression: the script's ASCII "7" is stripped for gu, which would make
-    the caller hear "in the last  days". The line must spell the number out."""
-    spoken = clean_output_by_language(ob.OUTBOUND_INTRO["gu"], "gu")
-    assert "સાત" in spoken
-    assert "દિવસ" in spoken
-    assert not any(ch.isdigit() and ch.isascii() for ch in spoken)
+def test_no_intro_line_is_shipped_in_this_service():
+    """Raya owns the call's opening line. If an intro constant reappears here,
+    the farmer hears the question twice — once from Raya, once from us."""
+    assert not hasattr(ob, "OUTBOUND_INTRO")
 
 
 def test_farewell_keeps_the_helpline_number():
@@ -215,48 +216,68 @@ def _history_texts(messages):
     return out
 
 
-def test_outbound_first_turn_emits_the_intro_and_arms_the_prefetch(voice_harness):
-    output = asyncio.run(voice_harness["collect"]("", session_id="s-intro"))
+def test_outbound_first_turn_classifies_instead_of_speaking_an_intro(voice_harness):
+    """The core of this change: Raya already asked, so turn 1 is the ANSWER.
+    We must classify it and never re-ask."""
+    from app.services.outbound_consent import ConsentVerdict
 
-    assert "સરલાબેન" in output and "દૂધ" in output
-    assert voice_harness["stage"]["s-intro"] == ob.STAGE_INTRO_SENT
-    assert _history_texts(voice_harness["history"]["s-intro"])[0] == "[outbound-call-started]"
-    # No agent run on the intro turn.
-    assert voice_harness["agent_inputs"] == []
+    voice_harness["consent"] = ConsentVerdict(intent=INTENT_NEGATIVE, reason="declines")
+
+    output = asyncio.run(voice_harness["collect"]("nahi", session_id="s-first"))
+
+    # The reply reached the classifier on the very first turn.
+    assert voice_harness["consent_reply"] == "nahi"
+    # ...and was acted on, rather than answered with an intro.
+    assert "સરલાબેન બોલું છું" not in output
+    assert "વૉટ્સએપ" in output
+    assert voice_harness["stage"]["s-first"] == ob.STAGE_RESOLVED
+
+
+def test_outbound_first_turn_never_arms_the_intro_stage(voice_harness):
+    """Nothing may write STAGE_INTRO_SENT any more — that stage existed only to
+    mean "we spoke our own intro, awaiting the reply"."""
+    from app.services.outbound_consent import ConsentVerdict
+
+    voice_harness["consent"] = ConsentVerdict(intent=INTENT_OTHER, reason="unclear")
+
+    asyncio.run(voice_harness["collect"]("", session_id="s-empty"))
+
+    assert ob.STAGE_INTRO_SENT not in voice_harness["stage"].values()
+
+
+def test_outbound_first_turn_arms_the_milk_prefetch(voice_harness, monkeypatch):
+    """The prefetch used to hide behind our intro turn. With that turn gone it
+    must start alongside the consent classifier, or an affirmative reply pays the
+    full upstream lookup serially."""
+    from app.services import voice as voice_module
+    from app.services.outbound_consent import ConsentVerdict
+
+    monkeypatch.setattr(voice_module, "normalize_phone_to_mobile", lambda user_id: "9999999999")
+    voice_harness["consent"] = ConsentVerdict(intent=INTENT_OTHER, reason="unclear")
+
+    asyncio.run(voice_harness["collect"]("hmm", session_id="s-prefetch"))
+
+    assert "outbound_milk_prefetch" in voice_harness["prefetch_calls"]
 
 
 def test_inbound_first_turn_is_untouched(voice_harness):
-    """The opener must be invisible to the inbound helpline."""
+    """The consent gate must be invisible to the inbound helpline."""
     output = asyncio.run(
         voice_harness["collect"]("my cow has fever", session_id="s-in", call_type="inbound")
     )
 
-    assert "સરલાબેન બોલું છું" not in output
+    assert "વૉટ્સએપ" not in output
+    assert voice_harness.get("consent_reply") is None   # classifier never ran
     assert "s-in" not in voice_harness["stage"]
-    assert len(voice_harness["agent_inputs"]) == 1
-
-
-def test_outbound_first_turn_with_a_real_question_skips_the_script(voice_harness):
-    """If Raya forwards an actual question on connect, answer it — the farmer
-    asking something themselves beats the script."""
-    output = asyncio.run(
-        voice_harness["collect"]("my buffalo is not eating", session_id="s-q")
-    )
-
-    assert "સરલાબેન બોલું છું" not in output
-    assert "s-q" not in voice_harness["stage"]
     assert len(voice_harness["agent_inputs"]) == 1
 
 
 def test_negative_consent_speaks_the_farewell_then_hangs_up(voice_harness):
     from app.services.outbound_consent import ConsentVerdict
 
-    voice_harness["stage"]["s-no"] = ob.STAGE_INTRO_SENT
     voice_harness["consent"] = ConsentVerdict(intent=INTENT_NEGATIVE, reason="declines")
 
-    output = asyncio.run(
-        voice_harness["collect"]("na atyare nahi", session_id="s-no", history=[object()])
-    )
+    output = asyncio.run(voice_harness["collect"]("na atyare nahi", session_id="s-no"))
 
     assert "વૉટ્સએપ" in output               # the scripted farewell was spoken
     assert output.rstrip().endswith("Goodbye.")  # exact ASCII telephony token
@@ -270,11 +291,10 @@ def test_affirmative_consent_hands_the_prefetched_summary_to_the_agent(voice_har
     fast-path and the readout is silently lost."""
     from app.services.outbound_consent import ConsentVerdict
 
-    voice_harness["stage"]["s-yes"] = ob.STAGE_INTRO_SENT
     voice_harness["consent"] = ConsentVerdict(intent=INTENT_AFFIRMATIVE, reason="clear yes")
     voice_harness["milk"] = "Milk collection records (2): ... quantity 9 liters"
 
-    asyncio.run(voice_harness["collect"]("ha bolo", session_id="s-yes", history=[object()]))
+    asyncio.run(voice_harness["collect"]("ha bolo", session_id="s-yes"))
 
     assert len(voice_harness["agent_inputs"]) == 1
     hint_text = "\n".join(_history_texts(voice_harness["agent_inputs"][0]))
@@ -284,15 +304,15 @@ def test_affirmative_consent_hands_the_prefetched_summary_to_the_agent(voice_har
 
 
 def test_other_consent_falls_through_to_a_normal_agent_turn(voice_harness):
+    """A farmer who answers the opener with their own question gets it answered."""
     from app.services.outbound_consent import ConsentVerdict
 
-    voice_harness["stage"]["s-other"] = ob.STAGE_INTRO_SENT
     voice_harness["consent"] = ConsentVerdict(
         intent=INTENT_OTHER, reason="asks own question", failed_open=True,
     )
 
     output = asyncio.run(
-        voice_harness["collect"]("my cow is not eating", session_id="s-other", history=[object()])
+        voice_harness["collect"]("my cow is not eating", session_id="s-other")
     )
 
     assert "Goodbye." not in output              # an uncertain verdict never hangs up
@@ -301,3 +321,19 @@ def test_other_consent_falls_through_to_a_normal_agent_turn(voice_harness):
     hint_text = "\n".join(_history_texts(voice_harness["agent_inputs"][0]))
     assert "Milk deposit summary" not in hint_text
     assert voice_harness["stage"]["s-other"] == ob.STAGE_RESOLVED
+
+
+def test_legacy_intro_sent_sessions_still_route_to_the_consent_gate(voice_harness):
+    """Sessions mid-call across the deploy already heard our old intro; their
+    next turn is still the consent reply and must not be re-classified as turn 1."""
+    from app.services.outbound_consent import ConsentVerdict
+
+    voice_harness["stage"]["s-legacy"] = ob.STAGE_INTRO_SENT
+    voice_harness["consent"] = ConsentVerdict(intent=INTENT_NEGATIVE, reason="declines")
+
+    output = asyncio.run(
+        voice_harness["collect"]("nahi", session_id="s-legacy", history=[object()])
+    )
+
+    assert "વૉટ્સએપ" in output
+    assert voice_harness["stage"]["s-legacy"] == ob.STAGE_RESOLVED
