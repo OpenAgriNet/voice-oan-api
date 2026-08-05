@@ -1,4 +1,6 @@
 import os
+import time
+from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator, Optional, Literal
 # from fastapi import BackgroundTasks
 from agents.voice import voice_agent
@@ -158,6 +160,10 @@ async def stream_voice_message(
         logger.info(f"Trimmed history length: {len(trimmed_history)} messages")
 
         streamed_parts: list[str] = []
+        t0_perf = time.perf_counter()
+        t0_wall = datetime.now(timezone.utc)
+        first_token_perf: Optional[float] = None
+
         lf_client = get_langfuse()
         if lf_obs is not None and lf_client is not None:
             # Create a dedicated generation observation so Langfuse can compute usage/cost.
@@ -173,6 +179,10 @@ async def stream_voice_message(
                     deps=deps,
                 ) as response_stream:
                     async for chunk in response_stream.stream_text(delta=True):
+                        if first_token_perf is None:
+                            first_token_perf = time.perf_counter()
+                            ttft_s = first_token_perf - t0_perf
+                            logger.info(f"TTFT session={session_id} ttft={ttft_s:.3f}s")
                         streamed_parts.append(chunk)
                         yield chunk
 
@@ -180,9 +190,14 @@ async def stream_voice_message(
                     # Capture the data we need while response_stream is still available
                     new_messages = response_stream.new_messages()
 
+                    completion_start_time = (
+                        t0_wall + timedelta(seconds=first_token_perf - t0_perf)
+                        if first_token_perf is not None else None
+                    )
                     lf_gen.update(
                         output="".join(streamed_parts),
                         usage_details=_langfuse_usage_details(response_stream),
+                        completion_start_time=completion_start_time,
                     )
         else:
             async with voice_agent.run_stream(
@@ -191,6 +206,10 @@ async def stream_voice_message(
                 deps=deps,
             ) as response_stream:
                 async for chunk in response_stream.stream_text(delta=True):
+                    if first_token_perf is None:
+                        first_token_perf = time.perf_counter()
+                        ttft_s = first_token_perf - t0_perf
+                        logger.info(f"TTFT session={session_id} ttft={ttft_s:.3f}s")
                     streamed_parts.append(chunk)
                     yield chunk
 
