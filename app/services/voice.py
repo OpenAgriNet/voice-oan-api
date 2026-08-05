@@ -290,8 +290,9 @@ _NON_MEANINGFUL_EXCLUDED_TURNS = frozenset(
         #_HISTORY_MARKERS["stt_no_audio"],
         #_HISTORY_MARKERS["stt_unclear"],
         _HISTORY_MARKERS["moderation_reject"],
-        # Not a caller turn at all — it stands in for "we placed this call", so it
-        # must neither count toward a hangup streak nor break one.
+        # Legacy marker from the removed in-app intro (Raya owns the opener now).
+        # Not a caller turn at all, so it must neither count toward a hangup
+        # streak nor break one, for as long as such histories survive trimming.
         _HISTORY_MARKERS["outbound_intro"],
     }
 )
@@ -1215,52 +1216,46 @@ async def stream_voice_message(
             nudge_lang = (requested_target_lang or "en").strip().lower()
             has_meaningful_history = _has_meaningful_history(history)
 
-            # ── Outbound opener ───────────────────────────────────────────
-            # Calls WE placed open with one scripted consent question instead of
-            # answering whatever the first turn happens to carry. The stage is
-            # read from Redis (not history) so it survives trimming, and is read
-            # on every turn while the feature flag is on because Raya is not
-            # guaranteed to re-stamp call_type after the first request.
+            # ── Outbound consent gate ─────────────────────────────────────
+            # RAYA speaks the opening line on a call we placed, not us. By the
+            # time the first request reaches this service the farmer has already
+            # heard the intro and answered it — so the FIRST outbound turn
+            # carries the consent reply. We classify that reply; we never send an
+            # intro of our own, or the farmer hears two.
+            #
+            # The stage is read from Redis (not history) so it survives trimming,
+            # and is read on every turn while the feature flag is on because Raya
+            # is not guaranteed to re-stamp call_type after the first request.
             outbound_stage = (
                 await _outbound.get_stage(session_id)
                 if settings.outbound_intro_enabled
                 else None
             )
-            outbound_opener_turn = (
-                settings.outbound_intro_enabled
-                and _outbound.is_outbound(call_type)
-                and outbound_stage is None
-                and not history
-                # Only when the first turn carries no real content. If Raya
-                # forwards an actual question on connect, answer it — the farmer
-                # asking something themselves beats our script every time.
-                and (
-                    not (query or "").strip()
-                    or detect_stt_signal(query) is not None
-                    or _is_bare_greeting(query)
-                    or _is_fragment_query(query)
+            # The turn answering Raya's opening question is owned by the consent
+            # gate: the greeting / fragment / identity fast paths must not preempt
+            # it. "હા બોલો" — the single most likely affirmative reply — is itself a
+            # _GREETING_TOKENS entry, so without this an affirmative reply could be
+            # answered with the generic greeting and the readout lost.
+            outbound_consent_turn = settings.outbound_intro_enabled and (
+                (
+                    _outbound.is_outbound(call_type)
+                    and outbound_stage is None
+                    and not history
                 )
+                # Sessions opened by our own (now removed) intro that are still
+                # mid-call across the deploy — they are already past the intro, so
+                # their next turn is still the consent reply.
+                or outbound_stage == _outbound.STAGE_INTRO_SENT
             )
-            if outbound_opener_turn:
-                trace.set_route("outbound_intro")
+            if outbound_consent_turn:
                 logger.info(
-                    "Outbound intro emitted; session_id=%s process_id=%s user_id=%s query=%r",
+                    "Outbound consent turn; session_id=%s process_id=%s user_id=%s query=%r",
                     session_id, process_id, user_id, (query or "")[:60],
                 )
-                intro_en = _outbound.OUTBOUND_INTRO["en"]
-                intro_for_caller = await _canned_for_caller(
-                    intro_en, requested_target_lang, _outbound.OUTBOUND_INTRO,
-                )
-                intro_req, intro_resp = _history_pair(
-                    _canonical_history_user_text("outbound_intro"), intro_en,
-                )
-                with trace.stage("history_write"):
-                    await update_message_history(session_id, [*history, intro_req, intro_resp])
-                await _outbound.set_stage(session_id, _outbound.STAGE_INTRO_SENT)
-
-                # Warm the milk summary while the farmer is answering. Bounded
-                # inside the prefetch; failure just means the agent fetches it
-                # itself on the next turn.
+                # Warm the milk summary alongside the consent classifier so an
+                # affirmative reply does not pay the upstream lookup serially.
+                # There is no longer a turn of our own to hide it behind. Failure
+                # just means the agent fetches it itself.
                 _prefetch_mobile = normalize_phone_to_mobile(user_id)
                 if _prefetch_mobile:
                     async def _warm_outbound_milk(mobile_number: str = _prefetch_mobile):
@@ -1269,17 +1264,6 @@ async def stream_voice_message(
                             session_id, _collect_farmer_accounts(envelope),
                         )
                     _outbound.spawn(_warm_outbound_milk(), label="outbound_milk_prefetch")
-
-                trace.set_outcome("outbound_intro")
-                yield _emit(_prepare_voice_output(intro_for_caller, requested_target_lang))
-                return
-
-            # The turn that answers the outbound consent question is owned by the
-            # consent gate: the greeting / fragment / identity fast paths must not
-            # preempt it. "હા બોલો" — the single most likely affirmative reply — is
-            # itself a _GREETING_TOKENS entry, so without this an affirmative reply
-            # could be answered with the generic greeting and the readout lost.
-            outbound_consent_turn = outbound_stage == _outbound.STAGE_INTRO_SENT
 
             # ── STT signal handling (no-audio / unclear speech) ─────────────
             # These are not real user messages — skip translation & agent,

@@ -1,9 +1,11 @@
-"""Outbound-call opening script (milk-details consent) for voice calls.
+"""Outbound-call consent handling (milk-details readout) for voice calls.
 
-Raya stamps ``call_type=outbound`` on requests for calls WE placed. On the first
-turn of such a call Sarlaben reads a fixed consent line; on the next turn the
-farmer's reply is classified by :mod:`app.services.outbound_consent` into
-affirmative / negative / other.
+Raya stamps ``call_type=outbound`` on requests for calls WE placed, and Raya —
+not this service — speaks the opening line ("may I read out your last 7 days of
+milk?"). Our work starts at the farmer's ANSWER: the first outbound turn already
+carries it, and it is classified by :mod:`app.services.outbound_consent` into
+affirmative / negative / other. This module never emits an intro; doing so would
+give the farmer two.
 
 Everything caller-facing here is pinned Gujarati, served verbatim. It never goes
 through TranslateGemma: these lines carry a phone number, the brand name, and the
@@ -31,7 +33,10 @@ CALL_TYPE_INBOUND = "inbound"
 CALL_TYPE_OUTBOUND = "outbound"
 
 # Session stages for the outbound opener.
-STAGE_INTRO_SENT = "intro_sent"      # consent line spoken, awaiting the farmer's reply
+# Legacy: written only by the removed in-app intro. Sessions carrying it were
+# mid-call across that deploy; kept so their next turn still routes to the
+# consent gate. Nothing sets it any more.
+STAGE_INTRO_SENT = "intro_sent"
 STAGE_RESOLVED = "resolved"          # consent already handled; call is a normal conversation
 
 _STATE_SUFFIX = "outbound_state"
@@ -43,20 +48,13 @@ _STATE_TTL = 60 * 60 * 4  # a call never outlives this; keeps stale state out of
 # Source: "Outbound call script for previously interacted (non-returning
 # registered callers)". The English variants exist only for message history and
 # for en-target test calls — the caller hears the Gujarati.
-
-OUTBOUND_INTRO = {
-    # "સાત", not the script's "7": clean_output_by_language() strips every
-    # non-Gujarati-block character for gu, so an ASCII digit would be deleted and
-    # the caller would hear "in the last  days".
-    "gu": (
-        "નમસ્તે! હું અમૂલ તરફથી સરલાબેન બોલું છું. "
-        "શું હું તમને છેલ્લા સાત દિવસમાં તમે જમા કરાવેલા દૂધની વિગતો જણાવું?"
-    ),
-    "en": (
-        "Hello! This is Sarlaben calling from Amul. "
-        "May I tell you the details of the milk you deposited in the last 7 days?"
-    ),
-}
+#
+# NOTE: the script's opening line lives in RAYA, not here. Everything below is
+# said only AFTER the farmer has replied to it.
+#
+# Digits are spelled as Gujarati words on purpose: clean_output_by_language()
+# strips every non-Gujarati-block character for gu, so an ASCII digit would be
+# deleted and the caller would hear a gap where the number should be.
 
 OUTBOUND_DECLINE_FAREWELL = {
     "gu": (
