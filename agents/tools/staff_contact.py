@@ -1,15 +1,12 @@
 import os
 import uuid
-import json
-import asyncio
 from datetime import datetime, timezone
 from helpers.utils import get_logger
-import requests
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from dotenv import load_dotenv
-from agents.tools.common import notify_slack_error
+from agents.tools.common import notify_slack_error, post_beckn_search
 
 load_dotenv()
 
@@ -382,69 +379,6 @@ class ContactRequest(BaseModel):
 # -----------------------
 # Helper Functions
 # -----------------------
-
-# The PoCRA BAP endpoint is a Beckn aggregator: it fans out to BPPs and returns
-# whatever `on_search` callbacks arrive inside its wait window. Under concurrent
-# load it gives up early and returns HTTP 200 with an empty `responses` list, so
-# an empty result is treated as a retryable failure rather than "no data".
-# A response carrying an empty `providers` list is a genuine "nothing here" and
-# is not retried.
-_MAX_SEARCH_ATTEMPTS = 3
-_RETRY_BACKOFF_SECONDS = (0.5, 1.5)
-
-
-async def _post_search(payload: Dict[str, Any], label: str) -> Optional[Dict[str, Any]]:
-    """POST a Beckn search payload to the BAP endpoint, retrying empty responses.
-
-    Args:
-        payload: The Beckn search payload
-        label: Short description of the call, used in log messages
-
-    Returns:
-        Optional[Dict[str, Any]]: Parsed response carrying at least one entry in
-        `responses`, or None if every attempt failed
-    """
-    bap_endpoint = os.getenv("BAP_ENDPOINT")
-    if not bap_endpoint:
-        logger.error("BAP_ENDPOINT environment variable not set")
-        return None
-
-    for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
-        try:
-            # requests is blocking; keep it off the event loop so retries here
-            # do not stall other in-flight voice turns.
-            response = await asyncio.to_thread(
-                requests.post,
-                bap_endpoint,
-                json=payload,
-                timeout=(10, 15)
-            )
-
-            if response.status_code != 200:
-                reason = f"status code {response.status_code}"
-            else:
-                try:
-                    response_data = response.json()
-                except json.JSONDecodeError as e:
-                    reason = f"invalid JSON ({e})"
-                else:
-                    if response_data.get("responses"):
-                        return response_data
-                    reason = "aggregator returned no BPP responses"
-        except requests.Timeout:
-            reason = "request timed out"
-        except requests.RequestException as e:
-            reason = f"request failed ({e})"
-
-        logger.warning(f"{label} attempt {attempt}/{_MAX_SEARCH_ATTEMPTS} failed: {reason}")
-
-        if attempt < _MAX_SEARCH_ATTEMPTS:
-            await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
-
-    logger.error(f"{label} failed after {_MAX_SEARCH_ATTEMPTS} attempts")
-    return None
-
-
 async def _get_village_code_from_admin_api(latitude: float, longitude: float) -> Optional[str]:
     """Get village code from administrative information API.
 
@@ -457,7 +391,7 @@ async def _get_village_code_from_admin_api(latitude: float, longitude: float) ->
     """
     try:
         payload = AdministrativeRequest(latitude=latitude, longitude=longitude).get_payload()
-        response_data = await _post_search(payload, "Administrative API")
+        response_data = await post_beckn_search(payload,"Administrative API")
         if response_data is None:
             return None
 
@@ -509,7 +443,7 @@ async def contact_agricultural_staff(latitude: float, longitude: float) -> str:
 
         # Data category is `aa` (Agricultural Assistant) by default for now.
         payload = ContactRequest(village_code=village_code, data_category="aa").get_payload()
-        response_data = await _post_search(payload, "Officer Details API")
+        response_data = await post_beckn_search(payload,"Officer Details API")
         if response_data is None:
             await notify_slack_error(
                 "staff_contact",

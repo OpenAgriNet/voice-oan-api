@@ -2,12 +2,11 @@ import os
 import uuid
 from datetime import datetime, timezone
 from helpers.utils import get_logger
-import httpx
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya, notify_slack_error
+from agents.tools.common import get_nudge_message, send_nudge_message_raya, notify_slack_error, post_beckn_search
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -322,29 +321,18 @@ async def warehouse_data(ctx: RunContext[FarmerContext], latitude: float, longit
             logger.info(f"Nudge message sent: {result}")
             
         payload = WarehouseRequest(latitude=latitude, longitude=longitude).get_payload()
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                os.getenv("BAP_ENDPOINT"),
-                json=payload,
-                timeout=15.0
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"Warehouse API returned status code {response.status_code}")
-                return "Warehouse service unavailable. Retrying"
-                
-            warehouse_response = WarehouseResponse.model_validate(response.json())
-            return str(warehouse_response)
-                
-    except httpx.TimeoutException as e:
-        logger.error(f"Warehouse API request timed out: {str(e)}")
-        await notify_slack_error("warehouse", e)
-        return "Warehouse request timed out. Please try again later."
 
-    except httpx.RequestError as e:
-        logger.error(f"Warehouse API request failed: {e}")
-        await notify_slack_error("warehouse", e)
-        return f"Warehouse request failed: {str(e)}"
+        response_data = await post_beckn_search(payload, "Warehouse API")
+        if response_data is None:
+            await notify_slack_error(
+                "warehouse",
+                RuntimeError("Warehouse API returned no responses after retries"),
+                {"latitude": latitude, "longitude": longitude},
+            )
+            return "Warehouse service unavailable. Retrying"
+
+        warehouse_response = WarehouseResponse.model_validate(response_data)
+        return str(warehouse_response)
 
     except UnexpectedModelBehavior as e:
         logger.warning("Warehouse request exceeded retry limit")

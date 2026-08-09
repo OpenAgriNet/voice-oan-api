@@ -2,12 +2,11 @@ import os
 import uuid
 from datetime import datetime
 from helpers.utils import get_logger
-import httpx
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya, notify_slack_error
+from agents.tools.common import get_nudge_message, send_nudge_message_raya, notify_slack_error, post_beckn_search
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -280,29 +279,18 @@ async def mandi_prices(ctx: RunContext[FarmerContext], latitude: float, longitud
 
         # Get the mandi prices
         payload = MandiRequest(latitude=latitude, longitude=longitude).get_payload()
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                os.getenv("BAP_ENDPOINT"),
-                json=payload,
-                timeout=15.0
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"Mandi API returned status code {response.status_code}")
-                return "Mandi service unavailable. Retrying"
-                
-            mandi_response = MandiResponse.model_validate(response.json())
-            return str(mandi_response)
-                
-    except httpx.TimeoutException as e:
-        logger.error(f"Mandi API request timed out: {str(e)}")
-        await notify_slack_error("mandi", e)
-        return "Mandi request timed out. Please try again later."
 
-    except httpx.RequestError as e:
-        logger.error(f"Mandi API request failed: {e}")
-        await notify_slack_error("mandi", e)
-        return f"Mandi request failed: {str(e)}"
+        response_data = await post_beckn_search(payload, "Mandi API")
+        if response_data is None:
+            await notify_slack_error(
+                "mandi",
+                RuntimeError("Mandi API returned no responses after retries"),
+                {"latitude": latitude, "longitude": longitude},
+            )
+            return "Mandi service unavailable. Retrying"
+
+        mandi_response = MandiResponse.model_validate(response_data)
+        return str(mandi_response)
 
     except UnexpectedModelBehavior as e:
         logger.warning("Mandi request exceeded retry limit")
