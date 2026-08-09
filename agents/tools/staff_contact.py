@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import asyncio
 from datetime import datetime, timezone
 from helpers.utils import get_logger
 import requests
@@ -381,41 +382,87 @@ class ContactRequest(BaseModel):
 # -----------------------
 # Helper Functions
 # -----------------------
-def _get_village_code_from_admin_api(latitude: float, longitude: float) -> Optional[str]:
+
+# The PoCRA BAP endpoint is a Beckn aggregator: it fans out to BPPs and returns
+# whatever `on_search` callbacks arrive inside its wait window. Under concurrent
+# load it gives up early and returns HTTP 200 with an empty `responses` list, so
+# an empty result is treated as a retryable failure rather than "no data".
+# A response carrying an empty `providers` list is a genuine "nothing here" and
+# is not retried.
+_MAX_SEARCH_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = (0.5, 1.5)
+
+
+async def _post_search(payload: Dict[str, Any], label: str) -> Optional[Dict[str, Any]]:
+    """POST a Beckn search payload to the BAP endpoint, retrying empty responses.
+
+    Args:
+        payload: The Beckn search payload
+        label: Short description of the call, used in log messages
+
+    Returns:
+        Optional[Dict[str, Any]]: Parsed response carrying at least one entry in
+        `responses`, or None if every attempt failed
+    """
+    bap_endpoint = os.getenv("BAP_ENDPOINT")
+    if not bap_endpoint:
+        logger.error("BAP_ENDPOINT environment variable not set")
+        return None
+
+    for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
+        try:
+            # requests is blocking; keep it off the event loop so retries here
+            # do not stall other in-flight voice turns.
+            response = await asyncio.to_thread(
+                requests.post,
+                bap_endpoint,
+                json=payload,
+                timeout=(10, 15)
+            )
+
+            if response.status_code != 200:
+                reason = f"status code {response.status_code}"
+            else:
+                try:
+                    response_data = response.json()
+                except json.JSONDecodeError as e:
+                    reason = f"invalid JSON ({e})"
+                else:
+                    if response_data.get("responses"):
+                        return response_data
+                    reason = "aggregator returned no BPP responses"
+        except requests.Timeout:
+            reason = "request timed out"
+        except requests.RequestException as e:
+            reason = f"request failed ({e})"
+
+        logger.warning(f"{label} attempt {attempt}/{_MAX_SEARCH_ATTEMPTS} failed: {reason}")
+
+        if attempt < _MAX_SEARCH_ATTEMPTS:
+            await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
+
+    logger.error(f"{label} failed after {_MAX_SEARCH_ATTEMPTS} attempts")
+    return None
+
+
+async def _get_village_code_from_admin_api(latitude: float, longitude: float) -> Optional[str]:
     """Get village code from administrative information API.
-    
+
     Args:
         latitude: Latitude of the location
         longitude: Longitude of the location
-        
+
     Returns:
         Optional[str]: Village code if found, None otherwise
     """
     try:
         payload = AdministrativeRequest(latitude=latitude, longitude=longitude).get_payload()
-        bap_endpoint = os.getenv("BAP_ENDPOINT")
-        if not bap_endpoint:
-            logger.error("BAP_ENDPOINT environment variable not set")
-            return None
-
-        response = requests.post(
-            bap_endpoint,
-            json=payload,
-            timeout=(10, 15)
-        )
-
-        if response.status_code != 200:
-            logger.error(f"Administrative API returned status code {response.status_code}")
-            return None
-
-        try:
-            response_data = response.json()
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
+        response_data = await _post_search(payload, "Administrative API")
+        if response_data is None:
             return None
 
         parsed = AdminResponse.model_validate(response_data)
-        
+
         # Extract village code from the response
         for response_item in parsed.responses:
             for provider in response_item.message.catalog.providers:
@@ -423,16 +470,10 @@ def _get_village_code_from_admin_api(latitude: float, longitude: float) -> Optio
                     for item in provider.items:
                         if item.address and item.address.villageCode:
                             return item.address.villageCode
-        
+
         logger.warning("No village code found in administrative response")
         return None
 
-    except requests.Timeout:
-        logger.error("Administrative API request timed out")
-        return None
-    except requests.RequestException as e:
-        logger.error(f"Administrative API request failed: {e}")
-        return None
     except Exception as e:
         logger.error(f"Error getting village code: {e}")
         return None
@@ -453,48 +494,33 @@ async def contact_agricultural_staff(latitude: float, longitude: float) -> str:
     """
     try:
         # First, get the village code from administrative information
-        village_code = _get_village_code_from_admin_api(latitude, longitude)
-        
+        village_code = await _get_village_code_from_admin_api(latitude, longitude)
+
         if not village_code:
             logger.warning("Could not retrieve village code for the given coordinates")
+            await notify_slack_error(
+                "staff_contact",
+                RuntimeError("Administrative API returned no village code after retries"),
+                {"latitude": latitude, "longitude": longitude},
+            )
             return "Agricultural staff details unavailable: Could not determine village information for the given location."
-        
+
         # Now get officer details using the village code.
-        
+
         # Data category is `aa` (Agricultural Assistant) by default for now.
         payload = ContactRequest(village_code=village_code, data_category="aa").get_payload()
-        bap_endpoint = os.getenv("BAP_ENDPOINT")
-        if not bap_endpoint:
-            logger.error("BAP_ENDPOINT environment variable not set")
-            return "Agricultural staff details configuration error."
-
-        response = requests.post(
-            bap_endpoint,
-            json=payload,
-            timeout=(10, 15)
-        )
-
-        if response.status_code != 200:
-            logger.error(f"Officer Details API returned status code {response.status_code}")
+        response_data = await _post_search(payload, "Officer Details API")
+        if response_data is None:
+            await notify_slack_error(
+                "staff_contact",
+                RuntimeError("Officer Details API returned no responses after retries"),
+                {"village_code": village_code},
+            )
             return "Agricultural staff details unavailable."
-
-        try:
-            response_data = response.json()
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            return "Agricultural staff details returned invalid response."
 
         parsed = ContactResponse.model_validate(response_data)
         return str(parsed)
 
-    except requests.Timeout as e:
-        logger.error("Agricultural staff Details API request timed out")
-        await notify_slack_error("staff_contact", e)
-        return "Agricultural staff details request timed out."
-    except requests.RequestException as e:
-        logger.error(f"Agricultural staff Details API request failed: {e}")
-        await notify_slack_error("staff_contact", e)
-        return f"Agricultural staff details request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Agricultural staff details request exceeded retry limit")
         return "Agricultural staff details are temporarily unavailable. Please try again later."
