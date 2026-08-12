@@ -117,3 +117,62 @@ async def search_documents(
         logger.error(f"Error searching documents: {e} for query: {query}")
         await notify_slack_error("search", e, {"query": query})
         raise ModelRetry(f"Error searching documents, please try again")
+
+
+async def search_videos(
+    ctx: RunContext[FarmerContext],
+    query: str,
+    top_k: int = 10,
+) -> str:
+    """
+    Semantic search for guidance videos. Call this immediately after
+    `search_documents`, with the same English topic.
+
+    Args:
+        ctx: The context containing session information
+        query: The search query in *English* (required) — same topic as documents
+        top_k: Maximum number of results to return (default: 10)
+
+    Returns:
+        search_results: Formatted string with video results
+    """
+    # No nudge here: this runs right after search_documents, which already sent
+    # one. A second hold line back-to-back talks over the farmer.
+    try:
+        endpoint_url = os.getenv('MARQO_ENDPOINT_URL')
+        if not endpoint_url:
+            raise ValueError("Marqo endpoint URL is required")
+
+        index_name = os.getenv('MARQO_INDEX_NAME', 'sunbird-va-index')
+        if not index_name:
+            raise ValueError("Marqo index name is required")
+
+        client = marqo.Client(url=endpoint_url)
+        logger.info(f"Searching videos for '{query}' in index '{index_name}'")
+
+        search_params = {
+            "q": query,
+            "limit": top_k,
+            "filter_string": "(type:video)",
+            "search_method": "hybrid",
+            "hybrid_parameters": {
+                "retrievalMethod": "disjunction",
+                "rankingMethod": "rrf",
+                "alpha": 0.5,
+                "rrfK": 60,
+            },
+        }
+
+        results = client.index(index_name).search(**search_params)['hits']
+
+        if len(results) == 0:
+            # Say so plainly — the model must not invent videos to fill the gap.
+            return f"No videos found for `{query}`"
+        else:
+            search_hits = [SearchHit(**hit) for hit in results]
+            video_string = '\n\n----\n\n'.join([str(video) for video in search_hits])
+            return "> Video Results for `" + query + "`\n\n" + video_string
+    except Exception as e:
+        logger.error(f"Error searching videos: {e} for query: {query}")
+        await notify_slack_error("search_videos", e, {"query": query})
+        raise ModelRetry(f"Error searching videos, please try again")

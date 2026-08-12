@@ -3,7 +3,7 @@ Tools for the Sunbird VA API.
 """
 from __future__ import annotations
 
-from agents.tools.search import search_documents
+from agents.tools.search import search_documents, search_videos
 from agents.tools.weather import weather_forecast, weather_historical
 from agents.tools.mandi import mandi_prices
 from agents.tools.warehouse import warehouse_data
@@ -40,6 +40,10 @@ TOOLS = [
     ),
     Tool(
         _trace_tool(search_documents, name="search_documents"),
+        takes_ctx=True,
+    ),
+    Tool(
+        _trace_tool(search_videos, name="search_videos"),
         takes_ctx=True,
     ),
     Tool(
