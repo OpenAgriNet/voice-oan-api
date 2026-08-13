@@ -1,0 +1,28 @@
+judging 262 records with gpt-4.1 (concurrency 3)
+  25/262 judged, 0 judge errors
+  50/262 judged, 0 judge errors
+  75/262 judged, 0 judge errors
+  100/262 judged, 0 judge errors
+  125/262 judged, 0 judge errors
+  150/262 judged, 0 judge errors
+  175/262 judged, 0 judge errors
+  200/262 judged, 0 judge errors
+  225/262 judged, 0 judge errors
+  250/262 judged, 0 judge errors
+  262/262 judged, 0 judge errors
+
+wrote /Users/anjalibrao/Documents/GitHub/voice-oan-api/evaluation/benchmark/runs/scored_ab01_prod.jsonl
+judging 262 records with gpt-4.1 (concurrency 3)
+  25/262 judged, 0 judge errors
+  50/262 judged, 0 judge errors
+  75/262 judged, 0 judge errors
+  100/262 judged, 0 judge errors
+  125/262 judged, 0 judge errors
+  150/262 judged, 0 judge errors
+  175/262 judged, 0 judge errors
+  200/262 judged, 0 judge errors
+  225/262 judged, 0 judge errors
+  250/262 judged, 0 judge errors
+  262/262 judged, 0 judge errors
+
+wrote /Users/anjalibrao/Documents/GitHub/voice-oan-api/evaluation/benchmark/runs/scored_ab01_local.jsonl

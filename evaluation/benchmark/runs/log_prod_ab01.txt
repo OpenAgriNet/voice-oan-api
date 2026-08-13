@@ -1,0 +1,33 @@
+arm=prod url=https://voice-prod.mahapocra.gov.in/api/voice/ questions=262 passes=1 concurrency=3 run_id=ab01
+  [prod pass 1] 10/262 done, 0 errors
+  [prod pass 1] 20/262 done, 0 errors
+  [prod pass 1] 30/262 done, 0 errors
+  [prod pass 1] 40/262 done, 0 errors
+  [prod pass 1] 50/262 done, 0 errors
+  [prod pass 1] 60/262 done, 0 errors
+  [prod pass 1] 70/262 done, 2 errors
+  [prod pass 1] 80/262 done, 3 errors
+  [prod pass 1] 90/262 done, 3 errors
+  [prod pass 1] 100/262 done, 3 errors
+  [prod pass 1] 110/262 done, 3 errors
+  [prod pass 1] 120/262 done, 3 errors
+  [prod pass 1] 130/262 done, 3 errors
+  [prod pass 1] 140/262 done, 3 errors
+  [prod pass 1] 150/262 done, 3 errors
+  [prod pass 1] 160/262 done, 3 errors
+  [prod pass 1] 170/262 done, 3 errors
+  [prod pass 1] 180/262 done, 3 errors
+  [prod pass 1] 190/262 done, 3 errors
+  [prod pass 1] 200/262 done, 3 errors
+  [prod pass 1] 210/262 done, 3 errors
+  [prod pass 1] 220/262 done, 3 errors
+  [prod pass 1] 230/262 done, 3 errors
+  [prod pass 1] 240/262 done, 3 errors
+  [prod pass 1] 250/262 done, 3 errors
+  [prod pass 1] 260/262 done, 3 errors
+  [prod pass 1] 262/262 done, 3 errors
+  pass 1 took 948s
+
+wrote /Users/anjalibrao/Documents/GitHub/voice-oan-api/evaluation/benchmark/runs/raw_ab01_prod.jsonl
+  259/262 succeeded
+  latency p50=6.9s p95=18.3s
