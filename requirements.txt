@@ -35,6 +35,13 @@ openpyxl
 
 ### Pydantic AI (Updated to resolve conflicts)
 pydantic-ai==1.2.1
+# pydantic-ai-slim only requires opentelemetry-api>=1.28.0, with no upper bound.
+# opentelemetry 1.44.0 removed the `opentelemetry._events` module, which
+# pydantic_ai/messages.py imports at module level — a clean install without these
+# pins fails with `ModuleNotFoundError: No module named 'opentelemetry._events'`.
+# Keep both pinned below 1.44 until pydantic-ai drops the `_events` import.
+opentelemetry-api<1.44
+opentelemetry-sdk<1.44
 asgiref
 
 # Web Server

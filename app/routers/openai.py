@@ -16,7 +16,6 @@ async def chat_completions(
     x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
     x_user_id: str = Header(..., alias="X-User-ID"),
     x_session_id: str = Header(..., alias="X-Session-ID"),
-    x_language: str = Header("none", alias="X-Language", deprecated=True),
     current_user=Depends(get_current_user),
 ):
     """
@@ -30,9 +29,10 @@ async def chat_completions(
     - X-Tenant-ID: Tenant identifier (required)
     - X-User-ID: User identifier (required)
     - X-Session-ID: Session identifier (required)
-    - X-Language: DEPRECATED and ignored. The assistant detects the conversation
-      language from the farmer's own words and replies in it. Still accepted (any
-      value) so existing callers do not break.
+
+    There is no language header. The assistant detects the conversation language
+    from the farmer's own words and replies in it. Any X-Language header sent by a
+    legacy caller is simply ignored.
 
     The response reports the language that was actually used — read it to pick the
     text-to-speech voice:
@@ -50,14 +50,6 @@ async def chat_completions(
         f"Voice API chat completions request - session_id: {session_id}, "
         f"stream: {request.stream}, model: {request.model}"
     )
-
-    # X-Language is no longer validated or acted on — the language is detected from
-    # the user's message. Log it only to see which callers still send it.
-    if x_language and x_language != "none":
-        logger.info(
-            f"Voice API ignoring deprecated X-Language header '{x_language}', "
-            f"session_id: {session_id}"
-        )
 
     if not request.messages:
         logger.error(f"Voice API missing messages field, session_id: {session_id}", stack_info=True)
