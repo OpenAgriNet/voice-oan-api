@@ -20,6 +20,8 @@ class FarmerContext(BaseModel):
     query: str = Field(description="The user's question.")
     session_id: str = Field(description="The session ID for the conversation.")
     user_id: str = Field(description="The user ID for the conversation.")
+    # Per-turn id, forwarded to the mandi provider for request correlation.
+    question_id: str = Field(default="", description="The question ID for this turn.")
 
     def _query_string(self):
         """Get the query string for the agrinet agent."""
