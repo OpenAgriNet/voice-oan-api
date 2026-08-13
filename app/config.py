@@ -97,3 +97,7 @@ def get_default_httpx_timeout():
     """Default timeout for external HTTP calls (e.g. scheme/BAP APIs)."""
     import httpx
     return httpx.Timeout(20.0, read=30.0)
+
+
+# Module-level constant for tools that need the timeout at import time.
+DEFAULT_HTTP_TIMEOUT = get_default_httpx_timeout()

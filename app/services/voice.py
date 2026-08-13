@@ -100,9 +100,11 @@ async def stream_voice_message(
     # farmer's own words and reports it on VoiceOutput.language; everything
     # downstream (disclaimer, TTS voice) follows that. The client's X-Language
     # header is accepted for backwards compatibility but ignored.
-    deps = FarmerContext(query=query, session_id=session_id, user_id=user_id)
-    user_message = deps.get_user_message()
     voice_qid = generate_voice_question_id()
+    deps = FarmerContext(
+        query=query, session_id=session_id, user_id=user_id, question_id=voice_qid
+    )
+    user_message = deps.get_user_message()
     logger.info(f"Running agent (voice_qid={voice_qid})")
 
     trimmed_history = trim_history(history, max_tokens=80_000)

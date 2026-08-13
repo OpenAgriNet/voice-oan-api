@@ -1,25 +1,21 @@
 import json
-from pathlib import Path
 from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
 
-# Load commodity codes from JSON (path relative to project root, works from any cwd e.g. Docker /app)
-_assets_dir = Path(__file__).resolve().parent.parent.parent / "assets"
-_commodity_path = _assets_dir / "commodity_codes.json"
-try:
-    _raw = json.load(open(_commodity_path, "r", encoding="utf-8"))
-except FileNotFoundError:
-    _raw = []
+# Load commodity codes from JSON
+_raw = json.load(open('assets/commodity_codes.json', 'r', encoding='utf-8'))
 
 
 class CommodityEntry(BaseModel):
     code: int = Field(description="AGMKT commodity code")
     name: str = Field(description="Original commodity name from AGMKT master")
-    terms: list[str] = Field(description="Search terms: English, Hindi, transliterations")
+    terms: list[str] = Field(description="Search terms across all languages")
 
     def __str__(self):
-        terms_str = ", ".join(self.terms)
-        return f"| **{self.name}** | {terms_str} | `{self.code}` |"
+        display = ", ".join(self.terms[:4])
+        if len(self.terms) > 4:
+            display += ", ..."
+        return f"| **{self.name}** | {display} | `{self.code}` |"
 
 
 class CommoditySearchResult(BaseModel):
@@ -35,12 +31,13 @@ class CommoditySearchResult(BaseModel):
 COMMODITY_ENTRIES: list[CommodityEntry] = [CommodityEntry(**e) for e in _raw]
 
 
+
 async def search_commodity(
     query: str,
     max_results: int = 5,
-    threshold: float = 0.65,
+    threshold: float = 0.7,
 ) -> str:
-    """Search commodity codes by fuzzy matching across all terms (English, Hindi, transliterations).
+    """Search commodity codes by fuzzy matching across terms (English, Hindi, and other Indic languages).
 
     Args:
         query: The commodity name to search for (any language/script)
