@@ -1,37 +1,30 @@
 from pydantic import BaseModel, Field
-from langcodes import Language
 
 
 class FarmerContext(BaseModel):
     """Context for the farmer agent.
-    
+
     Args:
         query (str): The user's question.
-        lang_code (str): The language code of the user's question.
         session_id (str): The session ID for the conversation.
+        user_id (str): The user ID for the conversation.
 
+    No language is carried here. The agent detects the conversation language from
+    the farmer's own words and reports it on ``VoiceOutput.language``. Nothing in
+    the user message names a language, deliberately — a "Selected Language" hint
+    used to override what the farmer actually spoke.
 
     Example:
         **User:** "What is the weather in Mumbai?"
-        **Selected Language:** Hindi
     """
     query: str = Field(description="The user's question.")
-    lang_code: str = Field(description="The language code of the user's question.", default='hi')
     session_id: str = Field(description="The session ID for the conversation.")
+    user_id: str = Field(description="The user ID for the conversation.")
 
-    def _language_string(self):
-        """Get the language string for the agrinet agent."""
-        from app.core.languages import is_supported
-        if is_supported(self.lang_code):
-            return f"**Selected Language:** {Language.get(self.lang_code).display_name()}"
-        else:
-            return None
-    
     def _query_string(self):
         """Get the query string for the agrinet agent."""
         return "**User:** " + '"' + self.query + '"'
 
     def get_user_message(self):
         """Get the user message for the agrinet agent."""
-        strings = [self._query_string(), self._language_string()]
-        return "\n".join([x for x in strings if x])
+        return self._query_string()

@@ -14,6 +14,7 @@ from agents.tools.weather import weather_forecast
 from agents.tools.maps import reverse_geocode, forward_geocode
 from agents.tools.mandi import get_mandi_prices
 from agents.tools.commodity import search_commodity
+from agents.tools.feedback import submit_feedback
 
 
 TOOLS = [

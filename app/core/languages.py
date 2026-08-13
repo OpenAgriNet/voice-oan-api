@@ -1,14 +1,12 @@
 """Supported conversation languages for the voice assistant.
 
-Single source of truth for which `X-Language` codes the API accepts and how the
-agent resolves them to a prompt / response language.
+Single source of truth for which languages the bot can speak.
 
-A language is *accepted* by the API as soon as its code is listed here. It becomes
-*fully live* (the bot actually speaks it) once a `voice_<code>.md` prompt file
-exists in the prompt directory. Until then, requests for that language are served
-gracefully in Hindi (see ``resolve_render_language``).
+The conversation language is *not* supplied by the client. The agent detects it
+from the farmer's own words and reports it back on ``VoiceOutput.language``; that
+value then selects the recording disclaimer and is handed to the caller for
+text-to-speech voice selection. See ``assets/prompts/voice.md``.
 """
-import os
 
 # ISO 639-1 code -> display name. Order is informational only.
 SUPPORTED_LANGUAGES: dict[str, str] = {
@@ -24,16 +22,10 @@ SUPPORTED_LANGUAGES: dict[str, str] = {
     "as": "Assamese",
 }
 
-# Codes accepted on the X-Language header (does not include the "no preference" sentinel).
 SUPPORTED_LANGUAGE_CODES: frozenset[str] = frozenset(SUPPORTED_LANGUAGES)
 
-# Sentinel meaning "client did not specify a language" -> triggers the language gate.
-NO_PREFERENCE = "none"
-
-# Fallback language used when a supported language has no prompt file yet.
+# Used when the model reports a language we do not support, or reports nothing at all.
 DEFAULT_LANGUAGE = "hi"
-
-PROMPT_DIR = "assets/prompts"
 
 
 def is_supported(lang: str | None) -> bool:
@@ -41,21 +33,13 @@ def is_supported(lang: str | None) -> bool:
     return lang in SUPPORTED_LANGUAGE_CODES
 
 
-def prompt_exists(lang: str | None) -> bool:
-    """True if a ``voice_<lang>.md`` prompt file exists for this language."""
-    if not lang:
-        return False
-    return os.path.isfile(os.path.join(PROMPT_DIR, f"voice_{lang}.md"))
+def normalize_language(lang: str | None) -> str:
+    """Coerce a model-reported language code to one we can actually speak.
 
-
-def resolve_render_language(lang: str | None) -> str:
-    """The language the bot can actually respond in.
-
-    Returns ``lang`` when it is supported *and* has a prompt file; otherwise falls
-    back to Hindi. This keeps the response, the recording disclaimer, and the
-    reported ``language`` field consistent when a language is accepted but not yet
-    translated.
+    The model is instructed to emit one of ``SUPPORTED_LANGUAGE_CODES``, but it is
+    free text on the wire, so anything unexpected falls back to Hindi.
     """
-    if is_supported(lang) and prompt_exists(lang):
-        return lang  # type: ignore[return-value]
-    return DEFAULT_LANGUAGE
+    if not lang:
+        return DEFAULT_LANGUAGE
+    code = lang.strip().lower()[:2]
+    return code if is_supported(code) else DEFAULT_LANGUAGE

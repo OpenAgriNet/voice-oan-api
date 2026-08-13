@@ -51,7 +51,9 @@ def _extract_audio_from_partial_json(text: str) -> str:
 
 async def run_streaming_test(question: str, language: str, session_id: str) -> dict:
     """Run a single question through the voice agent with run_stream_events()."""
-    deps = FarmerContext(query=question, lang_code=language, session_id=session_id)
+    # No language is passed in: the agent detects it from the question itself.
+    # `language` is only the expected value recorded in the result below.
+    deps = FarmerContext(query=question, session_id=session_id, user_id="test-user")
     user_message = deps.get_user_message()
 
     result = {
