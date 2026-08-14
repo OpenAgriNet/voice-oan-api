@@ -80,7 +80,7 @@ TOOLS = [
     ),
     Tool(
         weather_forecast,
-        takes_ctx=False,
+        takes_ctx=True,
         strict=False,
     ),
     Tool(
