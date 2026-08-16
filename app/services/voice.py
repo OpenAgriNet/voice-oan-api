@@ -22,7 +22,12 @@ from agents.services.farmer_cache import (
     should_refresh_farmer_data,
     exceeds_max_serve_stale,
 )
-from app.models.union import UnionName, resolve_supported_unions
+from app.models.union import (
+    UNION_BANNED_MESSAGE,
+    UnionName,
+    is_ai_call_banned_union,
+    resolve_supported_unions,
+)
 from app.services.scheme_ingestion import (
     SchemeCacheError,
     SchemeDependencyError,
@@ -913,12 +918,96 @@ def _dedupe_technicians(technicians: list[dict]) -> list[dict]:
     return list(unique.values())
 
 
+def _farmer_record_union_name(record: FarmerRecord) -> str | None:
+    data = record.model_dump()
+    union_name = data.get("unionName") or data.get("union_name")
+    return union_name if isinstance(union_name, str) else None
+
+
+def _farmer_record_identity(data: dict) -> tuple[str, str, str]:
+    return (
+        str(data.get("farmerCode") or data.get("farmer_code") or ""),
+        str(data.get("societyCode") or data.get("society_code") or ""),
+        str(data.get("unionCode") or data.get("union_code") or ""),
+    )
+
+
+def _technician_group_is_banned(
+    group: dict,
+    banned_identities: set[tuple[str, str, str]],
+    banned_union_codes: set[str],
+) -> bool:
+    """True when this cached group belongs to a union banned from AI-call booking.
+
+    Identity (farmerCode, societyCode, unionCode) is the primary match so a mixed
+    mobile keeps Kaira technicians. Farmer+society and union-code fallbacks hide
+    leftover Kutch groups when some codes on the group are incomplete.
+    """
+    identity = (
+        str(group.get("farmerCode") or group.get("farmer_code") or ""),
+        str(group.get("societyCode") or group.get("society_code") or ""),
+        str(group.get("unionCode") or group.get("union_code") or ""),
+    )
+    if identity != ("", "", "") and identity in banned_identities:
+        return True
+    farmer_society = (identity[0], identity[1])
+    if farmer_society != ("", "") and any(
+        (farmer_code, society_code) == farmer_society
+        for farmer_code, society_code, _union_code in banned_identities
+    ):
+        return True
+    union_code = identity[2]
+    return bool(union_code) and union_code in banned_union_codes
+
+
+def _append_ai_call_union_ban_lines(lines: list[str], farmer: FarmerRecord) -> None:
+    data = farmer.model_dump()
+    farmer_name = data.get("farmerName") or data.get("farmer_name") or "Unknown farmer"
+    society_name = data.get("societyName") or data.get("society_name") or "Unknown society"
+    _, society_code, union_code = _farmer_record_identity(data)
+    lines.append(
+        f"- Technician group: farmer_name={farmer_name}, society_name={society_name}, "
+        f"union_code={union_code or None}, society_code={society_code or None}"
+    )
+    lines.append("- AI call booking is not allowed for this union.")
+    lines.append(f"- Tell the farmer: `{UNION_BANNED_MESSAGE}`")
+    lines.append("- Do not ask which technician they want. Do not call `create_ai_call`.")
+
+
 def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
     if envelope is None:
         return ""
 
-    technician_groups = envelope.aiTechnicians or []
+    banned_farmers: list[FarmerRecord] = []
+    banned_identities: set[tuple[str, str, str]] = set()
+    banned_union_codes: set[str] = set()
+    for farmer in envelope.farmers or []:
+        if not is_ai_call_banned_union(_farmer_record_union_name(farmer)):
+            continue
+        banned_farmers.append(farmer)
+        data = farmer.model_dump()
+        identity = _farmer_record_identity(data)
+        if identity != ("", "", ""):
+            banned_identities.add(identity)
+        if identity[2]:
+            banned_union_codes.add(identity[2])
+
+    if banned_farmers:
+        logger.info(
+            "Skipping AI technician context; union is banned from AI-call booking unions=%s",
+            [_farmer_record_union_name(farmer) for farmer in banned_farmers],
+        )
+
+    all_farmers_banned = bool(envelope.farmers) and len(banned_farmers) == len(envelope.farmers)
+    technician_groups = [] if all_farmers_banned else [
+        group
+        for group in (envelope.aiTechnicians or [])
+        if not _technician_group_is_banned(group, banned_identities, banned_union_codes)
+    ]
     lines: list[str] = []
+    for farmer in banned_farmers:
+        _append_ai_call_union_ban_lines(lines, farmer)
+
     if technician_groups:
         lines.append("- AI technician options for booking are internal context, not user-provided information.")
         lines.append("- The caller does not know which AI technicians are available unless you tell them by technician name.")
@@ -964,7 +1053,7 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
                 if mobile:
                     option += f", mobile_number={mobile}"
                 lines.append(option)
-    else:
+    elif not banned_farmers:
         lines.append("- AI technician options for booking are not available in the current signed-in context.")
     return "\n".join(lines)
 
