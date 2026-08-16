@@ -18,8 +18,12 @@ from agents.services.farmer_cache import _has_failed_technician_lookup
 from agents.tools import ai_call as ai_mod
 from agents.tools import health_call as hc_mod
 from agents.tools.farmer_animal_backends import AITechnicianBySocietyRecord
-from app.models.union import UNION_BANNED_MESSAGE
-from app.services.voice import _build_ai_technician_summary
+from app.models.union import UNION_BANNED_MESSAGE, UNION_BANNED_MESSAGES
+from app.services.voice import (
+    _build_ai_technician_summary,
+    _canned_union_ban_translation,
+    _prepare_voice_output,
+)
 import agents.services.farmer_cache as farmer_cache
 
 
@@ -431,4 +435,25 @@ def test_health_call_still_books_for_kutch_union(monkeypatch):
     assert calls["n"] == 1
     assert "booked successfully" in out
     assert UNION_BANNED_MESSAGE not in out
+
+
+# ── canned caller copy ────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("lang,expected", [
+    ("gu", UNION_BANNED_MESSAGES["gu"]),
+    ("gujarati", UNION_BANNED_MESSAGES["gu"]),
+    ("hi", UNION_BANNED_MESSAGES["hi"]),
+    ("hindi", UNION_BANNED_MESSAGES["hi"]),
+    ("en", UNION_BANNED_MESSAGES["en"]),
+])
+def test_canned_union_ban_translation_pins_agreed_copy(lang, expected):
+    assert _canned_union_ban_translation(UNION_BANNED_MESSAGE, lang) == expected
+    assert _canned_union_ban_translation(f"  {UNION_BANNED_MESSAGE}  ", lang) == expected
+    assert _canned_union_ban_translation("Please try again later.", lang) is None
+
+
+def test_canned_union_ban_gujarati_survives_voice_cleanup():
+    spoken = _prepare_voice_output(UNION_BANNED_MESSAGES["gu"], "gu")
+    assert "દૂધ મંડળી" in spoken
+    assert spoken.strip() == UNION_BANNED_MESSAGES["gu"].strip()
 

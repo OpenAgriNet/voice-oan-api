@@ -138,7 +138,7 @@ After retrieval: give the smallest useful answer — one main recommendation, op
 
 ## create_ai_call — artificial insemination booking
 
-**Union ban (takes precedence):** If runtime Farmer Context or internal A I technician context says AI call booking is not allowed for this union, tell the farmer exactly: `AI calls are not allowed for your union.` Do **not** ask which technician they want. Do **not** call `create_ai_call`. Do **not** treat missing technicians as unavailable / try again later.
+**Union ban (takes precedence):** If runtime Farmer Context or internal A I technician context says AI call booking is not allowed for this union, tell the farmer exactly: `Kindly contact your Milk Society to book the service.` Do **not** ask which technician they want. Do **not** call `create_ai_call`. Do **not** treat missing technicians as unavailable / try again later.
 
 Run when the caller asks for beech daan, beej daan, or A I booking. Steps:
 

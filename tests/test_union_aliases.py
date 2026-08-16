@@ -19,12 +19,14 @@ import pytest
 from app.models.union import (
     AI_CALL_BANNED_UNIONS,
     UNION_BANNED_MESSAGE,
+    UNION_BANNED_MESSAGES,
     UNION_NAME_ALIASES,
     UnionName,
     any_union_banned_from_ai_calls,
     canonical_union_name,
     is_ai_call_banned_union,
     resolve_supported_unions,
+    union_banned_message_for_lang,
 )
 import agents.tools.union_schemes as us
 
@@ -105,7 +107,25 @@ def test_any_union_banned_from_ai_calls(names, expected):
 
 
 def test_union_banned_message_is_the_agreed_farmer_facing_string():
-    assert UNION_BANNED_MESSAGE == "AI calls are not allowed for your union."
+    assert UNION_BANNED_MESSAGE == "Kindly contact your Milk Society to book the service."
+    assert UNION_BANNED_MESSAGES["en"] == UNION_BANNED_MESSAGE
+    assert UNION_BANNED_MESSAGES["gu"] == "કૃપા કરીને આપની દૂધ મંડળીનો સંપર્ક કરશો."
+    assert UNION_BANNED_MESSAGES["hi"] == "कृपया सेवा बुक करने के लिए अपनी दूध मंडली से संपर्क करें।"
+
+
+@pytest.mark.parametrize("lang,expected_key", [
+    ("en", "en"),
+    ("english", "en"),
+    ("gu", "gu"),
+    ("gujarati", "gu"),
+    ("hi", "hi"),
+    ("hindi", "hi"),
+    ("mr", "en"),
+    (None, "en"),
+    ("", "en"),
+])
+def test_union_banned_message_for_lang(lang, expected_key):
+    assert union_banned_message_for_lang(lang) == UNION_BANNED_MESSAGES[expected_key]
 
 
 def _ctx(unions):

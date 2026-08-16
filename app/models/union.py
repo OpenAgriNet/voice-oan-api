@@ -57,9 +57,29 @@ def canonical_union_name(name: str | None) -> str:
 # Compare against ``canonical_union_name`` output so brand/spelling aliases
 # (e.g. "sarhad" for Kutch) hit the same entry.
 AI_CALL_BANNED_UNIONS: frozenset[str] = frozenset({UnionName.KUTCH.value})
+# Farmer-facing refusal, keyed by language code. English is what the agent is
+# told to say (and what create_ai_call returns); Gujarati/Hindi are pinned so
+# post-translation cannot drift off the agreed copy.
+UNION_BANNED_MESSAGES: dict[str, str] = {
+    "en": "Kindly contact your Milk Society to book the service.",
+    "gu": "કૃપા કરીને આપની દૂધ મંડળીનો સંપર્ક કરશો.",
+    "hi": "कृपया सेवा बुक करने के लिए अपनी दूध मंडली से संपर्क करें।",
+}
+_UNION_BANNED_LANG_ALIASES: dict[str, str] = {
+    "english": "en",
+    "gujarati": "gu",
+    "hindi": "hi",
+}
 # Shared by technician-context copy and create_ai_call so banned unions hear the
 # same refusal whether the model follows the prompt or the tool is reached.
-UNION_BANNED_MESSAGE = "AI calls are not allowed for your union."
+UNION_BANNED_MESSAGE = UNION_BANNED_MESSAGES["en"]
+
+
+def union_banned_message_for_lang(lang: str | None) -> str:
+    """Pinned union-ban copy for ``lang`` (``en`` / ``gu`` / ``hi`` or aliases)."""
+    key = (lang or "en").strip().lower()
+    code = _UNION_BANNED_LANG_ALIASES.get(key, key)
+    return UNION_BANNED_MESSAGES.get(code, UNION_BANNED_MESSAGES["en"])
 
 
 def is_ai_call_banned_union(name: str | None) -> bool:

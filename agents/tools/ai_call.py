@@ -37,7 +37,8 @@ async def create_ai_call(
     Never ask the farmer to speak an internal technician ID. Use the selected technician option
     already present in farmer context.
     If Farmer Profile says AI call booking is not allowed for this union, tell the farmer
-    AI calls are not allowed for their union. Do not ask which technician and do not book.
+    exactly: Kindly contact your Milk Society to book the service. Do not ask which
+    technician and do not book.
 
     Args:
         ctx: The run context (automatically provided).

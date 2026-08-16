@@ -27,6 +27,7 @@ from app.models.union import (
     UnionName,
     is_ai_call_banned_union,
     resolve_supported_unions,
+    union_banned_message_for_lang,
 )
 from app.services.scheme_ingestion import (
     SchemeCacheError,
@@ -548,11 +549,22 @@ def _should_gate_non_meaningful_llm(turns: list[str]) -> bool:
     return len(turns) >= 5
 
 
+def _canned_union_ban_translation(text_en: str, target_lang: str) -> str | None:
+    """Pinned Gujarati/Hindi union-ban copy when the English batch is that line."""
+    if (text_en or "").strip() != UNION_BANNED_MESSAGE:
+        return None
+    return union_banned_message_for_lang(target_lang)
+
+
 async def _render_text_for_caller(text_en: str, target_lang: str) -> str:
     """Render English loop text for the caller's language outside the agent loop."""
     normalized_target = (target_lang or "en").strip().lower()
     if normalized_target in {"en", "english"}:
         return _prepare_voice_output(text_en, "en")
+
+    canned_ban = _canned_union_ban_translation(text_en, normalized_target)
+    if canned_ban is not None:
+        return _prepare_voice_output(canned_ban, normalized_target)
 
     try:
         translated = await translate_text(
@@ -2485,6 +2497,12 @@ async def stream_voice_message(
                     if not text_to_translate:
                         return
                     text_to_translate = _guard_identity_drift(text_to_translate)
+                    canned_ban = _canned_union_ban_translation(
+                        text_to_translate, requested_target_lang,
+                    )
+                    if canned_ban is not None:
+                        yield _prepare_voice_output(canned_ban, requested_target_lang)
+                        return
                     try:
                         with trace.stage(
                             "output_translation",
