@@ -6,6 +6,12 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 from openai import APIError
 from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior, UsageLimitExceeded
+
+try:  # pydantic-ai >= 1.3 wraps connection errors in ModelAPIError
+    from pydantic_ai.exceptions import ModelAPIError
+except ImportError:  # older pydantic-ai (eval venv) lets openai.APIError escape
+    ModelAPIError = APIError
+
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.messages import ModelMessage
@@ -26,7 +32,13 @@ AZURE_FALLBACK_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4.1")
 
 # Per-request model errors. UsageLimitExceeded is enforced at Agent.run() level
 # (see app.services.voice._run_voice_agent) and is not raised inside model.request().
-_FALLBACK_ON = (ModelHTTPError, APIError, UnexpectedModelBehavior, UsageLimitExceeded)
+# ModelAPIError covers connection failures (vLLM host down/refused); ModelHTTPError
+# subclasses it on current pydantic-ai but is listed for older versions.
+_FALLBACK_ON = tuple(
+    dict.fromkeys(
+        (ModelAPIError, ModelHTTPError, APIError, UnexpectedModelBehavior, UsageLimitExceeded)
+    )
+)
 
 
 def _openai_compatible_base_url(url: str | None) -> str | None:
@@ -80,12 +92,13 @@ def _sanitize_settings_for_azure(model_settings: ModelSettings | None) -> ModelS
 class _AzureSanitizedModel(WrapperModel):
     """Azure fallback wrapper that omits vLLM-specific request settings."""
 
+    # Model.request() takes no run_context (unlike request_stream); accept it for
+    # older pydantic-ai callers but never forward it.
     async def request(self, messages, model_settings, model_request_parameters, run_context=None):
         return await self.wrapped.request(
             messages,
             _sanitize_settings_for_azure(model_settings),
             model_request_parameters,
-            run_context,
         )
 
     @asynccontextmanager
