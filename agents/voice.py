@@ -14,18 +14,16 @@ logger = get_logger(__name__)
 load_dotenv()
 
 agrinet_vllm_settings = ModelSettings(
-    # 0.3, not 0.7: this is a factual voice agent reading prices/weather to
-    # farmers. At 0.7 the tool-vs-answer-from-memory decision was a coin flip
-    # (observed: same onion question → one run hallucinated a price, the next
-    # re-called the tool). Not 0.0 — Qwen3 degenerates/repeats under greedy
-    # decoding; 0.2-0.3 keeps decisions stable without that failure mode.
-    temperature=0.3,
-    top_p=0.9,
+    # Gemma, factual voice agent (prices/weather, tool-grounded, 2-3 sentences).
+    # Low temp for near-deterministic tool/grounding decisions; Gemma has no
+    # Qwen3-style greedy degeneration, so the old 0.3 crutch is no longer needed.
+    temperature=0.1,
+    top_p=0.95,
     presence_penalty=0.0,
     parallel_tool_calls=True,
     timeout=30,
     extra_body={
-        "top_k": -1,
+        "top_k": 64,  # Gemma-native
         "min_p": 0.0,
         "repetition_penalty": 1.0,
         "chat_template_kwargs": {"enable_thinking": False},
