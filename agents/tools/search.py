@@ -135,19 +135,22 @@ async def search_videos(
     top_k: int = 10,
 ) -> str:
     """
-    Semantic search for guidance videos. Call this immediately after
-    `search_documents`, with the same English topic.
+    Semantic search for Mahavistar app how-to / FAQ videos. Call this **only**
+    for questions about the Mahavistar app itself — registration, login, OTP,
+    password, profile, logout, or any app screen or feature. Do **not** call
+    this for agronomy questions (crops, pests, fertiliser, weather, prices,
+    schemes); use `search_documents` alone for those.
 
     Args:
         ctx: The context containing session information
-        query: The search query in *English* (required) — same topic as documents
+        query: The search query in *English* (required) — the app topic asked about
         top_k: Maximum number of results to return (default: 10)
 
     Returns:
         search_results: Formatted string with video results
     """
-    # No nudge here: this runs right after search_documents, which already sent
-    # one. A second hold line back-to-back talks over the farmer.
+    # No nudge here: on FAQ questions this runs right after search_documents,
+    # which already sent one. A second hold line back-to-back talks over the farmer.
     try:
         endpoint_url = os.getenv('MARQO_ENDPOINT_URL')
         if not endpoint_url:
