@@ -2,11 +2,12 @@ import os
 import uuid
 from datetime import datetime, timezone
 from helpers.utils import get_logger
+import httpx
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya, post_beckn_search
+from agents.tools.common import get_nudge_message, send_nudge_message_raya
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -319,13 +320,28 @@ async def warehouse_data(ctx: RunContext[FarmerContext], latitude: float, longit
             await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
             
         payload = WarehouseRequest(latitude=latitude, longitude=longitude).get_payload()
-        response_data = await post_beckn_search(payload, "Warehouse API")
-        if response_data is None:
-            return "Warehouse service unavailable. Retrying"
-
-        warehouse_response = WarehouseResponse.model_validate(response_data)
-        return str(warehouse_response)
-
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                os.getenv("BAP_ENDPOINT"),
+                json=payload,
+                timeout=15.0
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Warehouse API returned status code {response.status_code}")
+                return "Warehouse service unavailable. Retrying"
+                
+            warehouse_response = WarehouseResponse.model_validate(response.json())
+            return str(warehouse_response)
+                
+    except httpx.TimeoutException as e:
+        logger.error(f"Warehouse API request timed out: {str(e)}")
+        return "Warehouse request timed out. Please try again later."
+    
+    except httpx.RequestError as e:
+        logger.error(f"Warehouse API request failed: {e}")
+        return f"Warehouse request failed: {str(e)}"
+    
     except UnexpectedModelBehavior as e:
         logger.warning("Warehouse request exceeded retry limit")
         return "Warehouse data is temporarily unavailable. Please try again later."

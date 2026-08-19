@@ -5,78 +5,11 @@ import asyncio
 from pathlib import Path
 import httpx
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from helpers.utils import get_logger
 from app.config import settings
 
 logger = get_logger(__name__)
-
-# The PoCRA BAP endpoint is a Beckn aggregator: it fans out to BPPs and returns
-# whatever `on_search` callbacks arrive inside its wait window. Under concurrent
-# load it gives up early and returns HTTP 200 with an empty `responses` list, so
-# an empty result is treated as a retryable failure rather than "no data".
-# A response carrying an empty `providers` list is a genuine "nothing here" and
-# is not retried.
-#
-# Attempts are capped at 2 because this sits on the critical path of a live phone
-# call. The aggregator answers from its own wait window in a flat ~8.2s whether it
-# has data or not, so each extra attempt costs a full ~8.2s of dead air and the
-# 15s timeout never actually fires. Three attempts measured ~26.6s per failed call
-# against a dark upstream; two caps it at ~17s.
-_MAX_SEARCH_ATTEMPTS = 2
-_RETRY_BACKOFF_SECONDS = (0.5,)
-_SEARCH_TIMEOUT_SECONDS = 15.0
-
-
-async def post_beckn_search(payload: Dict[str, Any], label: str) -> Optional[Dict[str, Any]]:
-    """POST a Beckn search payload to the BAP endpoint, retrying empty responses.
-
-    Args:
-        payload: The Beckn search payload
-        label: Short description of the call, used in log messages
-
-    Returns:
-        Optional[Dict[str, Any]]: Parsed response carrying at least one entry in
-        `responses`, or None if every attempt failed
-    """
-    bap_endpoint = os.getenv("BAP_ENDPOINT")
-    if not bap_endpoint:
-        logger.error("BAP_ENDPOINT environment variable not set")
-        return None
-
-    for attempt in range(1, _MAX_SEARCH_ATTEMPTS + 1):
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    bap_endpoint,
-                    json=payload,
-                    timeout=_SEARCH_TIMEOUT_SECONDS
-                )
-
-            if response.status_code != 200:
-                reason = f"status code {response.status_code}"
-            else:
-                try:
-                    response_data = response.json()
-                except json.JSONDecodeError as e:
-                    reason = f"invalid JSON ({e})"
-                else:
-                    if response_data.get("responses"):
-                        return response_data
-                    reason = "aggregator returned no BPP responses"
-        except httpx.TimeoutException:
-            reason = "request timed out"
-        except httpx.RequestError as e:
-            reason = f"request failed ({e})"
-
-        logger.warning(f"{label} attempt {attempt}/{_MAX_SEARCH_ATTEMPTS} failed: {reason}")
-
-        if attempt < _MAX_SEARCH_ATTEMPTS:
-            await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
-
-    logger.error(f"{label} failed after {_MAX_SEARCH_ATTEMPTS} attempts")
-    return None
-
 
 # Per-session last nudge per tool — avoids repeating the same hold line back-to-back.
 _last_nudge_by_session: dict[tuple[str, str], str] = {}

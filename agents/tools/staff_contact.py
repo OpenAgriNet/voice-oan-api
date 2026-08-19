@@ -1,12 +1,14 @@
 import os
+import asyncio
 import uuid
+import json
 from datetime import datetime, timezone
 from helpers.utils import get_logger
+import requests
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from dotenv import load_dotenv
-from agents.tools.common import post_beckn_search
 
 load_dotenv()
 
@@ -391,8 +393,26 @@ async def _get_village_code_from_admin_api(latitude: float, longitude: float) ->
     """
     try:
         payload = AdministrativeRequest(latitude=latitude, longitude=longitude).get_payload()
-        response_data = await post_beckn_search(payload, "Administrative API")
-        if response_data is None:
+        bap_endpoint = os.getenv("BAP_ENDPOINT")
+        if not bap_endpoint:
+            logger.error("BAP_ENDPOINT environment variable not set")
+            return None
+
+        response = await asyncio.to_thread(
+            requests.post,
+            bap_endpoint,
+            json=payload,
+            timeout=(10, 15)
+        )
+
+        if response.status_code != 200:
+            logger.error(f"Administrative API returned status code {response.status_code}")
+            return None
+
+        try:
+            response_data = response.json()
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
             return None
 
         parsed = AdminResponse.model_validate(response_data)
@@ -408,6 +428,12 @@ async def _get_village_code_from_admin_api(latitude: float, longitude: float) ->
         logger.warning("No village code found in administrative response")
         return None
 
+    except requests.Timeout:
+        logger.error("Administrative API request timed out")
+        return None
+    except requests.RequestException as e:
+        logger.error(f"Administrative API request failed: {e}")
+        return None
     except Exception as e:
         logger.error(f"Error getting village code: {e}")
         return None
@@ -438,13 +464,37 @@ async def contact_agricultural_staff(latitude: float, longitude: float) -> str:
         
         # Data category is `aa` (Agricultural Assistant) by default for now.
         payload = ContactRequest(village_code=village_code, data_category="aa").get_payload()
-        response_data = await post_beckn_search(payload, "Officer Details API")
-        if response_data is None:
+        bap_endpoint = os.getenv("BAP_ENDPOINT")
+        if not bap_endpoint:
+            logger.error("BAP_ENDPOINT environment variable not set")
+            return "Agricultural staff details configuration error."
+
+        response = await asyncio.to_thread(
+            requests.post,
+            bap_endpoint,
+            json=payload,
+            timeout=(10, 15)
+        )
+
+        if response.status_code != 200:
+            logger.error(f"Officer Details API returned status code {response.status_code}")
             return "Agricultural staff details unavailable."
+
+        try:
+            response_data = response.json()
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            return "Agricultural staff details returned invalid response."
 
         parsed = ContactResponse.model_validate(response_data)
         return str(parsed)
 
+    except requests.Timeout:
+        logger.error("Agricultural staff Details API request timed out")
+        return "Agricultural staff details request timed out."
+    except requests.RequestException as e:
+        logger.error(f"Agricultural staff Details API request failed: {e}")
+        return f"Agricultural staff details request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Agricultural staff details request exceeded retry limit")
         return "Agricultural staff details are temporarily unavailable. Please try again later."

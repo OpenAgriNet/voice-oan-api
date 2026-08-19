@@ -2,13 +2,14 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from helpers.utils import get_logger, get_today_date_str
+import httpx
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any, Tuple
 from dateutil import parser
 from dateutil.parser import ParserError
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya, post_beckn_search
+from agents.tools.common import get_nudge_message, send_nudge_message_raya
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -526,16 +527,27 @@ async def weather_forecast(ctx: RunContext[FarmerContext], latitude: float, long
         await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
 
         payload  = WeatherRequest(latitude=latitude, longitude=longitude, days=days, request_type="forecast").get_payload()
-        response_data = await post_beckn_search(payload, "Weather API (forecast)")
-        if response_data is None:
-            return "Weather service unavailable. Retrying"
+        async with httpx.AsyncClient() as client:
+            response = await client.post(os.getenv("BAP_ENDPOINT"),
+                                       json=payload,
+                                       timeout=15.0)
+            
+            if response.status_code != 200:
+                logger.error(f"Weather API returned status code {response.status_code}")
+                return "Weather service unavailable. Retrying"
+                
+            weather_response = WeatherResponse.model_validate(response.json())
+            weather_response.response_type = "forecast"
+            _keep_newest_issue_and_future_days(weather_response)
 
-        weather_response = WeatherResponse.model_validate(response_data)
-        weather_response.response_type = "forecast"
-        _keep_newest_issue_and_future_days(weather_response)
-
-        return str(weather_response)
-
+            return str(weather_response)
+                
+    except httpx.TimeoutException:
+        logger.error("Weather API request timed out")
+        return "Weather request timed out."
+    except httpx.RequestError as e:
+        logger.error(f"Weather API request failed: {e}")
+        return f"Weather request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Weather request exceeded retry limit")
         return "Weather data is temporarily unavailable. Please try again later."
@@ -562,15 +574,26 @@ async def weather_historical(ctx: RunContext[FarmerContext], latitude: float, lo
             )
             await send_nudge_message_raya(nudge_message, ctx.deps.session_id, ctx.deps.process_id)
         payload  = WeatherRequest(latitude=latitude, longitude=longitude, days=days, request_type="historical").get_payload()
-        response_data = await post_beckn_search(payload, "Weather API (historical)")
-        if response_data is None:
-            return "Weather service unavailable. Retrying"
-
-        weather_response = WeatherResponse.model_validate(response_data)
-        weather_response.response_type = "historical"
-
-        return str(weather_response)
-
+        async with httpx.AsyncClient() as client:
+            response = await client.post(os.getenv("BAP_ENDPOINT"),
+                                       json=payload,
+                                       timeout=15.0)
+            
+            if response.status_code != 200:
+                logger.error(f"Weather API returned status code {response.status_code}")
+                return "Weather service unavailable. Retrying"
+                
+            weather_response = WeatherResponse.model_validate(response.json())
+            weather_response.response_type = "historical"
+                
+            return str(weather_response)
+                
+    except httpx.TimeoutException:
+        logger.error("Weather API request timed out")
+        return "Weather request timed out."
+    except httpx.RequestError as e:
+        logger.error(f"Weather API request failed: {e}")
+        return f"Weather request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Weather request exceeded retry limit")
         return "Weather data is temporarily unavailable. Please try again later."

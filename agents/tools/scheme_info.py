@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 from helpers.utils import get_logger
+import httpx
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from langfuse import observe
-from agents.tools.common import post_beckn_search
 logger = get_logger(__name__)
 
 # Load scheme list once at module level. Use an absolute path derived from
@@ -317,16 +317,31 @@ async def get_scheme_info(scheme_code: str) -> str:
             raise ModelRetry(f"Invalid scheme code: {scheme_code}. Use get_scheme_codes() to find valid codes.")
         
         payload = SchemeRequest(scheme_code=scheme_code).get_payload()
-
-        response_data = await post_beckn_search(payload, "Scheme API")
-        if response_data is None:
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                os.getenv("BAP_ENDPOINT"),
+                json=payload,
+                timeout=15.0
+            )
+        
+        if response.status_code != 200:
+            logger.error(f"Scheme API returned status code {response.status_code}")
             return "Scheme service unavailable. Retrying"
-
-        scheme_response = SchemeResponse.model_validate(response_data)
+            
+        scheme_response = SchemeResponse.model_validate(response.json())
         # Sponsor field is already in the response text (e.g., "Sponsor: State" or "Sponsor: Central")
         # Agent can read this directly from the response to determine prioritization
         return str(scheme_response)
-
+                
+    except httpx.TimeoutException as e:
+        logger.error(f"Scheme API request timed out: {str(e)}")
+        return "Scheme request timed out. Please try again later."
+    
+    except httpx.RequestError as e:
+        logger.error(f"Scheme API request failed: {e}")
+        return f"Scheme request failed: {str(e)}"
+    
     except UnexpectedModelBehavior as e:
         logger.warning("Scheme request exceeded retry limit")
         return "Scheme data is temporarily unavailable. Please try again later."

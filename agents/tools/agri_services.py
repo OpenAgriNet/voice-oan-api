@@ -1,12 +1,14 @@
 import os
+import asyncio
 import uuid
+import json
 from datetime import datetime
 from helpers.utils import get_logger
+import requests
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any, Literal
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from dotenv import load_dotenv
-from agents.tools.common import post_beckn_search
 
 load_dotenv()
 
@@ -280,13 +282,37 @@ async def agri_services(latitude: float, longitude: float, category_code: Litera
             longitude=longitude,
             category_code=category_code,
         ).get_payload()
-        response_data = await post_beckn_search(payload, "Agricultural Services API")
-        if response_data is None:
+        bap_endpoint = os.getenv("BAP_ENDPOINT")
+        if not bap_endpoint:
+            logger.error("BAP_ENDPOINT environment variable not set")
+            return "Agricultural services configuration error."
+
+        response = await asyncio.to_thread(
+            requests.post,
+            bap_endpoint,
+            json=payload,
+            timeout=(10, 15)
+        )
+
+        if response.status_code != 200:
+            logger.error(f"Agricultural Services API returned status code {response.status_code}")
             return "Agricultural services unavailable. Retrying"
+
+        try:
+            response_data = response.json()
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            return "Agricultural services returned invalid response."
 
         parsed = AgriServicesResponse.model_validate(response_data)
         return str(parsed)
 
+    except requests.Timeout:
+        logger.error("Agricultural Services API request timed out")
+        return "Agricultural services request timed out."
+    except requests.RequestException as e:
+        logger.error(f"Agricultural Services API request failed: {e}")
+        return f"Agricultural services request failed: {str(e)}"
     except UnexpectedModelBehavior as e:
         logger.warning("Agricultural services request exceeded retry limit")
         return "Agricultural services are temporarily unavailable. Please try again later."
