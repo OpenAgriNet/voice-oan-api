@@ -17,8 +17,14 @@ logger = get_logger(__name__)
 # an empty result is treated as a retryable failure rather than "no data".
 # A response carrying an empty `providers` list is a genuine "nothing here" and
 # is not retried.
-_MAX_SEARCH_ATTEMPTS = 3
-_RETRY_BACKOFF_SECONDS = (0.5, 1.5)
+#
+# Attempts are capped at 2 because this sits on the critical path of a live phone
+# call. The aggregator answers from its own wait window in a flat ~8.2s whether it
+# has data or not, so each extra attempt costs a full ~8.2s of dead air and the
+# 15s timeout never actually fires. Three attempts measured ~26.6s per failed call
+# against a dark upstream; two caps it at ~17s.
+_MAX_SEARCH_ATTEMPTS = 2
+_RETRY_BACKOFF_SECONDS = (0.5,)
 _SEARCH_TIMEOUT_SECONDS = 15.0
 
 
