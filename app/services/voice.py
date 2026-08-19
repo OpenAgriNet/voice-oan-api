@@ -22,8 +22,9 @@ from agents.services.farmer_cache import (
     should_refresh_farmer_data,
     exceeds_max_serve_stale,
 )
-from app.models.union import UnionName, resolve_supported_unions
+from app.models.union import resolve_supported_unions
 from app.services.scheme_ingestion import (
+    SUPPORTED_SCHEME_UNIONS,
     SchemeCacheError,
     SchemeDependencyError,
     get_cached_scheme_records_for_union,
@@ -792,10 +793,7 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
     return "\n".join(lines)
 
 
-SUPPORTED_SCHEME_CONTEXT_UNIONS = {
-    UnionName.BANAS.value,
-    UnionName.KUTCH.value,
-}
+SUPPORTED_SCHEME_CONTEXT_UNIONS = SUPPORTED_SCHEME_UNIONS
 
 
 def _collect_farmer_unions(envelope: Optional[FarmerDataEnvelope]) -> list[str]:

@@ -28,6 +28,10 @@ import agents.tools.union_schemes as us
     ("banaskantha", "banas"),
     ("banas", "banas"),
     ("dudhsagar", "mehsana"),
+    ("mehsana", "mehsana"),
+    ("sursagar", "surendranagar"),
+    ("Sursagar", "surendranagar"),
+    ("sumul", "sumul"),
     ("kaira", "kaira"),
     ("", ""),
     (None, ""),
@@ -86,3 +90,65 @@ def test_prepare_and_runtime_agree_for_banaskantha(monkeypatch):
 
     out = asyncio.run(us.get_union_scheme_data(_ctx(["banaskantha"]), None))
     assert "Banas Test Scheme" in out
+
+
+def test_prepare_and_runtime_agree_for_sursagar(monkeypatch):
+    sentinel = object()
+
+    async def fake_records(union_name):
+        assert union_name == UnionName.SURENDRANAGAR.value
+        return [{"scheme_title": "Sursagar Test Scheme"}]
+
+    monkeypatch.setattr(us, "get_cached_scheme_records_for_union", fake_records)
+
+    prepared = asyncio.run(us.prepare_get_union_scheme_data(_ctx(["sursagar"]), sentinel))
+    assert prepared is sentinel
+
+    out = asyncio.run(us.get_union_scheme_data(_ctx(["sursagar"]), None))
+    assert "Sursagar Test Scheme" in out
+
+
+def test_prepare_and_runtime_agree_for_sumul(monkeypatch):
+    sentinel = object()
+
+    async def fake_records(union_name):
+        assert union_name == UnionName.SUMUL.value
+        return [{"scheme_title": "Sumul Test Scheme"}]
+
+    monkeypatch.setattr(us, "get_cached_scheme_records_for_union", fake_records)
+
+    prepared = asyncio.run(us.prepare_get_union_scheme_data(_ctx(["sumul"]), sentinel))
+    assert prepared is sentinel
+
+    out = asyncio.run(us.get_union_scheme_data(_ctx(["sumul"]), None))
+    assert "Sumul Test Scheme" in out
+
+
+def test_scheme_cache_keys_match_chat_ingestion_sources():
+    """Voice reads the same Redis keys that amul-oan-api scheme ingestion writes."""
+    from app.services.scheme_ingestion import (
+        SUPPORTED_SCHEME_UNIONS,
+        SUPPORTED_UNION_SOURCE_KEYS,
+        get_source_keys_for_union,
+    )
+
+    assert get_source_keys_for_union(UnionName.BANAS.value) == (
+        "banasdairy.coop/home/inputactivities#milkproducers",
+    )
+    assert get_source_keys_for_union(UnionName.KUTCH.value) == (
+        "sarhaddairy.coop/for-our-milk-producers",
+    )
+    assert get_source_keys_for_union(UnionName.SUMUL.value) == ("sumul.com/farmer-section",)
+    assert get_source_keys_for_union("sursagar") == ("sursagardairy.com/farmer/milkproducers",)
+    assert get_source_keys_for_union(UnionName.SURENDRANAGAR.value) == (
+        "sursagardairy.com/farmer/milkproducers",
+    )
+    assert us.SUPPORTED_SCHEME_UNIONS == frozenset(SUPPORTED_UNION_SOURCE_KEYS)
+    assert SUPPORTED_SCHEME_UNIONS == frozenset(
+        {
+            UnionName.BANAS.value,
+            UnionName.KUTCH.value,
+            UnionName.SUMUL.value,
+            UnionName.SURENDRANAGAR.value,
+        }
+    )

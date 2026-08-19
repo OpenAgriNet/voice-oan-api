@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from app.config import settings
-from app.models.union import UnionName
+from app.models.union import UnionName, canonical_union_name
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -25,10 +25,16 @@ class SchemeCacheError(SchemeIngestionError):
     """Raised when Redis cache access fails."""
 
 
+# Cache keys must match amul-oan-api scheme ingestion (chat writes, voice reads).
+# Tool + farmer-context gating derive from this map so a union cannot be
+# exposed without a readable cache source, or vice versa.
 SUPPORTED_UNION_SOURCE_KEYS = {
     UnionName.BANAS.value: ("banasdairy.coop/home/inputactivities#milkproducers",),
     UnionName.KUTCH.value: ("sarhaddairy.coop/for-our-milk-producers",),
+    UnionName.SUMUL.value: ("sumul.com/farmer-section",),
+    UnionName.SURENDRANAGAR.value: ("sursagardairy.com/farmer/milkproducers",),
 }
+SUPPORTED_SCHEME_UNIONS = frozenset(SUPPORTED_UNION_SOURCE_KEYS)
 
 
 def _build_prefixed_key(namespace: str, key: str) -> str:
@@ -43,7 +49,7 @@ def build_scheme_cache_key(source_key: str) -> str:
 
 
 def get_source_keys_for_union(union_name: str) -> tuple[str, ...]:
-    return SUPPORTED_UNION_SOURCE_KEYS.get(union_name, ())
+    return SUPPORTED_UNION_SOURCE_KEYS.get(canonical_union_name(union_name), ())
 
 
 async def get_redis_client():
@@ -94,7 +100,7 @@ async def get_cached_source_records(source_key: str, redis_client=None) -> list[
 
 
 async def get_cached_scheme_records_for_union(union_name: str, redis_client=None) -> list[dict[str, Any]]:
-    normalized_union_name = (union_name or "").strip().lower()
+    normalized_union_name = canonical_union_name(union_name)
     source_keys = get_source_keys_for_union(normalized_union_name)
     if not source_keys:
         return []
