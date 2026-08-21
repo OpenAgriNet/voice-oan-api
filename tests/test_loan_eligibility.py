@@ -236,7 +236,11 @@ class TestMessageMapping:
     def test_eligible_message_has_code_and_amount(self):
         r = le.LoanResult(outcome=le.ELIGIBLE, code="777888", loan_amount=5000)
         msg = loan_tool._message_for(r)
-        assert "777888" in msg and "5,000" in msg and "ELIGIBLE" in msg
+        # Since the two-step offer -> confirm split, ELIGIBLE reads "APPROVED.";
+        # "ELIGIBLE" now belongs to ELIGIBLE_OFFER, which carries no code. The
+        # chat repo corrected this with that change; voice (no CI) kept the stale
+        # assertion and has been red ever since.
+        assert "777888" in msg and "5,000" in msg and "APPROVED" in msg
 
     def test_failure_messages_direct_to_bank(self):
         for oc in (le.NOT_IN_BANK_LIST, le.MILK_BELOW_THRESHOLD):
