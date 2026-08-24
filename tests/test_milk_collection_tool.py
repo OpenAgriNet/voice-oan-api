@@ -12,7 +12,14 @@ from agents.tools.milk_collection import get_farmer_milk_collection_details
 
 def _ctx(accounts=None):
     """Minimal RunContext stand-in carrying FarmerContext deps."""
-    deps = FarmerContext(query="milk", farmer_accounts=accounts or [])
+    deps = FarmerContext(
+        query="milk",
+        signed_in=True,
+        identity_verified=True,
+        mobile="9924457046",
+        subject_id="subject-1",
+        farmer_accounts=accounts or [],
+    )
     return SimpleNamespace(deps=deps)
 
 
@@ -91,7 +98,7 @@ class TestMilkCollectionTool:
         assert "quantity 2.38 liters" in result
         assert "quantity 9.68 liters" in result
 
-    def test_falls_back_to_supplied_codes_when_no_accounts_in_context(self, monkeypatch):
+    def test_rejects_supplied_codes_when_no_authenticated_accounts_exist(self, monkeypatch):
         monkeypatch.setenv("PASHUGPT_TOKEN", "test-token")
         seen = {}
 
@@ -106,14 +113,14 @@ class TestMilkCollectionTool:
             _fake_api,
         )
 
-        # Empty context -> use the LLM-supplied codes.
+        # Model-supplied codes can never substitute for an authenticated account.
         result = asyncio.run(
             get_farmer_milk_collection_details(
                 _ctx([]), "2021", "1066", "123", "2026-04-01", "2026-04-01"
             )
         )
-        assert seen["codes"]["farmerCode"] == "123"
-        assert "quantity 5 liters" in result
+        assert "codes" not in seen
+        assert "No farmer account" in result
 
     def test_missing_token_returns_clear_failure_and_does_not_call_backend(self, monkeypatch):
         monkeypatch.delenv("PASHUGPT_TOKEN", raising=False)
@@ -128,7 +135,8 @@ class TestMilkCollectionTool:
 
         result = asyncio.run(
             get_farmer_milk_collection_details(
-                _ctx(), "2021", "1066", "123", "2026-04-01", "2026-04-01"
+                _ctx([FarmerAccount(union_code="2021", society_code="1066", farmer_code="123")]),
+                "2021", "1066", "123", "2026-04-01", "2026-04-01"
             )
         )
 
@@ -168,7 +176,8 @@ class TestMilkCollectionTool:
 
         result = asyncio.run(
             get_farmer_milk_collection_details(
-                _ctx(), "2021", "1066", "123", "2026-04-01", "2026-04-01"
+                _ctx([FarmerAccount(union_code="2021", society_code="1066", farmer_code="123")]),
+                "2021", "1066", "123", "2026-04-01", "2026-04-01"
             )
         )
 

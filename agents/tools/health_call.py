@@ -8,7 +8,10 @@ from pydantic_ai import RunContext
 from agents.deps import FarmerContext
 from agents.models.ai_call import AISpecies
 from agents.models.health_call import HealthCallRequestModel, HealthCaseType
+from agents.tools.access import FarmerAccessDenied, resolve_owned_account
+from agents.tools.beckn_voice import beckn_health_booking, render_result
 from agents.tools.farmer_animal_backends import create_health_call_api
+from app.config import settings
 from app.core.cache import cache, try_reserve, release_reservation
 from helpers.utils import get_logger
 
@@ -46,11 +49,8 @@ async def create_health_call(
     """
     session_id = ctx.deps.session_id
     logger.info(
-        "Health call tool invoked: session=%s union=%s society=%s farmer=%s species=%s case_type=%s",
+        "Health call tool invoked: session=%s species=%s case_type=%s",
         session_id,
-        union_code,
-        society_code,
-        farmer_code,
         species.value,
         case_type.value,
     )
@@ -61,15 +61,31 @@ async def create_health_call(
         logger.info("Health call blocked: query failed moderation; session=%s", session_id)
         return "This helpline only handles dairy farming and animal husbandry questions."
 
+    try:
+        account = resolve_owned_account(ctx.deps, union_code, society_code, farmer_code)
+    except FarmerAccessDenied as exc:
+        logger.warning("Health call ownership gate rejected session=%s", session_id)
+        return str(exc)
+
+    if settings.voice_beckn_enabled:
+        result = await beckn_health_booking(
+            ctx.deps,
+            account,
+            species.value,
+            case_type.value,
+            remark,
+        )
+        return render_result(result, "Health call booking")
+
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
         logger.error("PASHUGPT_TOKEN is not set")
         return "Health call booking failed.\n\nPASHUGPT_TOKEN is not configured."
 
     request = HealthCallRequestModel(
-        unionCode=union_code,
-        societyCode=society_code,
-        farmerCode=farmer_code,
+        unionCode=account.union_code or "",
+        societyCode=account.society_code or "",
+        farmerCode=account.farmer_code or "",
         species=species,
         caseType=case_type,
         remark=remark,

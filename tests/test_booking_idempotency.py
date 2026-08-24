@@ -22,7 +22,18 @@ def _ctx(session_id):
     async def _ensure_in_scope():
         return True
 
-    return SimpleNamespace(deps=SimpleNamespace(session_id=session_id, ensure_in_scope=_ensure_in_scope))
+    account = SimpleNamespace(union_code="U", society_code="S", farmer_code="F")
+    return SimpleNamespace(deps=SimpleNamespace(
+        session_id=session_id,
+        ensure_in_scope=_ensure_in_scope,
+        farmer_unions=[],
+        signed_in=True,
+        identity_verified=True,
+        mobile="9924457046",
+        subject_id="subject-1",
+        farmer_accounts=[account],
+        ai_technician_ids=["tech1", "t"],
+    ))
 
 
 def _patch_cache(monkeypatch, module):

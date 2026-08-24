@@ -14,7 +14,7 @@ load_dotenv()
 import app.observability  # noqa: F401, E402
 
 # Import all routers
-from app.routers import  voice, health
+from app.routers import beckn, health, voice
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -90,3 +90,4 @@ async def metrics():
 
 app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(health.router, prefix=settings.api_prefix)
+app.include_router(beckn.router, prefix=settings.api_prefix)

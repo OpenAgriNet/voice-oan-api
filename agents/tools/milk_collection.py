@@ -5,6 +5,9 @@ from pydantic import ValidationError
 from pydantic_ai import RunContext
 
 from agents.deps import FarmerAccount, FarmerContext
+from agents.tools.access import FarmerAccessDenied, require_farmer_accounts
+from agents.tools.beckn_voice import beckn_milk_statement, render_result
+from app.config import settings
 from app.models.milk_collection import FarmerMilkCollectionRequestModel
 from agents.tools.farmer_animal_backends import get_farmer_milk_collection_details_api
 from helpers.utils import get_logger
@@ -131,21 +134,29 @@ async def get_farmer_milk_collection_details(
         str: Formatted milk collection and deduction details across all of the
              farmer's accounts, or a clear failure message.
     """
-    # Prefer the structured accounts from context (every account on the mobile).
-    # Fall back to the LLM-supplied codes only when context has none.
-    accounts = list(ctx.deps.farmer_accounts) if ctx.deps and ctx.deps.farmer_accounts else []
-    if not accounts:
-        accounts = [
-            FarmerAccount(
-                union_code=union_code,
-                society_code=society_code,
-                farmer_code=farmer_code,
-            )
-        ]
+    try:
+        accounts = require_farmer_accounts(ctx.deps)
+    except FarmerAccessDenied as exc:
+        return str(exc)
     logger.info(
-        "Milk collection tool invoked: accounts=%s from=%s to=%s (llm_codes=%s/%s/%s)",
-        len(accounts), fromdate, todate, union_code, society_code, farmer_code,
+        "Milk collection tool invoked: session=%s accounts=%s from=%s to=%s",
+        ctx.deps.session_id, len(accounts), fromdate, todate,
     )
+
+    try:
+        FarmerMilkCollectionRequestModel(
+            unionCode=accounts[0].union_code or "",
+            societyCode=accounts[0].society_code or "",
+            farmerCode=accounts[0].farmer_code or "",
+            fromdate=fromdate,
+            todate=todate,
+        ).validate_date_range()
+    except (ValidationError, ValueError) as exc:
+        return f"Milk collection lookup failed. {exc}"
+
+    if settings.voice_beckn_enabled:
+        result = await beckn_milk_statement(ctx.deps, accounts, fromdate, todate)
+        return render_result(result, "Milk collection lookup")
     return await fetch_milk_summary_for_accounts(accounts, fromdate, todate)
 
 

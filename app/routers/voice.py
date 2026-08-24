@@ -7,6 +7,7 @@ from app.services.voice import stream_voice_message
 from app.llm_core import split as _llm_split
 from app.utils import _get_message_history, claim_session_request_ownership
 from app.models.requests import ChatRequest
+from app.services.voice_identity import bind_session_identity, resolve_caller_identity
 from helpers.utils import get_logger
 import time
 import uuid
@@ -27,10 +28,12 @@ async def voice_endpoint(
     JWT is validated using the public key from JWT_PUBLIC_KEY env or JWT_PUBLIC_KEY_PATH file.
     session_id is used for message history and Langfuse Sessions: same ID groups all agent runs for one conversation.
     """
+    identity = resolve_caller_identity(user_info, request.user_id)
     session_id = request.session_id or str(uuid.uuid4())
+    await bind_session_identity(session_id, identity)
     trace = create_voice_trace(
         session_id=session_id,
-        user_id=request.user_id,
+        user_id=identity.trace_id,
         query=request.query,
         source_lang=request.source_lang,
         target_lang=request.target_lang,
@@ -38,7 +41,7 @@ async def voice_endpoint(
         process_id=request.process_id,
     )
     logger.info(
-        f"Voice request received - session_id: {session_id}, user_id: {request.user_id}, "
+        f"Voice request received - session_id: {session_id}, subject: {identity.trace_id}, "
         f"source_lang: {request.source_lang}, "
         f"target_lang: {request.target_lang}, provider: {request.provider}, process_id: {request.process_id}, "
         f"call_type: {request.call_type}, query: {request.query}"
@@ -77,11 +80,13 @@ async def voice_endpoint(
             session_id=session_id,
             source_lang=request.source_lang,
             target_lang=request.target_lang,
-            user_id=request.user_id,
+            user_id=identity.mobile or "anonymous",
             history=history,
             provider=request.provider,
             process_id=request.process_id,
             user_info=user_info,
+            identity_verified=identity.verified,
+            authenticated_subject_id=identity.subject_id,
             owner=owner,
             http_request=http_request,
             trace=trace,

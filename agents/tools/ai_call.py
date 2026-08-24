@@ -9,7 +9,10 @@ from pydantic_ai import RunContext
 
 from agents.deps import FarmerContext
 from agents.models.ai_call import AICallRequestModel, AISpecies
+from agents.tools.access import FarmerAccessDenied, require_owned_technician, resolve_owned_account
+from agents.tools.beckn_voice import beckn_ai_booking, render_result
 from agents.tools.farmer_animal_backends import create_ai_call_api
+from app.config import settings
 from app.core.cache import cache, try_reserve, release_reservation
 from app.models.union import UNION_BANNED_MESSAGE, any_union_banned_from_ai_calls
 from helpers.utils import get_logger
@@ -54,8 +57,8 @@ async def create_ai_call(
     """
     session_id = ctx.deps.session_id
     logger.info(
-        "AI call tool invoked: session=%s union=%s society=%s farmer=%s user_id=%s species=%s",
-        session_id, union_code, society_code, farmer_code, user_id, species.value,
+        "AI call tool invoked: session=%s species=%s",
+        session_id, species.value,
     )
 
     # Moderation runs concurrently with the agent, so this booking write must
@@ -76,16 +79,27 @@ async def create_ai_call(
         )
         return UNION_BANNED_MESSAGE
 
+    try:
+        account = resolve_owned_account(ctx.deps, union_code, society_code, farmer_code)
+        technician_id = require_owned_technician(ctx.deps, user_id)
+    except FarmerAccessDenied as exc:
+        logger.warning("AI call ownership gate rejected session=%s", session_id)
+        return str(exc)
+
+    if settings.voice_beckn_enabled:
+        result = await beckn_ai_booking(ctx.deps, account, technician_id, species.value)
+        return render_result(result, "Artificial insemination call booking")
+
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:
         logger.error("PASHUGPT_TOKEN is not set")
         return "Artificial insemination call booking failed. Service is not configured."
 
     request = AICallRequestModel(
-        unionCode=union_code,
-        societyCode=society_code,
-        farmerCode=farmer_code,
-        userId=user_id,
+        unionCode=account.union_code or "",
+        societyCode=account.society_code or "",
+        farmerCode=account.farmer_code or "",
+        userId=technician_id,
         species=species,
     )
 

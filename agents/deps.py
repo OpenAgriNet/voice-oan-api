@@ -41,10 +41,16 @@ class FarmerContext(BaseModel):
     farmer_unions: list[str] = Field(default_factory=list, description="Normalized union names derived from the farmer context.")
     ai_technician_info: str = Field(default="", description="Pre-built internal AI technician context string.")
     signed_in: bool = Field(default=False, description="Whether the session is signed in/authenticated for farmer-specific tools.")
+    identity_verified: bool = Field(default=False, description="Whether mobile/subject were derived from verified JWT claims.")
+    subject_id: Optional[str] = Field(default=None, description="Hashed authenticated subject used for operation ownership.")
     mobile: Optional[str] = Field(default=None, description="Normalized mobile number when available.")
     farmer_accounts: list[FarmerAccount] = Field(
         default_factory=list,
         description="All (union, society, farmer) accounts on the caller's mobile, for multi-account fan-out.",
+    )
+    ai_technician_ids: list[str] = Field(
+        default_factory=list,
+        description="Technician IDs present in the authenticated farmer context.",
     )
 
     # Handle to the per-turn content-moderation task, which now runs concurrently

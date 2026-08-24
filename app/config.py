@@ -74,6 +74,34 @@ class Settings(BaseSettings):
     farmer_api_trace_body: bool = _get_bool_env("FARMER_API_TRACE_BODY", default=False)
     farmer_api_trace_body_chars: int = int(os.getenv("FARMER_API_TRACE_BODY_CHARS", "8000"))
 
+    # Beckn transaction bridge for farmer-facing voice capabilities. Disabled by
+    # default until ONIX routes and callback signing are configured in an
+    # environment. When enabled, tools send only through this bridge and never
+    # fall back to a direct upstream call after an ambiguous transaction result.
+    voice_beckn_enabled: bool = _get_bool_env("VOICE_BECKN_ENABLED", default=False)
+    beckn_transaction_bridge_url: Optional[str] = os.getenv("BECKN_TRANSACTION_BRIDGE_URL")
+    beckn_transaction_bridge_token: Optional[str] = os.getenv("BECKN_TRANSACTION_BRIDGE_TOKEN")
+    beckn_callback_token: Optional[str] = os.getenv("BECKN_CALLBACK_TOKEN")
+    beckn_bap_id: str = os.getenv("BECKN_BAP_ID", "bap.amul-net.internal")
+    beckn_bap_uri: str = os.getenv(
+        "BECKN_BAP_URI",
+        "https://beckn-bap.prod.amulai.in/bap/receiver",
+    )
+    beckn_bpp_id: str = os.getenv("BECKN_BPP_ID", "bpp-amul.amul-net.internal")
+    beckn_bpp_uri: str = os.getenv(
+        "BECKN_BPP_URI",
+        "https://beckn-bpp.prod.amulai.in/bpp/receiver",
+    )
+    beckn_location_country: str = os.getenv("BECKN_LOCATION_COUNTRY", "IND")
+    beckn_location_city: str = os.getenv("BECKN_LOCATION_CITY", "std:080")
+    beckn_callback_wait_seconds: float = float(os.getenv("BECKN_CALLBACK_WAIT_SECONDS", "12"))
+    beckn_http_timeout_seconds: float = float(os.getenv("BECKN_HTTP_TIMEOUT_SECONDS", "8"))
+    beckn_poll_interval_seconds: float = float(os.getenv("BECKN_POLL_INTERVAL_SECONDS", "0.15"))
+    beckn_operation_ttl_seconds: int = int(os.getenv("BECKN_OPERATION_TTL_SECONDS", str(60 * 60 * 24)))
+    beckn_session_identity_ttl_seconds: int = int(
+        os.getenv("BECKN_SESSION_IDENTITY_TTL_SECONDS", str(60 * 60 * 24))
+    )
+
     # Logging Configuration
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

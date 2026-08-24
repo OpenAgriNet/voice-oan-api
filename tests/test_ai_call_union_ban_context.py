@@ -308,7 +308,16 @@ async def _in_scope():
 
 
 def _booking_ctx(session_id="s-ban", unions=None, include_unions=True):
-    deps = SimpleNamespace(session_id=session_id, ensure_in_scope=_in_scope)
+    deps = SimpleNamespace(
+        session_id=session_id,
+        ensure_in_scope=_in_scope,
+        signed_in=True,
+        identity_verified=True,
+        mobile="9924457046",
+        subject_id="subject-1",
+        farmer_accounts=[SimpleNamespace(union_code="U", society_code="S", farmer_code="F")],
+        ai_technician_ids=["tech1"],
+    )
     if include_unions:
         deps.farmer_unions = unions
     return SimpleNamespace(deps=deps)
@@ -456,4 +465,3 @@ def test_canned_union_ban_gujarati_survives_voice_cleanup():
     spoken = _prepare_voice_output(UNION_BANNED_MESSAGES["gu"], "gu")
     assert "દૂધ મંડળી" in spoken
     assert spoken.strip() == UNION_BANNED_MESSAGES["gu"].strip()
-
