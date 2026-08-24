@@ -15,6 +15,8 @@ from pydantic_ai.tools import ToolDefinition
 
 from agents.deps import FarmerContext
 from agents.services import loan_eligibility as le
+from agents.tools.access import FarmerAccessDenied, require_authenticated_farmer
+from agents.tools.beckn_voice import beckn_loan, render_result
 from app.config import settings
 from helpers.utils import get_logger
 
@@ -35,10 +37,13 @@ async def prepare_check_loan_eligibility(
     improvise a request for a mobile number it cannot act on."""
     if not settings.loan_feature_enabled:
         return None
-    # Expose whenever the feature is on. If the caller's profile/mobile is not
-    # resolved, the tool still runs and returns a clear "no profile - visit your
-    # local cooperative bank" message, rather than the model improvising a request
-    # for a mobile number (which we cannot act on).
+    if not (
+        getattr(ctx.deps, "signed_in", False)
+        and getattr(ctx.deps, "identity_verified", False)
+        and getattr(ctx.deps, "mobile", None)
+        and getattr(ctx.deps, "subject_id", None)
+    ):
+        return None
     return tool_def
 
 
@@ -130,6 +135,14 @@ async def check_loan_eligibility(ctx: RunContext[FarmerContext], confirmed: bool
         confirmed: Set true ONLY after the farmer has explicitly agreed to avail the
             loan (their yes to the offer). Leave false for the initial eligibility/offer.
     """
+    try:
+        require_authenticated_farmer(ctx.deps)
+    except FarmerAccessDenied as exc:
+        return str(exc)
+
+    if settings.voice_beckn_enabled:
+        return render_result(await beckn_loan(ctx.deps, confirmed), "Micro-loan request")
+
     accounts = await _resolve_accounts(ctx)
     name: Optional[str] = None
     for acct in accounts:

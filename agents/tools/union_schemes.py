@@ -7,6 +7,9 @@ from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 
 from agents.deps import FarmerContext
+from agents.tools.access import FarmerAccessDenied, require_authenticated_farmer
+from agents.tools.beckn_voice import beckn_union_schemes, render_result
+from app.config import settings
 from app.models.union import UnionName, resolve_supported_unions
 from app.services.scheme_ingestion import (
     SchemeCacheError,
@@ -80,9 +83,22 @@ async def get_union_scheme_data(ctx: RunContext[FarmerContext], scheme_name: str
         return "Scheme data is unavailable because the farmer union could not be determined from the current farmer context."
 
     try:
+        require_authenticated_farmer(ctx.deps)
+    except FarmerAccessDenied as exc:
+        return str(exc)
+
+    try:
         UnionName(normalized_union_name)
     except ValueError:
         return f"Scheme data is only available for supported unions: {', '.join(sorted(SUPPORTED_SCHEME_UNIONS))}."
+
+    if settings.voice_beckn_enabled:
+        result = await beckn_union_schemes(
+            ctx.deps,
+            normalized_union_name,
+            normalized_scheme_name,
+        )
+        return render_result(result, "Union scheme lookup")
 
     try:
         records = await get_cached_scheme_records_for_union(normalized_union_name)

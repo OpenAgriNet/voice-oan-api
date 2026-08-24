@@ -43,6 +43,14 @@ BASE_TOOLS = [
         takes_ctx=True,
     ),
     Tool(
+        signal_conversation_state,
+        takes_ctx=True,
+        docstring_format='auto',
+    ),
+]
+
+SIGNED_IN_FARMER_TOOLS = [
+    Tool(
         _with_nudge_signal(create_ai_call),
         takes_ctx=True,
         docstring_format='auto',
@@ -61,19 +69,11 @@ BASE_TOOLS = [
         require_parameter_descriptions=True,
     ),
     Tool(
-        signal_conversation_state,
-        takes_ctx=True,
-        docstring_format='auto',
-    ),
-    Tool(
         _with_nudge_signal(check_loan_eligibility),
         takes_ctx=True,
         docstring_format='auto',
-        prepare=prepare_check_loan_eligibility,  # hidden unless feature on + caller phone resolved
+        prepare=prepare_check_loan_eligibility,
     ),
-]
-
-SIGNED_IN_FARMER_TOOLS = [
     # # Get Farmer Profile (disabled — redundant with _build_compact_farmer_summary
     # # context; the brittle farmers[0]-only read returned "not available" when
     # # the cached record was missing fields, while context already had them).

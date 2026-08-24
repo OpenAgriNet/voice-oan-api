@@ -116,7 +116,7 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)):
                 "verify_iss": False,
             },
         )
-        logger.info("Decoded token: %s", decoded_token)
+        logger.info("JWT verified successfully")
         return decoded_token
         
     except jwt.ExpiredSignatureError:

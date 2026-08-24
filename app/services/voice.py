@@ -603,10 +603,9 @@ def _history_pair(user_text: str, assistant_text: str) -> tuple[ModelRequest, Mo
     )
 
 
-def _is_signed_in_session(user_info: Optional[dict], user_id: str) -> bool:
-    if user_id and user_id != "anonymous":
-        return True
-    return bool(user_info)
+def _is_signed_in_session(identity_verified: bool, mobile: Optional[str], subject_id: Optional[str]) -> bool:
+    """Only an identity resolved from verified JWT claims is signed in."""
+    return bool(identity_verified and mobile and subject_id)
 
 
 async def get_or_fetch_farmer_data(mobile: str):
@@ -1070,6 +1069,32 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
     return "\n".join(lines)
 
 
+def _collect_ai_technician_ids(envelope: Optional[FarmerDataEnvelope]) -> list[str]:
+    """Return technician IDs from non-banned authenticated farmer groups."""
+    if envelope is None:
+        return []
+    banned_identities: set[tuple[str, str, str]] = set()
+    banned_union_codes: set[str] = set()
+    for farmer in envelope.farmers or []:
+        if not is_ai_call_banned_union(_farmer_record_union_name(farmer)):
+            continue
+        identity = _farmer_record_identity(farmer.model_dump())
+        if identity != ("", "", ""):
+            banned_identities.add(identity)
+        if identity[2]:
+            banned_union_codes.add(identity[2])
+
+    ids: list[str] = []
+    for group in envelope.aiTechnicians or []:
+        if _technician_group_is_banned(group, banned_identities, banned_union_codes):
+            continue
+        for technician in _dedupe_technicians(group.get("technicians") or []):
+            technician_id = str(technician.get("userId") or "").strip()
+            if technician_id and technician_id not in ids:
+                ids.append(technician_id)
+    return ids
+
+
 def should_translate_batch(
     batch_text: str,
     word_count: int,
@@ -1139,11 +1164,15 @@ async def stream_voice_message(
     trace: Optional[VoiceTrace] = None,
     pipeline_profile: str = "managed",
     call_type: str = "inbound",
+    identity_verified: bool = False,
+    authenticated_subject_id: Optional[str] = None,
 #    background_tasks: BackgroundTasks,
 
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming chat messages."""
     request_started_at = time.monotonic()
+    authoritative_mobile = normalize_phone_to_mobile(user_id) if identity_verified else None
+    safe_user_id = (authenticated_subject_id or "anonymous")[:200]
     # Model selection is resolved by the unified pipeline (the only path): the agent
     # handle, provider, and display model name all come from the resolved primary
     # AGENT tier for this session's profile NAME. For the current env this is the same
@@ -1164,7 +1193,7 @@ async def stream_voice_message(
     last_emitted_sig_char: str | None = None
     trace = trace or create_voice_trace(
         session_id=session_id,
-        user_id=user_id,
+        user_id=safe_user_id,
         query=query,
         source_lang=source_lang,
         target_lang=target_lang,
@@ -1350,14 +1379,14 @@ async def stream_voice_message(
             )
             if outbound_consent_turn:
                 logger.info(
-                    "Outbound consent turn; session_id=%s process_id=%s user_id=%s query=%r",
-                    session_id, process_id, user_id, (query or "")[:60],
+                    "Outbound consent turn; session_id=%s process_id=%s subject=%s query=%r",
+                    session_id, process_id, safe_user_id[:16], (query or "")[:60],
                 )
                 # Warm the milk summary alongside the consent classifier so an
                 # affirmative reply does not pay the upstream lookup serially.
                 # There is no longer a turn of our own to hide it behind. Failure
                 # just means the agent fetches it itself.
-                _prefetch_mobile = normalize_phone_to_mobile(user_id)
+                _prefetch_mobile = authoritative_mobile
                 if _prefetch_mobile:
                     async def _warm_outbound_milk(mobile_number: str = _prefetch_mobile):
                         envelope = await get_or_fetch_farmer_data(mobile_number)
@@ -1575,12 +1604,13 @@ async def stream_voice_message(
             history_user_text = query
             moderation_recent_history = "\n\n".join(format_message_pairs(history, 2))
             non_meaningful_recent_turns = _collect_recent_user_turns_for_non_meaningful(history, query, limit=5)
-            mobile = normalize_phone_to_mobile(user_id)
-            signed_in = _is_signed_in_session(user_info, user_id)
+            mobile = authoritative_mobile
+            signed_in = _is_signed_in_session(identity_verified, mobile, authenticated_subject_id)
             farmer_info = ""
             farmer_unions: list[str] = []
             farmer_accounts: list[FarmerAccount] = []
             ai_technician_info = ""
+            ai_technician_ids: list[str] = []
             farmer_cache_task = (
                 asyncio.create_task(get_or_fetch_farmer_data(mobile))
                 if mobile
@@ -1603,7 +1633,7 @@ async def stream_voice_message(
                     recent_history_text=moderation_recent_history,
                     profile_name=pipeline_profile,
                     session_id=session_id,
-                    user_id=user_id,
+                    user_id=safe_user_id,
                     process_id=process_id or "",
                     pipeline_profile=pipeline_profile,
                 )
@@ -1684,7 +1714,7 @@ async def stream_voice_message(
                                         text=query,
                                         source_lang=requested_source_lang,
                                         session_id=session_id,
-                                        user_id=user_id,
+                                        user_id=safe_user_id,
                                         process_id=process_id or "",
                                         pipeline_profile=pipeline_profile,
                                     )
@@ -1693,7 +1723,7 @@ async def stream_voice_message(
                                         text=query,
                                         source_lang=requested_source_lang,
                                         session_id=session_id,
-                                        user_id=user_id,
+                                        user_id=safe_user_id,
                                         process_id=process_id or "",
                                         pipeline_profile=pipeline_profile,
                                     )
@@ -1795,7 +1825,7 @@ async def stream_voice_message(
                                     text=query,
                                     source_lang=requested_source_lang,
                                     session_id=session_id,
-                                    user_id=user_id,
+                                    user_id=safe_user_id,
                                     process_id=process_id or "",
                                     pipeline_profile=pipeline_profile,
                                 )
@@ -1804,7 +1834,7 @@ async def stream_voice_message(
                                     text=query,
                                     source_lang=requested_source_lang,
                                     session_id=session_id,
-                                    user_id=user_id,
+                                    user_id=safe_user_id,
                                     process_id=process_id or "",
                                     pipeline_profile=pipeline_profile,
                                 )
@@ -2294,6 +2324,7 @@ async def stream_voice_message(
                     if scheme_summary:
                         farmer_info = f"{farmer_info}\n{scheme_summary}" if farmer_info else scheme_summary
                     ai_technician_info = _build_ai_technician_summary(envelope)
+                    ai_technician_ids = _collect_ai_technician_ids(envelope)
                     trace.set_farmer_context(
                         source=getattr(envelope, "source", None) if envelope else None,
                         stale=getattr(envelope, "stale", None) if envelope else None,
@@ -2302,8 +2333,8 @@ async def stream_voice_message(
                         technician_info_chars=len(ai_technician_info),
                     )
                     logger.info(
-                        "Farmer summary loaded from cache for mobile %s source=%s stale=%s unions=%s summary_chars=%s technician_chars=%s",
-                        mobile,
+                        "Farmer summary loaded from cache for subject=%s source=%s stale=%s unions=%s summary_chars=%s technician_chars=%s",
+                        safe_user_id[:16],
                         getattr(envelope, "source", None) if envelope else None,
                         getattr(envelope, "stale", None) if envelope else None,
                         farmer_unions,
@@ -2313,13 +2344,13 @@ async def stream_voice_message(
                     if mobile and should_refresh_farmer_data(envelope):
                         await enqueue_farmer_refresh(mobile)
                         logger.info(
-                            "Farmer cache refresh scheduled in background for mobile %s stale=%s status=%s",
-                            mobile,
+                            "Farmer cache refresh scheduled in background for subject=%s stale=%s status=%s",
+                            safe_user_id[:16],
                             getattr(envelope, "stale", None) if envelope else None,
                             getattr(envelope, "lookupStatus", None) if envelope else None,
                         )
                 except Exception as e:
-                    logger.warning(f"Failed to load farmer summary for mobile {mobile}: {e}")
+                    logger.warning("Failed to load farmer summary for subject=%s: %s", safe_user_id[:16], e)
 
             # ── Outbound consent gate ─────────────────────────────────────
             # Turn 2 of an outbound call: the farmer's first reply to the scripted
@@ -2392,7 +2423,6 @@ async def stream_voice_message(
                         yield _emit(_prepare_voice_output(no_data_for_caller, requested_target_lang))
                         return
 
-            logger.info(f"User info: {user_info}")
             deps = FarmerContext(
                 query=processing_query,
                 lang_code=processing_lang,
@@ -2404,8 +2434,11 @@ async def stream_voice_message(
                 farmer_unions=farmer_unions,
                 ai_technician_info=ai_technician_info,
                 signed_in=signed_in,
+                identity_verified=identity_verified,
+                subject_id=authenticated_subject_id,
                 mobile=mobile,
                 farmer_accounts=farmer_accounts,
+                ai_technician_ids=ai_technician_ids,
             )
             # Let side-effecting tools (bookings) self-gate on the concurrent
             # moderation verdict before performing any write.

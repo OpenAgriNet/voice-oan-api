@@ -241,7 +241,9 @@ async def _collect_stream(
         history=history,
         provider=None,
         process_id="proc-1",
-        user_info={},
+        user_info={"phone": user_id} if user_id != "anonymous" else {},
+        identity_verified=user_id != "anonymous",
+        authenticated_subject_id="verified-test-subject" if user_id != "anonymous" else None,
         owner=None,
         http_request=None,
     ):
@@ -356,9 +358,9 @@ class TestHelperCoverage:
     def test_signed_in_agent_has_farmer_tools(self):
         base_tool_names = set(voice_agent._function_toolset.tools.keys())
         signed_in_tool_names = set(voice_agent_signed_in._function_toolset.tools.keys())
-        assert {"search_terms", "search_documents", "get_farmer_milk_collection_details", "create_ai_call", "create_health_call"}.issubset(base_tool_names)
-        assert {"get_farmer_profile", "get_herd_summary", "list_animal_tags"}.issubset(signed_in_tool_names)
-        assert "get_farmer_profile" not in base_tool_names
+        assert {"search_terms", "search_documents", "signal_conversation_state"}.issubset(base_tool_names)
+        assert {"get_farmer_milk_collection_details", "create_ai_call", "create_health_call", "get_union_scheme_data"}.issubset(signed_in_tool_names)
+        assert "create_ai_call" not in base_tool_names
 
     def test_voice_system_prompt_is_static(self):
         assert "Today's date:" not in STATIC_VOICE_SYSTEM_PROMPT
@@ -510,9 +512,9 @@ class TestHelperCoverage:
         assert _voice_answer_mode_for_query(query) == expected
 
     def test_signed_in_session_helper(self):
-        assert _is_signed_in_session({"sub": "user-1"}, "anonymous") is True
-        assert _is_signed_in_session({}, "9876543210") is True
-        assert _is_signed_in_session({}, "anonymous") is False
+        assert _is_signed_in_session(True, "9876543210", "subject") is True
+        assert _is_signed_in_session(False, "9876543210", "subject") is False
+        assert _is_signed_in_session(True, None, "subject") is False
 
     def test_compact_farmer_summary_is_small_and_structured(self):
         envelope = FarmerDataEnvelope(

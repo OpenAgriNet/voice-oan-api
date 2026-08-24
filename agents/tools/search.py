@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry, RunContext
 
 from agents.deps import FarmerContext
+from agents.tools.beckn_voice import beckn_document_search, render_result
 from agents.tools.terms import normalize_text_with_glossary
+from app.config import settings
 from app.observability import start_observation
 from helpers.utils import get_logger
 
@@ -330,8 +332,11 @@ async def search_documents(
         top_k: Requested number of final results (contract-clamped, default: 12)
     """
     try:
-        del ctx
         query = _validate_search_query(query)
+        if settings.voice_beckn_enabled:
+            result = await beckn_document_search(ctx.deps, query, top_k)
+            return render_result(result, "Veterinary document search")
+        del ctx
         endpoint_url = os.getenv('MARQO_ENDPOINT_URL')
         if not endpoint_url:
             raise ValueError("Marqo endpoint URL is required")

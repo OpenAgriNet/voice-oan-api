@@ -68,6 +68,11 @@ def test_signed_in_farmer_tools_drops_brittle_three():
     union-scheme tool remains in SIGNED_IN_FARMER_TOOLS."""
     from agents.tools import SIGNED_IN_FARMER_TOOLS
 
-    assert len(SIGNED_IN_FARMER_TOOLS) == 1, (
-        f"expected only get_union_scheme_data; got {len(SIGNED_IN_FARMER_TOOLS)} tools"
-    )
+    tool_names = {tool.function.__name__ for tool in SIGNED_IN_FARMER_TOOLS}
+    assert tool_names == {
+        "create_ai_call",
+        "get_farmer_milk_collection_details",
+        "create_health_call",
+        "check_loan_eligibility",
+        "get_union_scheme_data",
+    }
