@@ -8,6 +8,7 @@ import requests
 from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any, Literal
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
+from agents.tools.common import warn_if_no_responses
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -243,8 +244,9 @@ class AgriServicesRequest(BaseModel):
                 "version": "1.1.0",
                 "bap_id": os.getenv("BAP_ID"),
                 "bap_uri": os.getenv("BAP_URI"),
-                "bpp_id": os.getenv("POCRA_BPP_ID"),
-                "bpp_uri": os.getenv("POCRA_BPP_URI"),
+                # Broadcast search: no bpp_id/bpp_uri. Addressing the search at
+                # bpp.mahapocra.gov.in returns HTTP 200 with an empty responses[]
+                # every time -- that BPP no longer answers on this network.
                 "message_id": str(uuid.uuid4()),
                 "transaction_id": str(uuid.uuid4()),
                 "timestamp": now.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
@@ -304,6 +306,7 @@ async def agri_services(latitude: float, longitude: float, category_code: Litera
             logger.error(f"Failed to parse JSON response: {e}")
             return "Agricultural services returned invalid response."
 
+        warn_if_no_responses("agri_services", payload, response_data)
         parsed = AgriServicesResponse.model_validate(response_data)
         return str(parsed)
 

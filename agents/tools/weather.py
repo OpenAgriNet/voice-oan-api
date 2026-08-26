@@ -9,7 +9,7 @@ from dateutil import parser
 from dateutil.parser import ParserError
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya
+from agents.tools.common import get_nudge_message, send_nudge_message_raya, warn_if_no_responses
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -471,12 +471,16 @@ class WeatherRequest(BaseModel):
                 "timestamp": now.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
                 "message_id": str(uuid.uuid4()),
                 "transaction_id": str(uuid.uuid4()),
-                "domain": "advisory:weather:mh-vistaar",
+                # The weather-scoped domain is not routable on this network: it
+                # returns an empty responses[] even on a broadcast search. All
+                # PoCRA categories, weather included, live under advisory:mh-vistaar.
+                "domain": "advisory:mh-vistaar",
                 "version": "1.1.0",
                 "bap_id": os.getenv("BAP_ID"),
                 "bap_uri": os.getenv("BAP_URI"),
-                "bpp_id": os.getenv("POCRA_BPP_ID"),
-                "bpp_uri": os.getenv("POCRA_BPP_URI"),
+                # Broadcast search: no bpp_id/bpp_uri. Addressing the search at
+                # bpp.mahapocra.gov.in returns HTTP 200 with an empty responses[]
+                # every time -- that BPP no longer answers on this network.
                 "location": {
                     "country": {"name": "India", "code": "IND"},
                 }
@@ -536,7 +540,9 @@ async def weather_forecast(ctx: RunContext[FarmerContext], latitude: float, long
                 logger.error(f"Weather API returned status code {response.status_code}")
                 return "Weather service unavailable. Retrying"
                 
-            weather_response = WeatherResponse.model_validate(response.json())
+            weather_response = WeatherResponse.model_validate(
+                warn_if_no_responses("weather_forecast", payload, response.json())
+            )
             weather_response.response_type = "forecast"
             _keep_newest_issue_and_future_days(weather_response)
 
@@ -583,7 +589,9 @@ async def weather_historical(ctx: RunContext[FarmerContext], latitude: float, lo
                 logger.error(f"Weather API returned status code {response.status_code}")
                 return "Weather service unavailable. Retrying"
                 
-            weather_response = WeatherResponse.model_validate(response.json())
+            weather_response = WeatherResponse.model_validate(
+                warn_if_no_responses("weather_historical", payload, response.json())
+            )
             weather_response.response_type = "historical"
                 
             return str(weather_response)

@@ -7,7 +7,7 @@ from pydantic import BaseModel, AnyHttpUrl, Field
 from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior, RunContext
 from agents.deps import FarmerContext
-from agents.tools.common import get_nudge_message, send_nudge_message_raya
+from agents.tools.common import get_nudge_message, send_nudge_message_raya, warn_if_no_responses
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -331,8 +331,9 @@ class MandiRequest(BaseModel):
                 "version": "1.1.0",
                 "bap_id": os.getenv("BAP_ID"),
                 "bap_uri": os.getenv("BAP_URI"),
-                "bpp_id": os.getenv("POCRA_BPP_ID"),
-                "bpp_uri": os.getenv("POCRA_BPP_URI"),
+                # Broadcast search: no bpp_id/bpp_uri. Addressing the search at
+                # bpp.mahapocra.gov.in returns HTTP 200 with an empty responses[]
+                # every time -- that BPP no longer answers on this network.
                 "message_id": str(uuid.uuid4()),
                 "transaction_id": str(uuid.uuid4()),
                 "timestamp": now.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
@@ -406,7 +407,9 @@ async def mandi_prices(
                 logger.error(f"Mandi API returned status code {response.status_code}")
                 return "Mandi service unavailable. Retrying"
                 
-            mandi_response = MandiResponse.model_validate(response.json())
+            mandi_response = MandiResponse.model_validate(
+                warn_if_no_responses("mandi_prices", payload, response.json())
+            )
             return render_mandi_prices(mandi_response, commodity)
                 
     except httpx.TimeoutException as e:

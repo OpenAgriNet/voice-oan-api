@@ -150,3 +150,29 @@ async def send_nudge_message_raya(message: str, session_id: str, process_id: str
             type(e).__name__, repr(e), nudge_url, json.dumps(payload, ensure_ascii=False),
             exc_info=True,
         )
+
+
+def warn_if_no_responses(tool_name: str, payload: Dict[str, Any], body: Any) -> Any:
+    """
+    Log a warning when a BAP search comes back with an empty `responses` list.
+
+    The aggregator answers HTTP 200 with `{"responses": []}` whenever no BPP
+    matches the search — a stale bpp_id, an unroutable domain, or a category
+    nothing serves all look identical to a successful call. Without this the
+    tool just returns "no data" and the routing problem never reaches the logs.
+
+    Returns `body` unchanged so it can wrap a `response.json()` call directly.
+    """
+    if isinstance(body, dict) and not body.get("responses"):
+        intent = payload.get("message", {}).get("intent", {})
+        context = payload.get("context", {})
+        logger.warning(
+            "%s: BAP returned no responses (empty responses[]) — "
+            "domain=%s bpp_id=%s category=%s transaction_id=%s",
+            tool_name,
+            context.get("domain"),
+            context.get("bpp_id"),
+            intent.get("category", {}).get("descriptor", {}),
+            context.get("transaction_id"),
+        )
+    return body
