@@ -55,6 +55,51 @@ def canonical_union_name(name: str | None) -> str:
     return UNION_NAME_ALIASES.get(key, key)
 
 
+# Canonical union names that must not book artificial-insemination calls.
+# Compare against ``canonical_union_name`` output so brand/spelling aliases
+# (e.g. "sarhad" for Kutch) hit the same entry.
+AI_CALL_BANNED_UNIONS: frozenset[str] = frozenset({UnionName.KUTCH.value})
+# Farmer-facing refusal, keyed by language code. English is what the agent is
+# told to say (and what create_ai_call returns); Gujarati/Hindi are pinned so
+# post-translation cannot drift off the agreed copy.
+UNION_BANNED_MESSAGES: dict[str, str] = {
+    "en": "Kindly contact your Milk Society to book the service.",
+    "gu": "કૃપા કરીને આપની દૂધ મંડળીનો સંપર્ક કરશો.",
+    "hi": "कृपया सेवा बुक करने के लिए अपनी दूध मंडली से संपर्क करें।",
+}
+_UNION_BANNED_LANG_ALIASES: dict[str, str] = {
+    "english": "en",
+    "gujarati": "gu",
+    "hindi": "hi",
+}
+# Shared by technician-context copy and create_ai_call so banned unions hear the
+# same refusal whether the model follows the prompt or the tool is reached.
+UNION_BANNED_MESSAGE = UNION_BANNED_MESSAGES["en"]
+
+
+def union_banned_message_for_lang(lang: str | None) -> str:
+    """Pinned union-ban copy for ``lang`` (``en`` / ``gu`` / ``hi`` or aliases)."""
+    key = (lang or "en").strip().lower()
+    code = _UNION_BANNED_LANG_ALIASES.get(key, key)
+    return UNION_BANNED_MESSAGES.get(code, UNION_BANNED_MESSAGES["en"])
+
+
+def is_ai_call_banned_union(name: str | None) -> bool:
+    """True when ``name`` canonicalizes to a union banned from AI-call booking."""
+    canonical = canonical_union_name(name)
+    return bool(canonical) and canonical in AI_CALL_BANNED_UNIONS
+
+
+def any_union_banned_from_ai_calls(names: list[str] | None) -> bool:
+    """True when any entry in ``names`` is banned from AI-call booking.
+
+    Farmer context stores unions as ``strip().lower()`` without alias mapping,
+    so this canonicalizes each name before checking :data:`AI_CALL_BANNED_UNIONS`.
+    An empty/missing list is not banned.
+    """
+    return any(is_ai_call_banned_union(name) for name in (names or []))
+
+
 def resolve_supported_unions(union_names: list[str] | None, supported_unions: set[str]) -> list[str]:
     """Canonicalize raw union names and keep only supported values.
 
