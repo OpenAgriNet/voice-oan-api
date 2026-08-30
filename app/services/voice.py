@@ -3026,6 +3026,23 @@ async def stream_voice_message(
                 await update_message_history(session_id, messages)
             if trace.outcome is None:
                 trace.set_outcome("success")
+    except (asyncio.CancelledError, GeneratorExit) as exc:
+        # CancelledError and GeneratorExit derive from BaseException, not Exception,
+        # so the `except Exception` below never sees them. Without this branch a
+        # cancelled turn fell straight through to the `finally`, which recorded
+        # `trace.outcome or "success"` — that is why the 60s nginx cut on a hung
+        # tool call shows up in telemetry as a successful turn. Record it as
+        # "cancelled" and re-raise unchanged: swallowing it would break asyncio
+        # task-cancellation / async-generator close semantics.
+        try:
+            if trace.outcome is not None:
+                trace.metadata["outcome_before_cancel"] = trace.outcome
+            # finish() is idempotent (guarded by trace.finished), so the `finally`
+            # below cannot overwrite this outcome.
+            trace.finish("cancelled", error=exc)
+        except Exception as _cancel_trace_exc:  # pragma: no cover - never mask a cancel
+            logger.debug("Voice trace cancel finish failed: %s", _cancel_trace_exc)
+        raise
     except Exception as exc:
         trace.finish(trace.outcome or "error", error=exc)
         raise

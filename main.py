@@ -47,6 +47,14 @@ async def lifespan(app: FastAPI):
     # Shutdown
     await stop_health_poller()
     await stop_farmer_refresh_worker()
+    # Flush buffered Langfuse/OTEL spans before the process exits — otherwise every
+    # container stop/roll silently drops the trailing traces. Bounded and best-effort:
+    # it can never hang shutdown and never raises.
+    try:
+        from app.observability import flush_tracing
+        await flush_tracing(timeout=5.0)
+    except Exception as _flush_exc:  # pragma: no cover - shutdown must not fail
+        print(f"⚠️  tracing flush skipped: {_flush_exc}")
     print(f"🛑 {settings.app_name} shutting down...")
 
 # Create FastAPI app with settings
