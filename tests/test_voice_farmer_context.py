@@ -7,9 +7,12 @@ get_farmer_profile tools.
 """
 # Import the app entry first so the pre-existing tools<->farmer_cache cycle
 # resolves in the same order the running app establishes it.
+import asyncio
+
 import app.services.voice as voice
 
 from agents.models.farmer import FarmerDataEnvelope
+from app.models.union import UnionName
 from helpers.gujarati_numbers import mask_tag_identifier
 
 
@@ -71,3 +74,28 @@ def test_signed_in_farmer_tools_drops_brittle_three():
     assert len(SIGNED_IN_FARMER_TOOLS) == 1, (
         f"expected only get_union_scheme_data; got {len(SIGNED_IN_FARMER_TOOLS)} tools"
     )
+
+
+def test_scheme_summary_includes_sumul_and_sursagar(monkeypatch):
+    async def fake_records(union_name):
+        if union_name == UnionName.SUMUL.value:
+            return [{"scheme_title": "Sumul Shed Subsidy", "scheme_url": "https://sumul.example/a.pdf"}]
+        if union_name == UnionName.SURENDRANAGAR.value:
+            return [{"scheme_title": "Sursagar Insurance", "scheme_url": "https://sursagar.example/b.pdf"}]
+        return []
+
+    monkeypatch.setattr(voice, "get_cached_scheme_records_for_union", fake_records)
+
+    sumul_out = asyncio.run(voice._build_union_scheme_summary(["sumul"]))
+    assert "Sumul Shed Subsidy" in sumul_out
+
+    sursagar_out = asyncio.run(voice._build_union_scheme_summary(["sursagar"]))
+    assert "Sursagar Insurance" in sursagar_out
+
+    assert asyncio.run(voice._build_union_scheme_summary(["dudhsagar"])) == ""
+
+
+def test_scheme_context_unions_follow_cache_sources():
+    from app.services.scheme_ingestion import SUPPORTED_SCHEME_UNIONS
+
+    assert voice.SUPPORTED_SCHEME_CONTEXT_UNIONS == SUPPORTED_SCHEME_UNIONS

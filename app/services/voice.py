@@ -24,12 +24,12 @@ from agents.services.farmer_cache import (
 )
 from app.models.union import (
     UNION_BANNED_MESSAGE,
-    UnionName,
     is_ai_call_banned_union,
     resolve_supported_unions,
     union_banned_message_for_lang,
 )
 from app.services.scheme_ingestion import (
+    SUPPORTED_SCHEME_UNIONS,
     SchemeCacheError,
     SchemeDependencyError,
     get_cached_scheme_records_for_union,
@@ -809,10 +809,7 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
     return "\n".join(lines)
 
 
-SUPPORTED_SCHEME_CONTEXT_UNIONS = {
-    UnionName.BANAS.value,
-    UnionName.KUTCH.value,
-}
+SUPPORTED_SCHEME_CONTEXT_UNIONS = SUPPORTED_SCHEME_UNIONS
 
 
 def _collect_farmer_unions(envelope: Optional[FarmerDataEnvelope]) -> list[str]:
