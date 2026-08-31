@@ -9,16 +9,12 @@ from pydantic_ai.tools import ToolDefinition
 from agents.deps import FarmerContext
 from app.models.union import UnionName, resolve_supported_unions
 from app.services.scheme_ingestion import (
+    SUPPORTED_SCHEME_UNIONS,
     SchemeCacheError,
     SchemeDependencyError,
     get_cached_scheme_records_for_union,
 )
 from helpers.utils import get_logger
-
-SUPPORTED_SCHEME_UNIONS = {
-    UnionName.BANAS.value,
-    UnionName.KUTCH.value,
-}
 
 logger = get_logger(__name__)
 
