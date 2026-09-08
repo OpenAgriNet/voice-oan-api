@@ -4,6 +4,8 @@ One booking per session (30-min cooldown via Redis).
 """
 import json
 import os
+import re
+from typing import Optional
 
 from pydantic_ai import RunContext
 
@@ -18,6 +20,39 @@ logger = get_logger(__name__)
 
 AI_CALL_COOLDOWN_TTL = 60 * 30  # 30 minutes
 AI_CALL_CACHE_NAMESPACE = "ai_call_booked"
+
+# With no farmer/technician context the model does not stop — it invents
+# identifiers and books anyway (U11223/S67890/F12345/T55667,
+# UNION_CODE_FROM_CONTEXT, farmer names in farmerCode), which the partner API
+# always 500s. Patterns validated on 9,945 successful prod bookings (30d to
+# 2026-09-08): every real code matches _CODE_PATTERN — they are NOT always
+# numeric, M001 and NA4192 book fine — and every real technician id is 24
+# base64 chars ending "==".
+_CODE_PATTERN = re.compile(r"^[A-Za-z0-9/-]{1,12}$")
+_TECHNICIAN_ID_PATTERN = re.compile(r"^[A-Za-z0-9+/]{22}==$")
+INVALID_IDENTIFIERS_MESSAGE = (
+    "Artificial insemination call booking failed. "
+    "The farmer or technician details are not available."
+)
+
+
+def _invalid_booking_identifier(
+    union_code: str,
+    society_code: str,
+    farmer_code: str,
+    user_id: str,
+) -> Optional[str]:
+    """Name of the first identifier that cannot be real, else None."""
+    for field, value in (
+        ("union_code", union_code),
+        ("society_code", society_code),
+        ("farmer_code", farmer_code),
+    ):
+        if not _CODE_PATTERN.match((value or "").strip()):
+            return field
+    if not _TECHNICIAN_ID_PATTERN.match((user_id or "").strip()):
+        return "user_id"
+    return None
 
 
 async def create_ai_call(
@@ -75,6 +110,14 @@ async def create_ai_call(
             session_id,
         )
         return UNION_BANNED_MESSAGE
+
+    invalid_field = _invalid_booking_identifier(union_code, society_code, farmer_code, user_id)
+    if invalid_field is not None:
+        logger.warning(
+            "AI call blocked: invalid %s; session=%s union=%s society=%s farmer=%s user_id=%s",
+            invalid_field, session_id, union_code, society_code, farmer_code, user_id,
+        )
+        return INVALID_IDENTIFIERS_MESSAGE
 
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:

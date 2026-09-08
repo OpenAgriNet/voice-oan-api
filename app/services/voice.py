@@ -1063,7 +1063,10 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
                     option += f", mobile_number={mobile}"
                 lines.append(option)
     elif not banned_farmers:
+        # Say what NOT to do, like the per-group branches above: with only the
+        # terse line the model offered the prompt's own example names as if real.
         lines.append("- AI technician options for booking are not available in the current signed-in context.")
+        lines.append("- Do NOT name any technician, and do not use a technician name from the instructions or an example.")
     return "\n".join(lines)
 
 

@@ -17,6 +17,10 @@ from agents.tools import health_call as hc_mod
 from agents.models.ai_call import AISpecies
 from agents.models.health_call import HealthCaseType
 
+# create_ai_call rejects identifiers that cannot be real; 24 base64 chars is the
+# shape of every real prod technician id.
+TECH_ID = "YWl0LXRlY2gtMDAwMDAwMQ=="
+
 
 def _ctx(session_id):
     async def _ensure_in_scope():
@@ -65,8 +69,8 @@ def test_ai_call_idempotent_on_rerun(monkeypatch):
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
     species = next(iter(AISpecies))
 
-    r1 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "U", "S", "F", "tech1", species))
-    r2 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "U", "S", "F", "tech1", species))
+    r1 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "U", "S", "F", TECH_ID, species))
+    r2 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "U", "S", "F", TECH_ID, species))
 
     assert calls["n"] == 1
     assert "booked successfully" in r1
@@ -110,8 +114,8 @@ def test_ai_call_concurrent_submits_book_once(monkeypatch):
 
     async def go():
         return await asyncio.gather(
-            ai_mod.create_ai_call(_ctx("sX"), "U", "S", "F", "t", species),
-            ai_mod.create_ai_call(_ctx("sX"), "U", "S", "F", "t", species),
+            ai_mod.create_ai_call(_ctx("sX"), "U", "S", "F", TECH_ID, species),
+            ai_mod.create_ai_call(_ctx("sX"), "U", "S", "F", TECH_ID, species),
         )
 
     r1, r2 = asyncio.run(go())
@@ -128,5 +132,5 @@ def test_ai_call_no_session_does_not_crash(monkeypatch):
 
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
     species = next(iter(AISpecies))
-    r = asyncio.run(ai_mod.create_ai_call(_ctx(None), "U", "S", "F", "tech1", species))
+    r = asyncio.run(ai_mod.create_ai_call(_ctx(None), "U", "S", "F", TECH_ID, species))
     assert "booked successfully" in r
