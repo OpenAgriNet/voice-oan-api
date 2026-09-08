@@ -301,6 +301,10 @@ def test_prompts_keep_technician_selection_for_allowed_unions(name):
 # ── create_ai_call hard block ─────────────────────────────────────────────────
 
 SPECIES = next(iter(AISpecies))
+# create_ai_call rejects identifiers that cannot be real; 24 base64 chars is the
+# shape of every real prod technician id.
+TECH_ID = "YWl0LXRlY2gtMDAwMDAwMQ=="
+
 
 
 async def _in_scope():
@@ -329,7 +333,7 @@ def test_create_ai_call_refuses_sarhad_without_writing(monkeypatch):
     monkeypatch.setattr(ai_mod, "try_reserve", fake_reserve)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(unions=["sarhad"]), "U", "S", "F", "tech1", SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(unions=["sarhad"]), "U", "S", "F", TECH_ID, SPECIES)
     )
     assert out == UNION_BANNED_MESSAGE
     assert calls == {"api": 0, "reserve": 0}
@@ -351,7 +355,7 @@ def test_create_ai_call_refuses_canonical_and_mixed_banned_unions(monkeypatch, u
     monkeypatch.setattr(ai_mod, "try_reserve", fake_reserve)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(unions=unions), "U", "S", "F", "tech1", SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(unions=unions), "U", "S", "F", TECH_ID, SPECIES)
     )
     assert out == UNION_BANNED_MESSAGE
     assert calls == {"n": 0, "reserve": 0}
@@ -368,7 +372,7 @@ def test_create_ai_call_still_books_for_kaira(monkeypatch):
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(session_id=None, unions=["kaira"]), "U", "S", "F", "tech1", SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(session_id=None, unions=["kaira"]), "U", "S", "F", TECH_ID, SPECIES)
     )
     assert calls["n"] == 1
     assert "booked successfully" in out
@@ -389,7 +393,7 @@ def test_create_ai_call_empty_or_missing_unions_is_not_banned(monkeypatch, union
     out = asyncio.run(
         ai_mod.create_ai_call(
             _booking_ctx(session_id=None, unions=unions, include_unions=include_unions),
-            "U", "S", "F", "tech1", SPECIES,
+            "U", "S", "F", TECH_ID, SPECIES,
         )
     )
     assert calls["n"] == 1
@@ -412,7 +416,7 @@ def test_moderation_block_runs_before_union_ban(monkeypatch):
         ensure_in_scope=_out_of_scope,
         farmer_unions=["kutch"],
     ))
-    out = asyncio.run(ai_mod.create_ai_call(ctx, "U", "S", "F", "tech1", SPECIES))
+    out = asyncio.run(ai_mod.create_ai_call(ctx, "U", "S", "F", TECH_ID, SPECIES))
     assert out == "This helpline only handles dairy farming and animal husbandry questions."
     assert calls["n"] == 0
 
