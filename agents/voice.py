@@ -66,10 +66,4 @@ def reject_hold_messages(ctx: RunContext[FarmerContext], output: VoiceOutput) ->
 
 @voice_agent.instructions
 def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
-    # Session default is Hindi at start; prompt is chosen by deps.lang_code (from client). Never assume language—always ask user first.
-    target_lang = ctx.deps.lang_code if ctx.deps.lang_code else 'hi'
-    if target_lang not in ['hi', 'en']:
-        logger.warning(f"Invalid language code: {target_lang}. Defaulting to Hindi.")
-        target_lang = 'hi'
-    prompt_file = f"voice_{target_lang}"
-    return get_prompt(prompt_file, context={'today_date': get_today_date_str()})
+    return get_prompt("voice_en", context={'today_date': get_today_date_str()})

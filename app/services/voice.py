@@ -1,5 +1,6 @@
 from typing import AsyncGenerator
 import asyncio
+import httpx
 import json
 import os
 import re
@@ -7,7 +8,7 @@ from agents.voice import voice_agent
 from agents.deps import FarmerContext
 from agents.models import LLM_AGRINET_MODEL
 from agents.routing import select_model_for_session
-from agents.tools.language import LANGUAGE_CACHE_SUFFIX
+from agents.tools.language import LANGUAGE_CACHE_SUFFIX, LANGUAGE_CACHE_TTL
 from helpers.telemetry import (
     TelemetryRequest,
     create_voice_response_event,
@@ -19,8 +20,11 @@ from app.utils import update_message_history, trim_history
 from app.core.cache import cache
 from app.observability.langfuse_client import safe_propagate_attributes, safe_start_agent_observation
 from app.observability.voice import safe_update_observation
+from langcodes import Language
 
 logger = get_logger(__name__)
+
+INTERNAL_AGENT_LANG = "en"
 
 def _user_message_count(history: list) -> int:
     """Count user messages in history (messages that have a user-prompt part)."""
@@ -40,17 +44,86 @@ def _is_first_user_message(history: list) -> bool:
     return _user_message_count(history) == 1
 
 def _recording_lang(lang: str | None) -> str:
-    """Normalize language for recording message: hi → hi, en → en, anything else → hi (default Hindi)."""
-    return lang if lang in ("en", "hi") else "hi"
+    """Normalize language for recording message: hi → hi, en → en, anything else → en."""
+    return lang if lang in ("en", "hi") else "en"
 
 
 def _get_recording_message(lang: str | None) -> str:
-    """Get the recording message by language: hi → Hindi, en → English, default → Hindi."""
+    """Get the recording message by language: hi → Hindi, en → English, default → English."""
     recording_messages = {
         "hi": "यह कॉल प्रशिक्षण और गुणवत्ता सुधार हेतु रिकॉर्ड की जा रही है। आपकी जानकारी सुरक्षित रहेगी।",
         "en": "This call is being recorded for training and quality purposes. Your personal information will not be shared with any third party.",
     }
-    return recording_messages.get(_recording_lang(lang), recording_messages["hi"])
+    return recording_messages.get(_recording_lang(lang), recording_messages["en"])
+
+
+def _normalize_lang_code(lang: str | None) -> str | None:
+    """Normalize a language code to its primary language subtag."""
+    if not lang:
+        return None
+    candidate = lang.strip()
+    if not candidate or candidate.lower() == "none":
+        return None
+    try:
+        normalized = Language.get(candidate).language
+        return (normalized or candidate).lower()
+    except Exception:
+        return candidate.lower()
+
+
+async def _translate_text(text: str, source_lang: str | None, target_lang: str | None) -> str:
+    """Translate text with Bhashini when both languages are known and differ."""
+    if not text or not source_lang or not target_lang or source_lang == target_lang:
+        return text
+
+    api_key = os.getenv("MEITY_API_KEY_VALUE")
+    if not api_key:
+        logger.warning(
+            "Translation skipped because MEITY_API_KEY_VALUE is unset (source=%s, target=%s)",
+            source_lang,
+            target_lang,
+        )
+        return text
+
+    def _translate_sync() -> str:
+        response = httpx.post(
+            "https://dhruva-api.bhashini.gov.in/services/inference/pipeline",
+            headers={
+                "Authorization": api_key,
+                "Content-Type": "application/json",
+            },
+            json={
+                "pipelineTasks": [
+                    {
+                        "taskType": "translation",
+                        "config": {
+                            "serviceId": "bhashini/ai4bharat/indictrans-v3",
+                            "language": {
+                                "sourceLanguage": source_lang,
+                                "targetLanguage": target_lang,
+                            },
+                        },
+                    }
+                ],
+                "inputData": {
+                    "input": [{"source": text}],
+                },
+            },
+            timeout=httpx.Timeout(10.0, read=30.0),
+        )
+        response.raise_for_status()
+        response_json = response.json()
+        return response_json["pipelineResponse"][0]["output"][0]["target"]
+
+    try:
+        return await asyncio.to_thread(_translate_sync)
+    except Exception:
+        logger.exception(
+            "Translation failed, falling back to original text (source=%s, target=%s)",
+            source_lang,
+            target_lang,
+        )
+        return text
 
 def _extract_audio_from_partial_json(text: str) -> str:
     """Extract the audio field value from partial/incomplete JSON text during streaming."""
@@ -72,21 +145,31 @@ async def stream_voice_message(
     history: list
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages using run_stream_events()."""
-    # Load session language from cache; once set it takes priority over the request header
-    cached_lang: str | None = await cache.get(f"{session_id}{LANGUAGE_CACHE_SUFFIX}")
-    # effective_lang: cached value wins, fallback to request header for session-level operations
-    effective_lang = cached_lang if cached_lang in ("en", "hi") else "null"
-    deps = FarmerContext(query=query, lang_code=effective_lang, session_id=session_id, user_id=user_id)
+    detected_lang = _normalize_lang_code(target_lang)
+    cached_lang = _normalize_lang_code(await cache.get(f"{session_id}{LANGUAGE_CACHE_SUFFIX}"))
+    if cached_lang is None and detected_lang is not None:
+        await cache.set(f"{session_id}{LANGUAGE_CACHE_SUFFIX}", detected_lang, ttl=LANGUAGE_CACHE_TTL)
+        cached_lang = detected_lang
+
+    user_lang = cached_lang or detected_lang
+    translated_query = await _translate_text(query, user_lang, INTERNAL_AGENT_LANG)
+    deps = FarmerContext(
+        query=translated_query,
+        lang_code=user_lang or INTERNAL_AGENT_LANG,
+        session_id=session_id,
+        user_id=user_id,
+        selected_language=user_lang,
+    )
     user_message = deps.get_user_message()
     voice_qid = generate_voice_question_id()
-    logger.info(f"Running agent (effective_lang={effective_lang}, voice_qid={voice_qid})")
+    logger.info(f"Running agent (user_lang={user_lang}, voice_qid={voice_qid})")
 
     trimmed_history = trim_history(history, max_tokens=80_000)
     logger.info(f"Trimmed history: {len(trimmed_history)} messages")
 
     is_first_message = _is_first_user_message(history)
-    # Use effective_lang for recording message so it matches the frozen session language
-    recording_prefix = _get_recording_message(effective_lang) if is_first_message else ""
+    recording_prefix = _get_recording_message(user_lang) if is_first_message else ""
+    translate_output = bool(user_lang and user_lang != INTERNAL_AGENT_LANG)
 
     model, model_route = await select_model_for_session(session_id)
     model_name = getattr(model, "model_name", "unknown")
@@ -112,7 +195,8 @@ async def stream_voice_message(
         name=f"agent.{agent_slug}",
         input={
             "query": query,
-            "effective_lang": effective_lang,
+            "effective_lang": INTERNAL_AGENT_LANG,
+            "user_lang": user_lang,
             "session_id": session_id,
             "target_lang": target_lang,
         },
@@ -146,8 +230,9 @@ async def stream_voice_message(
                             if audio and audio != prev_audio:
                                 any_chunk_yielded = True
                                 prev_audio = audio
-                                output_dict = _voice_output_dict(recording_prefix + audio, False, target_lang)
-                                yield json.dumps(output_dict, ensure_ascii=False)
+                                if not translate_output:
+                                    output_dict = _voice_output_dict(recording_prefix + audio, False, user_lang or INTERNAL_AGENT_LANG)
+                                    yield json.dumps(output_dict, ensure_ascii=False)
 
                     elif kind == 'function_tool_result':
                         # Reset text buffer for next model turn
@@ -262,13 +347,10 @@ async def stream_voice_message(
         else:
             end_flag = getattr(final_output, "end_interaction", False)
             raw_audio = final_output.audio or ""
-        # Use language set by set_language tool call; fall back to effective_lang (cache wins over header)
-        out_lang = deps.selected_language
-        if out_lang is None:
-            out_lang = effective_lang if effective_lang in ("en", "hi") else None
-        # Final recording message by response language: hi → Hindi, en → English, else → Hindi
+        out_lang = deps.selected_language or INTERNAL_AGENT_LANG
+        audio_body = await _translate_text(raw_audio, INTERNAL_AGENT_LANG, out_lang)
         final_recording_prefix = _get_recording_message(out_lang) if is_first_message else ""
-        audio_text = final_recording_prefix + raw_audio
+        audio_text = final_recording_prefix + audio_body
         output_dict = _voice_output_dict(audio_text, end_flag, out_lang)
         yield json.dumps(output_dict, ensure_ascii=False)
         logger.info(f"Streaming complete - end_interaction: {end_flag}, language: {out_lang}")
