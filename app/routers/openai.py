@@ -46,7 +46,7 @@ async def chat_completions(
         f"session_id: {session_id}, language: {target_lang}, stream: {request.stream}, model: {request.model}"
     )
 
-    valid_languages = ["en", "hi","mr","none",]
+    valid_languages = ["en", "hi","mr","none"]
     if target_lang not in valid_languages:
         logger.error(
             f"Voice API invalid language code: {target_lang}, session_id: {session_id}",
