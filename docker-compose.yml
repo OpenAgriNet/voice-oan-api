@@ -1,8 +1,7 @@
 services:
   app:
     container_name: bh_voice_app
-    image: bhvoice1:latest
-    #build: .
+    image: asia-south1-docker.pkg.dev/s-0-000236-99/moa-bharatvistaar-repo/bh-voice-api:09-latest
     ports:
       - "8003:8003"
     expose:

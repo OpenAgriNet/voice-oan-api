@@ -5,10 +5,12 @@ on:
     branches:
       - bh-voice-prod
       - bh-voice-dev
+      - voice-changes-09
   pull_request:
     branches:
       - bh-voice-prod
       - bh-voice-dev
+      - voice-changes-09
 
 env:
   BASE_IMAGE_NAME: bh-voice-api
