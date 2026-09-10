@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from app.models.openai_models import ChatCompletionRequest
 from app.services.openai_service import generate_openai_stream, generate_openai_response
 from app.auth.jwt_auth import get_current_user
+from app.core.languages import parse_iso_language_header
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +16,7 @@ async def chat_completions(
     x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
     x_user_id: str = Header(..., alias="X-User-ID"),
     x_session_id: str = Header(..., alias="X-Session-ID"),
-    x_language: str = Header("none", alias="X-Language"),
+    x_language: str = Header(..., alias="X-Language"),
     current_user=Depends(get_current_user),
 ):
     """
@@ -29,33 +30,25 @@ async def chat_completions(
     - X-Tenant-ID: Tenant identifier (required)
     - X-User-ID: User identifier (required)
     - X-Session-ID: Session identifier (required)
-    - X-Language: Language code (optional, defaults to 'hi'). Supported: 'en', 'hi'
-    
-    The response includes special payloads for Samvaad integration:
-    - { "audio": "...", "language": "en"|"hi", "end_interaction": false } for normal responses
-    - { "audio": "...", "language": "en"|"hi", "end_interaction": true } for ending conversations
+    - X-Language: Sarvam-detected ISO 639-1 language code (required)
+
+    X-Language is the authoritative language-detection result. Supported values
+    are: en, hi, or, pa, ta, te, kn, ml, gu, mr, bn.
     """
     # Use header values directly
     user_id = x_user_id
     tenant_id = x_tenant_id
     session_id = x_session_id
-    target_lang = x_language
-    
+    try:
+        language_code = parse_iso_language_header(x_language)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     logger.info(
         f"Voice API chat completions request - session_id: {session_id}, "
-        f"language: {target_lang}, stream: {request.stream}, model: {request.model}"
+        f"language: {x_language.strip().lower()}, stream: {request.stream}, "
+        f"model: {request.model}"
     )
-
-    valid_languages = ["en", "hi", "none"]
-    if target_lang not in valid_languages:
-        logger.error(
-            f"Voice API invalid language code: {target_lang}, session_id: {session_id}",
-            stack_info=True,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid language code '{target_lang}'. Supported languages: {', '.join(valid_languages)}"
-        )
 
     if not request.messages:
         logger.error(f"Voice API missing messages field, session_id: {session_id}", stack_info=True)
@@ -74,7 +67,7 @@ async def chat_completions(
                     request=request,
                     session_id=session_id,
                     user_id=user_id,
-                    target_lang=target_lang
+                    language_code=language_code,
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -95,7 +88,8 @@ async def chat_completions(
                 request=request,
                 session_id=session_id,
                 user_id=user_id,
-                target_lang=target_lang
+                tenant_id=tenant_id,
+                language_code=language_code,
             )
             logger.info(f"Voice API non-streaming response ready, session_id: {session_id}")
             return response

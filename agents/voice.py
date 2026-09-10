@@ -1,5 +1,6 @@
 import re
 from pydantic_ai import Agent, ModelRetry, RunContext
+from app.core.languages import DEFAULT_LANGUAGE
 from helpers.utils import get_prompt, get_today_date_str
 from agents.models import LLM_AGRINET_MODEL
 from agents.tools import TOOLS
@@ -25,6 +26,19 @@ _HOLD_MESSAGE_MAX_LEN = 200
 
 class VoiceOutput(BaseModel):
     """Assistant's response to the user's query."""
+    language: str = Field(
+        default=DEFAULT_LANGUAGE,
+        description=(
+            "Internal code for the language already selected from X-Language. "
+            "Do not detect or change the language."
+        ),
+    )
+    lock_language: bool = Field(
+        default=False,
+        description=(
+            "Always false. Sarvam supplies the detected language in X-Language."
+        ),
+    )
     audio: str = Field(default=None, description="The audio content of the response. This is the text that will be converted to audio by the TTS engine.", min_length=1)
     end_interaction: bool = Field(default=False, description="Set to true ONLY when the user explicitly indicates they have no more questions. Defaults to false.")
 
@@ -50,6 +64,8 @@ voice_agent = Agent(
 
 @voice_agent.output_validator
 def reject_hold_messages(ctx: RunContext[FarmerContext], output: VoiceOutput) -> VoiceOutput:
+    output.language = ctx.deps.language_code
+    output.lock_language = False
     audio = (output.audio or "").strip()
     if len(audio) <= _HOLD_MESSAGE_MAX_LEN and _HOLD_MESSAGE_RE.search(audio):
         logger.warning(f"Rejected hold-message reply, retrying: {audio!r}")
@@ -66,10 +82,11 @@ def reject_hold_messages(ctx: RunContext[FarmerContext], output: VoiceOutput) ->
 
 @voice_agent.instructions
 def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
-    # Session default is Hindi at start; prompt is chosen by deps.lang_code (from client). Never assume language—always ask user first.
-    target_lang = ctx.deps.lang_code if ctx.deps.lang_code else 'hi'
-    if target_lang not in ['hi', 'en']:
-        logger.warning(f"Invalid language code: {target_lang}. Defaulting to Hindi.")
-        target_lang = 'hi'
-    prompt_file = f"voice_{target_lang}"
-    return get_prompt(prompt_file, context={'today_date': get_today_date_str()})
+    language_code = ctx.deps.language_code
+    prompt_file = f"voice_{language_code}"
+    return get_prompt(
+        prompt_file,
+        context={
+            'today_date': get_today_date_str(),
+        },
+    )

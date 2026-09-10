@@ -3,6 +3,7 @@ import json
 import time
 import uuid
 from app.models.openai_models import ChatCompletionRequest
+from app.core.languages import iso_language_code
 from app.services.voice import stream_voice_message
 from app.utils import _get_message_history
 from app.observability.voice import safe_update_observation, voice_output_summary
@@ -16,7 +17,7 @@ async def generate_openai_stream(
     request: ChatCompletionRequest,
     session_id: str,
     user_id: str,
-    target_lang: str = "en"
+    language_code: str,
 ) -> AsyncGenerator[str, None]:
     """
     Generate OpenAI-compatible SSE streaming response.
@@ -28,14 +29,16 @@ async def generate_openai_stream(
     created_timestamp = int(time.time())
     query = [msg.content for msg in request.messages if msg.role == "user"][-1]
 
-    existing_history = await _get_message_history(session_id, target_lang=target_lang, user_id=user_id)
+    existing_history = await _get_message_history(
+        session_id, target_lang=language_code, user_id=user_id
+    )
     last_chunk = ""
     langfuse_tags = ["bh-voice", "streaming"]
 
     with safe_start_observation(
         as_type="span",
         name="voice.chat_completions.stream",
-        input={"query": query, "target_lang": target_lang},
+        input={"query": query, "target_lang": iso_language_code(language_code)},
     ) as root_obs:
         with safe_propagate_attributes(
             user_id=user_id,
@@ -52,10 +55,9 @@ async def generate_openai_stream(
                     async for chunk in stream_voice_message(
                         query=query,
                         session_id=session_id,
-                        source_lang=target_lang,
-                        target_lang=target_lang,
                         user_id=user_id,
                         history=existing_history,
+                        language_code=language_code,
                     ):
                         if chunk:
                             last_chunk = chunk
@@ -98,7 +100,7 @@ async def generate_openai_response(
     request: ChatCompletionRequest,
     session_id: str,
     user_id: str,
-    target_lang: str = "en",
+    language_code: str,
     tenant_id: str | None = None,
 ) -> Dict[str, Any]:
     """
@@ -109,7 +111,9 @@ async def generate_openai_response(
     created_timestamp = int(time.time())
     query = [msg.content for msg in request.messages if msg.role == "user"][-1]
 
-    existing_history = await _get_message_history(session_id, target_lang=target_lang, user_id=user_id)
+    existing_history = await _get_message_history(
+        session_id, target_lang=language_code, user_id=user_id
+    )
 
     last_chunk = ""
     langfuse_tags = ["bh-voice", "non-streaming"]
@@ -119,7 +123,7 @@ async def generate_openai_response(
     with safe_start_observation(
         as_type="span",
         name="voice.chat_completions",
-        input={"query": query, "target_lang": target_lang},
+        input={"query": query, "target_lang": iso_language_code(language_code)},
     ) as root_obs:
         with safe_propagate_attributes(
             user_id=user_id,
@@ -135,10 +139,9 @@ async def generate_openai_response(
                 async for chunk in stream_voice_message(
                     query=query,
                     session_id=session_id,
-                    source_lang=target_lang,
-                    target_lang=target_lang,
                     user_id=user_id,
                     history=existing_history,
+                    language_code=language_code,
                 ):
                     if chunk:
                         last_chunk = chunk
