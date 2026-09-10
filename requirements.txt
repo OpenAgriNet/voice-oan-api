@@ -69,6 +69,7 @@ pydantic-settings==2.9.1
 python-dateutil
 
 langcodes[data]==3.4.0
+langdetect==1.0.9
 
 # python dotenv
 python-dotenv

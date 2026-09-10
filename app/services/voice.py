@@ -21,10 +21,30 @@ from app.core.cache import cache
 from app.observability.langfuse_client import safe_propagate_attributes, safe_start_agent_observation
 from app.observability.voice import safe_update_observation
 from langcodes import Language
+from langdetect import DetectorFactory, LangDetectException, detect
 
 logger = get_logger(__name__)
 
 INTERNAL_AGENT_LANG = "en"
+DetectorFactory.seed = 0
+RECORDING_MESSAGE_EN = (
+    "This call is being recorded for training and quality purposes. "
+    "Your personal information will not be shared with any third party."
+)
+
+
+def _detect_text_language(text: str | None) -> str | None:
+    """Detect language code from user text and normalize to a primary tag."""
+    if not text or not text.strip():
+        return None
+    try:
+        detected = detect(text)
+        return _normalize_lang_code(detected)
+    except LangDetectException:
+        return None
+    except Exception:
+        logger.exception("Unexpected language-detection failure")
+        return None
 
 def _user_message_count(history: list) -> int:
     """Count user messages in history (messages that have a user-prompt part)."""
@@ -43,18 +63,9 @@ def _is_first_user_message(history: list) -> bool:
     """Check if this is the first user message after welcome messages."""
     return _user_message_count(history) == 1
 
-def _recording_lang(lang: str | None) -> str:
-    """Normalize language for recording message: hi → hi, en → en, anything else → en."""
-    return lang if lang in ("en", "hi") else "en"
-
-
-def _get_recording_message(lang: str | None) -> str:
-    """Get the recording message by language: hi → Hindi, en → English, default → English."""
-    recording_messages = {
-        "hi": "यह कॉल प्रशिक्षण और गुणवत्ता सुधार हेतु रिकॉर्ड की जा रही है। आपकी जानकारी सुरक्षित रहेगी।",
-        "en": "This call is being recorded for training and quality purposes. Your personal information will not be shared with any third party.",
-    }
-    return recording_messages.get(_recording_lang(lang), recording_messages["en"])
+def _get_recording_message() -> str:
+    """Return the canonical recording message in English."""
+    return RECORDING_MESSAGE_EN
 
 
 def _normalize_lang_code(lang: str | None) -> str | None:
@@ -147,6 +158,11 @@ async def stream_voice_message(
     """Async generator for streaming voice messages using run_stream_events()."""
     detected_lang = _normalize_lang_code(target_lang)
     cached_lang = _normalize_lang_code(await cache.get(f"{session_id}{LANGUAGE_CACHE_SUFFIX}"))
+
+    # Freeze language from first user message when header is missing/unknown.
+    if detected_lang is None:
+        detected_lang = _detect_text_language(query)
+
     if cached_lang is None and detected_lang is not None:
         await cache.set(f"{session_id}{LANGUAGE_CACHE_SUFFIX}", detected_lang, ttl=LANGUAGE_CACHE_TTL)
         cached_lang = detected_lang
@@ -168,7 +184,7 @@ async def stream_voice_message(
     logger.info(f"Trimmed history: {len(trimmed_history)} messages")
 
     is_first_message = _is_first_user_message(history)
-    recording_prefix = _get_recording_message(user_lang) if is_first_message else ""
+    recording_prefix = _get_recording_message() if is_first_message else ""
     translate_output = bool(user_lang and user_lang != INTERNAL_AGENT_LANG)
 
     model, model_route = await select_model_for_session(session_id)
@@ -349,7 +365,13 @@ async def stream_voice_message(
             raw_audio = final_output.audio or ""
         out_lang = deps.selected_language or INTERNAL_AGENT_LANG
         audio_body = await _translate_text(raw_audio, INTERNAL_AGENT_LANG, out_lang)
-        final_recording_prefix = _get_recording_message(out_lang) if is_first_message else ""
+        final_recording_prefix = ""
+        if is_first_message:
+            final_recording_prefix = await _translate_text(
+                _get_recording_message(),
+                INTERNAL_AGENT_LANG,
+                out_lang,
+            )
         audio_text = final_recording_prefix + audio_body
         output_dict = _voice_output_dict(audio_text, end_flag, out_lang)
         yield json.dumps(output_dict, ensure_ascii=False)

@@ -4,6 +4,7 @@ from app.models.openai_models import ChatCompletionRequest
 from app.services.openai_service import generate_openai_stream, generate_openai_response
 from app.auth.jwt_auth import get_current_user
 from helpers.utils import get_logger
+from langcodes import Language
 
 logger = get_logger(__name__)
 
@@ -29,33 +30,38 @@ async def chat_completions(
     - X-Tenant-ID: Tenant identifier (required)
     - X-User-ID: User identifier (required)
     - X-Session-ID: Session identifier (required)
-    - X-Language: Language code (optional, defaults to 'hi'). Supported: 'en', 'hi'
+    - X-Language: Language code (optional, defaults to 'none'). Examples: 'en', 'hi', 'mr', 'ta'
     
     The response includes special payloads for Samvaad integration:
-    - { "audio": "...", "language": "en"|"hi", "end_interaction": false } for normal responses
-    - { "audio": "...", "language": "en"|"hi", "end_interaction": true } for ending conversations
+    - { "audio": "...", "language": "<normalized language code>", "end_interaction": false } for normal responses
+    - { "audio": "...", "language": "<normalized language code>", "end_interaction": true } for ending conversations
     """
     # Use header values directly
     user_id = x_user_id
     tenant_id = x_tenant_id
     session_id = x_session_id
-    target_lang = x_language
+    target_lang = (x_language or "none").strip().lower()
+
+    if target_lang != "none":
+        try:
+            target_lang = (Language.get(target_lang).language or target_lang).lower()
+        except Exception:
+            logger.error(
+                f"Voice API invalid language code: {x_language}, session_id: {session_id}",
+                stack_info=True,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid language code '{x_language}'. "
+                    "Use a valid BCP-47 code like 'en', 'hi', 'mr', 'ta'."
+                ),
+            )
     
     logger.info(
         f"Voice API chat completions request - session_id: {session_id}, "
         f"language: {target_lang}, stream: {request.stream}, model: {request.model}"
     )
-
-    valid_languages = ["en", "hi", "none"]
-    if target_lang not in valid_languages:
-        logger.error(
-            f"Voice API invalid language code: {target_lang}, session_id: {session_id}",
-            stack_info=True,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid language code '{target_lang}'. Supported languages: {', '.join(valid_languages)}"
-        )
 
     if not request.messages:
         logger.error(f"Voice API missing messages field, session_id: {session_id}", stack_info=True)
