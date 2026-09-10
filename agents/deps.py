@@ -8,10 +8,10 @@ class FarmerContext(BaseModel):
         query (str): The user's question.
         session_id (str): The session ID for the conversation.
         user_id (str): The user ID for the conversation.
-        language_code (str | None): Backend-owned session language lock.
+        language_code (str): Internal language selected from X-Language.
 
-    Language is never accepted from the client. ``language_code`` is populated
-    only from the backend's session lock.
+    ``language_code`` is validated from Sarvam's ISO 639-1 X-Language header at
+    the API boundary.
 
     Example:
         **User:** "What is the weather in Mumbai?"
@@ -19,8 +19,8 @@ class FarmerContext(BaseModel):
     query: str = Field(description="The user's question.")
     session_id: str = Field(description="The session ID for the conversation.")
     user_id: str = Field(description="The user ID for the conversation.")
-    language_code: str | None = Field(
-        default=None, description="The backend-owned locked conversation language."
+    language_code: str = Field(
+        description="Language selected from the validated X-Language header."
     )
     
     def _query_string(self):

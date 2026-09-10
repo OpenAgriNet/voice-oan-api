@@ -74,6 +74,23 @@ SUPPORTED_LANGUAGES = {code: spec.name for code, spec in LANGUAGES.items()}
 SUPPORTED_LANGUAGE_CODES = frozenset(LANGUAGES)
 DEFAULT_LANGUAGE = "hi"
 LANGUAGE_ALIASES = {"or": "od"}
+ISO_TO_INTERNAL_LANGUAGE = {
+    "en": "en",
+    "hi": "hi",
+    "or": "od",
+    "pa": "pa",
+    "ta": "ta",
+    "te": "te",
+    "kn": "kn",
+    "ml": "ml",
+    "gu": "gu",
+    "mr": "mr",
+    "bn": "bn",
+}
+INTERNAL_TO_ISO_LANGUAGE = {
+    internal: iso for iso, internal in ISO_TO_INTERNAL_LANGUAGE.items()
+}
+SUPPORTED_ISO_LANGUAGE_CODES = frozenset(ISO_TO_INTERNAL_LANGUAGE)
 
 
 def normalize_language(lang: str | None, *, fallback: str = DEFAULT_LANGUAGE) -> str:
@@ -82,6 +99,27 @@ def normalize_language(lang: str | None, *, fallback: str = DEFAULT_LANGUAGE) ->
     raw = lang.strip().lower()
     code = LANGUAGE_ALIASES.get(raw, raw)
     return code if code in LANGUAGES else fallback
+
+
+def parse_iso_language_header(lang: str | None) -> str:
+    """Validate an ISO 639-1 X-Language value and return its internal code."""
+    raw = (lang or "").strip().lower()
+    try:
+        return ISO_TO_INTERNAL_LANGUAGE[raw]
+    except KeyError as exc:
+        supported = ", ".join(sorted(SUPPORTED_ISO_LANGUAGE_CODES))
+        raise ValueError(
+            f"X-Language must be one of these ISO 639-1 codes: {supported}"
+        ) from exc
+
+
+def iso_language_code(lang: str | None) -> str:
+    """Return the public ISO 639-1 code for an internal language code."""
+    internal = normalize_language(lang, fallback="")
+    try:
+        return INTERNAL_TO_ISO_LANGUAGE[internal]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported internal language code: {lang!r}") from exc
 
 
 def is_supported(lang: str | None) -> bool:

@@ -7,8 +7,7 @@ from agents.voice import voice_agent
 from agents.deps import FarmerContext
 from agents.models import LLM_AGRINET_MODEL
 from agents.routing import select_model_for_session
-from app.config import settings
-from app.core.languages import get_language, normalize_language
+from app.core.languages import get_language, iso_language_code
 from helpers.telemetry import (
     TelemetryRequest,
     create_voice_response_event,
@@ -17,7 +16,6 @@ from helpers.telemetry import (
 )
 from helpers.utils import get_logger
 from app.utils import update_message_history, trim_history
-from app.core.cache import cache
 from app.observability.langfuse_client import safe_propagate_attributes, safe_start_agent_observation
 from app.observability.voice import safe_update_observation
 
@@ -40,9 +38,6 @@ def _is_first_user_message(history: list) -> bool:
     """Check if this is the first user message after welcome messages."""
     return _user_message_count(history) == 1
 
-LANGUAGE_CACHE_SUFFIX = "_LANGUAGE"
-
-
 def _get_recording_message(lang: str | None) -> str:
     """Get the recording disclaimer in the response language."""
     return get_language(lang).recording_disclaimer
@@ -61,14 +56,8 @@ def _extract_audio_from_partial_json(text: str) -> str:
     return match.group(1) if match else ""
 
 
-def _extract_language_from_partial_json(text: str) -> str | None:
-    """Return a completed language code, never an incomplete streamed prefix."""
-    match = re.search(r'"language"\s*:\s*"([a-zA-Z-]{2,8})"', text)
-    return match.group(1) if match else None
-
-
 def _voice_output_dict(audio: str, end_interaction: bool, language: str | None) -> dict:
-    """Build the voice response dict (audio, end_interaction, language). language may be None when asking for preference."""
+    """Build the voice response with its public ISO 639-1 language code."""
     return {"audio": audio, "end_interaction": end_interaction, "language": language}
 
 
@@ -76,21 +65,22 @@ async def stream_voice_message(
     query: str,
     session_id: str,
     user_id: str,
-    history: list
+    history: list,
+    language_code: str,
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages using run_stream_events()."""
-    language_cache_key = f"{session_id}{LANGUAGE_CACHE_SUFFIX}"
-    cached_language = await cache.get(language_cache_key)
-    locked_language = normalize_language(cached_language, fallback="") or None
+    response_language = iso_language_code(language_code)
     deps = FarmerContext(
         query=query,
         session_id=session_id,
         user_id=user_id,
-        language_code=locked_language,
+        language_code=language_code,
     )
     user_message = deps.get_user_message()
     voice_qid = generate_voice_question_id()
-    logger.info(f"Running agent (locked_language={locked_language}, voice_qid={voice_qid})")
+    logger.info(
+        "Running agent (language=%s, voice_qid=%s)", response_language, voice_qid
+    )
 
     trimmed_history = trim_history(history, max_tokens=80_000)
     logger.info(f"Trimmed history: {len(trimmed_history)} messages")
@@ -110,7 +100,6 @@ async def stream_voice_message(
 
     final_output = None
     new_messages = None
-    detected_lang: str | None = locked_language
 
     agent_slug = (voice_agent.name or "voice").replace(" ", "_").lower()
     # Tags are trace-level in Langfuse, so they go through propagate_attributes;
@@ -121,7 +110,7 @@ async def stream_voice_message(
         name=f"agent.{agent_slug}",
         input={
             "query": query,
-            "locked_language": locked_language,
+            "language": response_language,
             "session_id": session_id,
         },
         metadata={
@@ -135,7 +124,6 @@ async def stream_voice_message(
         for attempt_index, (attempt_model, attempt_route) in enumerate(candidates):
             text_buffer = ""
             prev_audio = ""
-            detected_lang = locked_language
             any_chunk_yielded = False
             is_last_attempt = attempt_index == len(candidates) - 1
             try:
@@ -151,18 +139,15 @@ async def stream_voice_message(
                         delta = event.delta
                         if getattr(delta, 'part_delta_kind', '') == 'text':
                             text_buffer += delta.content_delta
-                            if detected_lang is None:
-                                detected_lang = _extract_language_from_partial_json(text_buffer)
                             audio = _extract_audio_from_partial_json(text_buffer)
                             if audio and audio != prev_audio:
                                 any_chunk_yielded = True
                                 prev_audio = audio
-                                out_lang = locked_language or normalize_language(detected_lang)
-                                recording_prefix = _get_recording_message(out_lang) if is_first_message else ""
+                                recording_prefix = _get_recording_message(language_code) if is_first_message else ""
                                 output_dict = _voice_output_dict(
                                     _prefix_disclaimer(recording_prefix, audio),
                                     False,
-                                    out_lang,
+                                    response_language,
                                 )
                                 yield json.dumps(output_dict, ensure_ascii=False)
 
@@ -270,39 +255,16 @@ async def stream_voice_message(
         except Exception:
             logger.exception("Voice turn telemetry failed, qid=%s", voice_qid)
 
-    response_language = locked_language or normalize_language(detected_lang)
     if final_output:
         if isinstance(final_output, dict):
             end_flag = final_output.get("end_interaction", False)
             raw_audio = final_output.get("audio") or ""
-            reported_lang = final_output.get("language")
-            should_lock = bool(final_output.get("lock_language", False))
         else:
             end_flag = getattr(final_output, "end_interaction", False)
             raw_audio = final_output.audio or ""
-            reported_lang = getattr(final_output, "language", None)
-            should_lock = bool(getattr(final_output, "lock_language", False))
-
-        response_language = locked_language or normalize_language(
-            reported_lang or detected_lang
-        )
-        if reported_lang and normalize_language(reported_lang) != response_language:
-            logger.warning(
-                "Agent reported language '%s' but session uses '%s'",
-                reported_lang,
-                response_language,
-            )
-        if locked_language is None and should_lock:
-            await cache.set(
-                language_cache_key,
-                response_language,
-                ttl=settings.default_cache_ttl,
-            )
-            locked_language = response_language
-            logger.info("Locked session language to %s", response_language)
 
         final_recording_prefix = (
-            _get_recording_message(response_language) if is_first_message else ""
+            _get_recording_message(language_code) if is_first_message else ""
         )
         audio_text = _prefix_disclaimer(final_recording_prefix, raw_audio)
         output_dict = _voice_output_dict(audio_text, end_flag, response_language)

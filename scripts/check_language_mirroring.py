@@ -1,7 +1,8 @@
 """Ad-hoc check: does the voice endpoint reply in the language it was asked in?
 
-Sends one farming question per supported language with NO X-Language header and
-asserts the reported `language` matches. Run against a locally started API:
+Sends one farming question per supported language with its ISO 639-1
+X-Language header and asserts the reported `language` matches. Run against a
+locally started API:
 
     AUTH_ENABLED=false REDIS_HOST=localhost \
         python -m uvicorn main:app --host 127.0.0.1 --port 8020
@@ -30,12 +31,12 @@ QUERIES: dict[str, str] = {
     "kn": "ನನ್ನ ಹೊಲದಲ್ಲಿ ಗೋಧಿಯನ್ನು ಯಾವಾಗ ಬಿತ್ತಬೇಕು?",
     "ml": "എന്റെ വയലിൽ ഗോതമ്പ് എപ്പോൾ വിതയ്ക്കണം?",
     "pa": "ਮੈਨੂੰ ਆਪਣੇ ਖੇਤ ਵਿੱਚ ਕਣਕ ਕਦੋਂ ਬੀਜਣੀ ਚਾਹੀਦੀ ਹੈ?",
-    "od": "ମୁଁ ମୋ ଜମିରେ ଗହମ କେବେ ବୁଣିବା ଉଚିତ?",
+    "or": "ମୁଁ ମୋ ଜମିରେ ଗହମ କେବେ ବୁଣିବା ଉଚିତ?",
 }
 
 
 async def ask(client: httpx.AsyncClient, lang: str, query: str) -> dict:
-    """Send one query with no language header and return the parsed voice payload."""
+    """Send one query with its detected-language header and parse the response."""
     started = time.monotonic()
     resp = await client.post(
         ENDPOINT,
@@ -43,6 +44,7 @@ async def ask(client: httpx.AsyncClient, lang: str, query: str) -> dict:
             "X-Tenant-ID": "lang-check",
             "X-User-ID": "lang-check",
             "X-Session-ID": f"langcheck-{lang}-{int(time.time())}",
+            "X-Language": lang,
         },
         json={"messages": [{"role": "user", "content": query}], "stream": False},
         timeout=180.0,

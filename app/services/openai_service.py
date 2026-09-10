@@ -16,6 +16,7 @@ async def generate_openai_stream(
     request: ChatCompletionRequest,
     session_id: str,
     user_id: str,
+    language_code: str,
 ) -> AsyncGenerator[str, None]:
     """
     Generate OpenAI-compatible SSE streaming response.
@@ -53,6 +54,7 @@ async def generate_openai_stream(
                         session_id=session_id,
                         user_id=user_id,
                         history=existing_history,
+                        language_code=language_code,
                     ):
                         if chunk:
                             last_chunk = chunk
@@ -95,6 +97,7 @@ async def generate_openai_response(
     request: ChatCompletionRequest,
     session_id: str,
     user_id: str,
+    language_code: str,
     tenant_id: str | None = None,
 ) -> Dict[str, Any]:
     """
@@ -133,6 +136,7 @@ async def generate_openai_response(
                     session_id=session_id,
                     user_id=user_id,
                     history=existing_history,
+                    language_code=language_code,
                 ):
                     if chunk:
                         last_chunk = chunk
