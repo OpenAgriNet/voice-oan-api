@@ -77,7 +77,7 @@ LANGUAGE_ALIASES = {"or": "od"}
 ISO_TO_INTERNAL_LANGUAGE = {
     "en": "en",
     "hi": "hi",
-    "or": "od",
+    "od": "od",
     "pa": "pa",
     "ta": "ta",
     "te": "te",
@@ -102,19 +102,19 @@ def normalize_language(lang: str | None, *, fallback: str = DEFAULT_LANGUAGE) ->
 
 
 def parse_iso_language_header(lang: str | None) -> str:
-    """Validate an ISO 639-1 X-Language value and return its internal code."""
+    """Validate a Sarvam X-Language value and return its internal code."""
     raw = (lang or "").strip().lower()
     try:
         return ISO_TO_INTERNAL_LANGUAGE[raw]
     except KeyError as exc:
         supported = ", ".join(sorted(SUPPORTED_ISO_LANGUAGE_CODES))
         raise ValueError(
-            f"X-Language must be one of these ISO 639-1 codes: {supported}"
+            f"X-Language must be one of these supported codes: {supported}"
         ) from exc
 
 
 def iso_language_code(lang: str | None) -> str:
-    """Return the public ISO 639-1 code for an internal language code."""
+    """Return the public Sarvam language code for an internal language code."""
     internal = normalize_language(lang, fallback="")
     try:
         return INTERNAL_TO_ISO_LANGUAGE[internal]

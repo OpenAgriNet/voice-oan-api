@@ -57,7 +57,7 @@ def _extract_audio_from_partial_json(text: str) -> str:
 
 
 def _voice_output_dict(audio: str, end_interaction: bool, language: str | None) -> dict:
-    """Build the voice response with its public ISO 639-1 language code."""
+    """Build the voice response with its public Sarvam language code."""
     return {"audio": audio, "end_interaction": end_interaction, "language": language}
 
 
