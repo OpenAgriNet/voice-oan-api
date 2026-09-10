@@ -106,8 +106,6 @@ async def run_streaming_test(question: str, language: str, session_id: str) -> d
             elif kind == 'agent_run_result':
                 output = event.result.output
                 result["final_output"] = {
-                    "language": output.language,
-                    "lock_language": output.lock_language,
                     "audio": output.audio,
                     "end_interaction": output.end_interaction,
                 }
