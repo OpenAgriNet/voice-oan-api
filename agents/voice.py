@@ -1,5 +1,6 @@
 import re
 from pydantic_ai import Agent, ModelRetry, RunContext
+from app.core.languages import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_language
 from helpers.utils import get_prompt, get_today_date_str
 from agents.models import LLM_AGRINET_MODEL
 from agents.tools import TOOLS
@@ -25,6 +26,22 @@ _HOLD_MESSAGE_MAX_LEN = 200
 
 class VoiceOutput(BaseModel):
     """Assistant's response to the user's query."""
+    # Keep language first so it is available before streamed audio begins.
+    language: str = Field(
+        default=DEFAULT_LANGUAGE,
+        description=(
+            "ISO language code used by the response. It must equal the session "
+            "lock when one exists; otherwise detect one of: "
+            f"{', '.join(SUPPORTED_LANGUAGES)}."
+        ),
+    )
+    lock_language: bool = Field(
+        default=False,
+        description=(
+            "True only for the first substantive query when its language should "
+            "be locked for the remainder of the session."
+        ),
+    )
     audio: str = Field(default=None, description="The audio content of the response. This is the text that will be converted to audio by the TTS engine.", min_length=1)
     end_interaction: bool = Field(default=False, description="Set to true ONLY when the user explicitly indicates they have no more questions. Defaults to false.")
 
@@ -66,10 +83,16 @@ def reject_hold_messages(ctx: RunContext[FarmerContext], output: VoiceOutput) ->
 
 @voice_agent.instructions
 def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
-    # Session default is Hindi at start; prompt is chosen by deps.lang_code (from client). Never assume language—always ask user first.
-    target_lang = ctx.deps.lang_code if ctx.deps.lang_code else 'hi'
-    if target_lang not in ['hi', 'en']:
-        logger.warning(f"Invalid language code: {target_lang}. Defaulting to Hindi.")
-        target_lang = 'hi'
-    prompt_file = f"voice_{target_lang}"
-    return get_prompt(prompt_file, context={'today_date': get_today_date_str()})
+    locked_language = ctx.deps.language_code
+    locale = get_language(locked_language)
+    prompt_file = f"voice_{locked_language}" if locked_language else "voice"
+    return get_prompt(
+        prompt_file,
+        context={
+            'today_date': get_today_date_str(),
+            'locked_language': locked_language,
+            'locked_language_name': locale.name,
+            'supported_language_codes': ', '.join(SUPPORTED_LANGUAGES),
+            'closing_message': locale.closing_message,
+        },
+    )

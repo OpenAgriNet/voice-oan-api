@@ -51,7 +51,9 @@ def _extract_audio_from_partial_json(text: str) -> str:
 
 async def run_streaming_test(question: str, language: str, session_id: str) -> dict:
     """Run a single question through the voice agent with run_stream_events()."""
-    deps = FarmerContext(query=question, lang_code=language, session_id=session_id)
+    # No language is passed in: the agent detects it from the question itself.
+    # `language` is only the expected value recorded in the result below.
+    deps = FarmerContext(query=question, session_id=session_id, user_id="test-user")
     user_message = deps.get_user_message()
 
     result = {
@@ -100,6 +102,8 @@ async def run_streaming_test(question: str, language: str, session_id: str) -> d
             elif kind == 'agent_run_result':
                 output = event.result.output
                 result["final_output"] = {
+                    "language": output.language,
+                    "lock_language": output.lock_language,
                     "audio": output.audio,
                     "end_interaction": output.end_interaction,
                 }
@@ -122,7 +126,7 @@ async def main():
     parser = argparse.ArgumentParser(description="Test voice agent with streaming")
     parser.add_argument("--sample", type=int, default=None, help="Randomly sample N questions")
     parser.add_argument("--category", type=str, default=None, help="Filter by category")
-    parser.add_argument("--language", type=str, default=None, help="Filter by language (en/hi)")
+    parser.add_argument("--language", type=str, default=None, help="Filter by language code")
     parser.add_argument("--timeout", type=float, default=120.0, help="Timeout per question (seconds)")
     args = parser.parse_args()
 
