@@ -1,6 +1,9 @@
-from typing import Literal, Optional
 from pydantic_ai import Agent, RunContext
-from app.core.languages import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
+from app.core.languages import (
+    DEFAULT_LANGUAGE,
+    SUPPORTED_LANGUAGES,
+    get_language,
+)
 from helpers.utils import get_prompt, get_today_date_str
 from agents.models import LLM_AGRINET_MODEL
 from agents.tools import TOOLS
@@ -16,13 +19,20 @@ class VoiceOutput(BaseModel):
     """Assistant's response to the user's query."""
     # Declared first so it is decoded early in the streamed JSON — the recording
     # disclaimer is picked from it before any audio is emitted (see app/services/voice.py).
-    language: str = Field(default=DEFAULT_LANGUAGE, description=f"ISO 639-1 code of the language this response is written in. Must be one of: {', '.join(SUPPORTED_LANGUAGES)}. Must match the language the user wrote in.")
+    language: str = Field(
+        default=DEFAULT_LANGUAGE,
+        description=(
+            "ISO 639-1 code used by the spoken response. Must equal the backend "
+            "session lock when present; otherwise detect one of: "
+            f"{', '.join(SUPPORTED_LANGUAGES)}."
+        ),
+    )
+    lock_language: bool = Field(
+        default=False,
+        description="True only when this turn contains the first substantive user query and the detected language should be locked for the session.",
+    )
     audio: str = Field(default=None, description="The audio content of the response. This is the text that will be converted to audio by the TTS engine.", min_length=1)
     end_interaction: bool = Field(default=False, description="Set to true ONLY when the user explicitly indicates they have no more questions. Defaults to false.")
-    language: Optional[Literal["en", "hi" , "None"]] = Field(
-        default="None",
-        description="Ask the user which language they want for the conversation (English or Hindi), then set this from their answer: 'en' for English, 'hi' for Hindi. Leave null until they have chosen. Never assume.",
-    )
 
 
 voice_agent = Agent(
@@ -46,10 +56,15 @@ voice_agent = Agent(
 
 @voice_agent.instructions
 def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
-    # One prompt for every language. The model detects the language from the user's
-    # own words and mirrors it, reporting the choice back in VoiceOutput.language.
-    # Nothing here depends on the client's X-Language header any more.
+    locked_language = ctx.deps.language_code
+    locale = get_language(locked_language)
     return get_prompt(
         'voice',
-        context={'today_date': get_today_date_str()},
+        context={
+            'today_date': get_today_date_str(),
+            'locked_language': locked_language,
+            'locked_language_name': locale.name,
+            'supported_language_codes': ', '.join(SUPPORTED_LANGUAGES),
+            'closing_message': locale.closing_message,
+        },
     )

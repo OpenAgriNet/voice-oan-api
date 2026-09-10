@@ -3,7 +3,6 @@ from fastapi.responses import StreamingResponse
 from app.auth.jwt_auth import get_current_user
 from app.models.openai_models import ChatCompletionRequest
 from app.services.openai_service import generate_openai_stream, generate_openai_response
-from app.auth.jwt_auth import get_current_user
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -39,7 +38,7 @@ async def chat_completions(
     - { "audio": "...", "language": "<ISO 639-1>", "end_interaction": false } for normal responses
     - { "audio": "...", "language": "<ISO 639-1>", "end_interaction": true } for ending conversations
 
-    `language` is one of: 'en', 'hi', 'bn', 'te', 'mr', 'ta', 'gu', 'kn', 'ml', 'as'.
+    `language` is one of: 'en', 'hi', 'od', 'pa', 'ta', 'te', 'kn', 'ml', 'gu', 'mr', 'bn'.
     """
     # Use header values directly
     user_id = x_user_id

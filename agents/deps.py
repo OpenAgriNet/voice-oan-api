@@ -8,11 +8,10 @@ class FarmerContext(BaseModel):
         query (str): The user's question.
         session_id (str): The session ID for the conversation.
         user_id (str): The user ID for the conversation.
+        language_code (str | None): Backend-owned session language lock.
 
-    No language is carried here. The agent detects the conversation language from
-    the farmer's own words and reports it on ``VoiceOutput.language``. Nothing in
-    the user message names a language, deliberately — a "Selected Language" hint
-    used to override what the farmer actually spoke.
+    Language is never accepted from the client. ``language_code`` is populated
+    only from the backend's session lock.
 
     Example:
         **User:** "What is the weather in Mumbai?"
@@ -20,6 +19,9 @@ class FarmerContext(BaseModel):
     query: str = Field(description="The user's question.")
     session_id: str = Field(description="The session ID for the conversation.")
     user_id: str = Field(description="The user ID for the conversation.")
+    language_code: str | None = Field(
+        default=None, description="The backend-owned locked conversation language."
+    )
 
     def _query_string(self):
         """Get the query string for the agrinet agent."""
