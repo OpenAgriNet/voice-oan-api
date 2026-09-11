@@ -30,10 +30,10 @@ async def chat_completions(
     - X-Tenant-ID: Tenant identifier (required)
     - X-User-ID: User identifier (required)
     - X-Session-ID: Session identifier (required)
-    - X-Language: Sarvam-detected ISO 639-1 language code (required)
+    - X-Language: Sarvam-detected language code (required)
 
     X-Language is the authoritative language-detection result. Supported values
-    are: en, hi, or, pa, ta, te, kn, ml, gu, mr, bn.
+    are: en, hi, od, pa, ta, te, kn, ml, gu, mr, bn.
     """
     # Use header values directly
     user_id = x_user_id

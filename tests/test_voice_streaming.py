@@ -56,7 +56,7 @@ async def run_streaming_test(question: str, language: str, session_id: str) -> d
         query=question,
         session_id=session_id,
         user_id="test-user",
-        language_code="od" if language == "or" else language,
+        language_code=language,
     )
     user_message = deps.get_user_message()
 
