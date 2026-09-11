@@ -22,6 +22,7 @@ from app.models.union import is_ai_call_banned_union
 from app.observability import start_observation
 from agents.models.farmer import AnimalRecord, FarmerDataEnvelope, FarmerRecord
 from agents.tools.farmer_animal_backends import (
+    BackendUnavailableError,
     GetAITechniciansBySocietyQueryParams,
     get_ai_technicians_by_society_api,
     fetch_animal_amulpashudhan,
@@ -236,7 +237,19 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             await enqueue_farmer_refresh(phone)
             return None
 
-        records = await fetch_farmer_info_raw(phone)
+        upstream_failed = False
+        try:
+            records = await fetch_farmer_info_raw(phone)
+        except BackendUnavailableError as e:
+            # Upstream is down, not "this farmer does not exist". Fall through to
+            # the empty branch, which must not write a not_found envelope.
+            upstream_failed = True
+            records = None
+            logger.warning(
+                "Farmer lookup upstream unavailable for phone hash %s...: %s",
+                _cache_key(phone)[:8],
+                e,
+            )
         if records:
             envelope = FarmerDataEnvelope.from_records(records, source="api", lookup_status="found")
             envelope.aiTechnicians = await _fetch_ai_technicians(records)
@@ -278,6 +291,12 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             if exceeds_max_serve_stale(existing):
                 await _restamp_kept_record(phone, existing)
             return existing
+
+        if upstream_failed:
+            # Nothing known-good to keep and nothing trustworthy to write: leave
+            # the cache empty so the next turn retries, instead of pinning a
+            # 2h not_found on a caller whose lookup merely 500'd.
+            return None
 
         envelope = FarmerDataEnvelope.not_found(source="api")
         await set_cached_farmer_data(phone, envelope)

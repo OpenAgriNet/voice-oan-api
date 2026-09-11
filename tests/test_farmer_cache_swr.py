@@ -425,3 +425,57 @@ def test_voice_read_cold_miss_does_bounded_fetch():
         result = asyncio.run(voice.get_or_fetch_farmer_data("111"))
     assert result is fetched
     bounded.assert_awaited_once_with("111")
+
+
+# --- Upstream failure must not be cached as "not found" ---------------------
+# Regression for the September-2026 booking failures: a cold caller whose farmer
+# lookup merely 500'd (or whose herdman fallback 401'd) got a `not_found`
+# envelope pinned for 2h, the agent got empty farmer context, and the caller was
+# told their details are unavailable — or the agent invented identifiers.
+
+
+def test_refresh_does_not_cache_not_found_when_upstream_failed():
+    """Cold caller + upstream error: write nothing, so the next turn retries."""
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=True)   # lock acquired
+    fake_redis.delete = AsyncMock()
+    boom = AsyncMock(side_effect=fc.BackendUnavailableError("amulpashudhan", "HTTP 500"))
+    with patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "fetch_farmer_info_raw", new=boom), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=None)), \
+         patch.object(fc, "set_cached_farmer_data", new=AsyncMock()) as set_cache:
+        result = asyncio.run(fc.refresh_farmer_data("9999999999"))
+    assert result is None
+    set_cache.assert_not_called()
+
+
+def test_refresh_still_caches_not_found_on_clean_empty():
+    """The other half: upstream answered and really has no record — cache it,
+    otherwise every turn from an unregistered caller re-hits the API."""
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=True)
+    fake_redis.delete = AsyncMock()
+    with patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "fetch_farmer_info_raw", new=AsyncMock(return_value=None)), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=None)), \
+         patch.object(fc, "set_cached_farmer_data", new=AsyncMock()) as set_cache:
+        result = asyncio.run(fc.refresh_farmer_data("9999999999"))
+    assert result is not None
+    assert result.lookupStatus == "not_found"
+    set_cache.assert_called_once()
+
+
+def test_refresh_keeps_good_record_when_upstream_failed():
+    """A warm caller must keep their cached identity through an upstream outage."""
+    existing = _Env("found", 1)
+    fake_redis = AsyncMock()
+    fake_redis.set = AsyncMock(return_value=True)
+    fake_redis.delete = AsyncMock()
+    boom = AsyncMock(side_effect=fc.BackendUnavailableError("herdman", "HTTP 401"))
+    with patch.object(fc, "redis_client", fake_redis), \
+         patch.object(fc, "fetch_farmer_info_raw", new=boom), \
+         patch.object(fc, "get_cached_farmer_data", new=AsyncMock(return_value=existing)), \
+         patch.object(fc, "set_cached_farmer_data", new=AsyncMock()) as set_cache:
+        result = asyncio.run(fc.refresh_farmer_data("9999999999"))
+    assert result is existing
+    set_cache.assert_not_called()

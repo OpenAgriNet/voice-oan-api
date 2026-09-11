@@ -32,6 +32,21 @@ BASE_AMULPASHUDHAN = "https://api.amulpashudhan.com/configman/v1/PashuGPT"
 BASE_HERDMAN = "https://herdman.live/apis/api"
 
 
+class BackendUnavailableError(RuntimeError):
+    """Upstream did not answer, or answered with an error status.
+
+    Distinct from "upstream answered, and this farmer/animal has no record".
+    Collapsing the two is what let a transient 500 be cached as a 2h `not_found`
+    for a cold caller, which is how a farmer ends up being told their details are
+    not available and the agent ends up inventing identifiers.
+    """
+
+    def __init__(self, provider: str, detail: str) -> None:
+        super().__init__(f"{provider}: {detail}")
+        self.provider = provider
+        self.detail = detail
+
+
 # Why this read happened — tags every API observation so we can tell, in
 # Langfuse, a request-time cold fetch from a background-worker refresh. Reads
 # served straight from Redis never reach this layer, so a recorded API call
@@ -154,11 +169,37 @@ def normalize_tag(tag_no: str) -> str:
     return (tag_no or "").strip()
 
 
+def _parse_farmer_response(r: httpx.Response, provider: str) -> Optional[List[Dict[str, Any]]]:
+    """Records, or None when upstream answered cleanly with no record.
+
+    Raises BackendUnavailableError when upstream answered with an error status or
+    a body we cannot read — the caller must not treat that as "no such farmer".
+    """
+    if r.status_code == 204:
+        return None
+    if r.status_code != 200:
+        raise BackendUnavailableError(provider, f"HTTP {r.status_code}")
+    if not (r.text or "").strip():
+        return None
+    try:
+        data = json.loads(r.text)
+    except json.JSONDecodeError as e:
+        raise BackendUnavailableError(provider, f"unparseable body: {e}") from e
+    if isinstance(data, list) and len(data) > 0:
+        return data
+    if isinstance(data, dict) and data.get("data") and isinstance(data["data"], list):
+        return data["data"]
+    return None
+
+
 # --- Farmer ---
 
 
 async def fetch_farmer_amulpashudhan(mobile: str, token: str) -> Optional[List[Dict[str, Any]]]:
-    """Returns list of farmer records or None on 204/error/empty."""
+    """Farmer records, or None when upstream says this mobile has no record.
+
+    Raises BackendUnavailableError if upstream errored — never None for that.
+    """
     url = f"{BASE_AMULPASHUDHAN}/GetFarmerDetailsByMobile?mobileNumber={mobile}"
     try:
         with start_observation(
@@ -172,22 +213,16 @@ async def fetch_farmer_amulpashudhan(mobile: str, token: str) -> Optional[List[D
                     headers={"accept": "application/json", "Authorization": f"Bearer {token}"},
                 )
             _record_api_trace(observation, r, provider="amulpashudhan", url=url)
-        if r.status_code == 204 or not (r.text or "").strip():
-            return None
-        if r.status_code != 200:
-            return None
-        data = json.loads(r.text)
-        if isinstance(data, list) and len(data) > 0:
-            return data
-        if isinstance(data, dict) and data.get("data") and isinstance(data["data"], list):
-            return data["data"]
-        return None
-    except (json.JSONDecodeError, httpx.HTTPError, Exception):
-        return None
+    except Exception as e:
+        raise BackendUnavailableError("amulpashudhan", f"request failed: {e}") from e
+    return _parse_farmer_response(r, provider="amulpashudhan")
 
 
 async def fetch_farmer_herdman(mobile: str, token: str) -> Optional[List[Dict[str, Any]]]:
-    """Returns list of farmer records or None on error/empty."""
+    """Farmer records, or None when upstream says this mobile has no record.
+
+    Raises BackendUnavailableError if upstream errored — never None for that.
+    """
     url = f"{BASE_HERDMAN}/get-amul-farmer"
     try:
         with start_observation(
@@ -202,16 +237,9 @@ async def fetch_farmer_herdman(mobile: str, token: str) -> Optional[List[Dict[st
                     headers={"accept": "application/json", "api-token": f"Bearer {token}"},
                 )
             _record_api_trace(observation, r, provider="herdman", url=url)
-        if r.status_code != 200 or not (r.text or "").strip():
-            return None
-        data = json.loads(r.text)
-        if isinstance(data, list) and len(data) > 0:
-            return data
-        if isinstance(data, dict) and data.get("data") and isinstance(data["data"], list):
-            return data["data"]
-        return None
-    except (json.JSONDecodeError, httpx.HTTPError, Exception):
-        return None
+    except Exception as e:
+        raise BackendUnavailableError("herdman", f"request failed: {e}") from e
+    return _parse_farmer_response(r, provider="herdman")
 
 
 def _farmer_record_key(rec: Dict[str, Any]) -> tuple:
