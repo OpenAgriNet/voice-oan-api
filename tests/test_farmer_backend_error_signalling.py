@@ -84,3 +84,35 @@ def test_dead_fallback_does_not_mask_a_good_primary():
          ):
         records = asyncio.run(farmer_tool.fetch_farmer_info_raw("9999999999"))
     assert records and records[0].farmerCode == "0112"
+
+
+def test_get_farmer_by_mobile_unpacks_the_dual_backend_result():
+    """Regression: _fetch_farmer_records_dual_backend returns (records, failed).
+    Both of its callers must unpack it — treating the tuple as a record list
+    makes `if not records` always false and then blows up in has_content()."""
+    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1", "PASHUGPT_TOKEN_3": "t3"}), \
+         patch.object(
+             farmer_tool, "_fetch_farmer_records_dual_backend",
+             new=AsyncMock(return_value=([{"farmerName": "Ramesh", "societyName": "S"}], False)),
+         ):
+        out = asyncio.run(farmer_tool.get_farmer_by_mobile("9999999999"))
+    assert "Ramesh" in out
+
+
+def test_get_farmer_by_mobile_distinguishes_outage_from_absence():
+    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1", "PASHUGPT_TOKEN_3": "t3"}), \
+         patch.object(
+             farmer_tool, "_fetch_farmer_records_dual_backend",
+             new=AsyncMock(return_value=([], True)),
+         ):
+        out = asyncio.run(farmer_tool.get_farmer_by_mobile("9999999999"))
+    assert "could not be looked up" in out
+    assert "No farmer data found" not in out
+
+    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1", "PASHUGPT_TOKEN_3": "t3"}), \
+         patch.object(
+             farmer_tool, "_fetch_farmer_records_dual_backend",
+             new=AsyncMock(return_value=([], False)),
+         ):
+        out = asyncio.run(farmer_tool.get_farmer_by_mobile("9999999999"))
+    assert "No farmer data found" in out

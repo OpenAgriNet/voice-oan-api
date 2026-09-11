@@ -160,8 +160,16 @@ async def get_farmer_by_mobile(mobile_number: str) -> str:
         logger.error("Neither PASHUGPT_TOKEN nor PASHUGPT_TOKEN_3 is set")
         raise ValueError("PASHUGPT_TOKEN or PASHUGPT_TOKEN_3 environment variable must be set")
 
-    records = await _fetch_farmer_records_dual_backend(mobile)
+    records, upstream_failed = await _fetch_farmer_records_dual_backend(mobile)
     if not records:
+        if upstream_failed:
+            # Same distinction as fetch_farmer_info_raw: do not tell the caller
+            # "no such farmer" when we simply could not reach the backends.
+            logger.warning(f"Farmer lookup unavailable for mobile {mobile}")
+            return (
+                f"Farmer details for mobile {mobile}:\n\n"
+                "Farmer records could not be looked up right now. Please try again shortly."
+            )
         logger.info(f"No farmer data found for mobile {mobile}")
         return f"Farmer details for mobile {mobile}:\n\nNo farmer data found for this mobile number."
 
