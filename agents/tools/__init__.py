@@ -15,6 +15,7 @@ from agents.tools.farmer_cached import get_farmer_profile, get_herd_summary, lis
 from agents.tools.common import fire_tool_call_nudge
 from agents.tools.union_schemes import get_union_scheme_data, prepare_get_union_scheme_data
 from agents.tools.loan import check_loan_eligibility, prepare_check_loan_eligibility
+from agents.tools.bonus import get_farmer_bonus_amount, prepare_get_farmer_bonus_amount
 
 
 def _with_nudge_signal(func):
@@ -109,6 +110,13 @@ SIGNED_IN_FARMER_TOOLS = [
         docstring_format='auto',
         require_parameter_descriptions=False,
         prepare=prepare_get_union_scheme_data,
+    ),
+    Tool(
+        _with_nudge_signal(get_farmer_bonus_amount),
+        takes_ctx=True,
+        docstring_format='auto',
+        require_parameter_descriptions=False,
+        prepare=prepare_get_farmer_bonus_amount,
     ),
 ]
 
