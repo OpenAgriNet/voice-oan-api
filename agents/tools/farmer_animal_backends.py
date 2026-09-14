@@ -169,6 +169,9 @@ def normalize_tag(tag_no: str) -> str:
     return (tag_no or "").strip()
 
 
+_NOT_REGISTERED_MARKER = "Farmer Record Not Found"
+
+
 def _parse_farmer_response(r: httpx.Response, provider: str) -> Optional[List[Dict[str, Any]]]:
     """Records, or None when upstream answered cleanly with no record.
 
@@ -178,6 +181,13 @@ def _parse_farmer_response(r: httpx.Response, provider: str) -> Optional[List[Di
     if r.status_code == 204:
         return None
     if r.status_code != 200:
+        # amulpashudhan answers "this mobile has no farmer record" with HTTP 500
+        # and this exact body — an authoritative absence dressed as a server
+        # error. Measured Sept 2026: 1,810 of 1,810 voice 500s and 12,710 chat
+        # 500s were this, and zero were real faults. Treating it as an outage
+        # would make every turn from an unregistered caller re-hit the API.
+        if _NOT_REGISTERED_MARKER in (r.text or ""):
+            return None
         raise BackendUnavailableError(provider, f"HTTP {r.status_code}")
     if not (r.text or "").strip():
         return None

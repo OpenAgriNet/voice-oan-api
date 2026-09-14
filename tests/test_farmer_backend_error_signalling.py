@@ -28,6 +28,15 @@ def test_error_status_raises_not_empty():
             _parse_farmer_response(_resp(status, '{"error":"nope"}'), provider="p")
 
 
+def test_partner_500_meaning_not_registered_is_a_clean_absence():
+    """amulpashudhan returns HTTP 500 + {"Error":"Farmer Record Not Found."} for
+    a mobile with no farmer record. That is an authoritative absence, not an
+    outage: it must be cacheable, or every turn from an unregistered caller
+    re-hits the API (1,810 voice + 12,710 chat lookups in Sept 2026 alone)."""
+    body = '{"Error":"Farmer Record Not Found."}'
+    assert _parse_farmer_response(_resp(500, body), provider="amulpashudhan") is None
+
+
 def test_unparseable_200_raises():
     with pytest.raises(BackendUnavailableError):
         _parse_farmer_response(_resp(200, "<html>gateway</html>"), provider="p")
