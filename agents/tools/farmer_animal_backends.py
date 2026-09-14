@@ -1,7 +1,8 @@
 """
 Internal backends for farmer and animal data from multiple APIs.
 - amulpashudhan.com (PASHUGPT_TOKEN): GetFarmerDetailsByMobile, GetAnimalDetailsByTagNo,
-  GetAITechniciansBySociety, CreateAICall, CreateHealthCall
+  GetAITechniciansBySociety, FarmerMilkCollectionDetails, GetFarmerBonusAmount,
+  CreateAICall, CreateHealthCall
 - herdman.live (PASHUGPT_TOKEN_3): get-amul-farmer, get-amul-animal
 
 Used by farmer.py and animal.py to provide cohesive tools with fallback and merged output.
@@ -18,6 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from agents.models.farmer import FarmerRecord, AnimalRecord
 from agents.models.ai_call import AICallRequestModel, AICallResponseModel
 from agents.models.health_call import HealthCallRequestModel, HealthCallResponseModel
+from app.models.bonus import (
+    FarmerBonusAmountRecordModel,
+    FarmerBonusAmountRequestModel,
+)
 from app.models.milk_collection import (
     FarmerMilkCollectionRequestModel,
     FarmerMilkCollectionResponseModel,
@@ -516,5 +521,100 @@ async def get_farmer_milk_collection_details_api(
             request.fromdate,
             request.todate,
             e,
+        )
+    return None
+
+
+async def get_farmer_bonus_amount_api(
+    request: FarmerBonusAmountRequestModel, token: str
+) -> list[FarmerBonusAmountRecordModel] | None:
+    """Fetches farmer bonus amount records (plain JSON array from GetFarmerBonusAmount).
+
+    Returns an empty list when the API responds 200 with `[]`, or when the
+    business body says farmer bonus data was not found. Returns None on
+    unsupported-union / HTTP/parse/validation failure so callers can fan out
+    across accounts.
+    """
+    api_url = f"{BASE_AMULPASHUDHAN}/GetFarmerBonusAmount"
+
+    try:
+        with start_observation(
+            "get_farmer_bonus_amount_api",
+            input=request.to_query_params(),
+            metadata={"provider": "amulpashudhan", "url": api_url},
+        ) as observation:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    api_url,
+                    params=request.to_query_params(),
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                _record_api_trace(observation, response, provider="amulpashudhan", url=api_url)
+                response.raise_for_status()
+                _logger.info(
+                    "[GetFarmerBonusAmount(%s,%s,%s)] :: Response successfully received.",
+                    request.union_code,
+                    request.society_code,
+                    request.farmer_code,
+                )
+        response_json = response.json()
+        # Doc: success body is a plain JSON array — not an APIStatusCode envelope.
+        if not isinstance(response_json, list):
+            raise ValueError("Expected list response from GetFarmerBonusAmount")
+        return [
+            FarmerBonusAmountRecordModel.model_validate(item)
+            for item in response_json
+        ]
+    except httpx.HTTPStatusError as e:
+        body = e.response.text or ""
+        # Business messages from the API doc (validation / AMCS-only / not found).
+        if "Bonus amount not supported" in body:
+            _logger.warning(
+                "[GetFarmerBonusAmount(%s,%s,%s)] :: Union data source not supported "
+                "(status=%s): %s",
+                request.union_code,
+                request.society_code,
+                request.farmer_code,
+                e.response.status_code,
+                body,
+            )
+        elif "Farmer bonus data not found" in body:
+            # No records for this account — treat as successful empty result so the
+            # tool can show "no bonus records" instead of a temporary failure.
+            _logger.info(
+                "[GetFarmerBonusAmount(%s,%s,%s)] :: No bonus data (status=%s): %s",
+                request.union_code,
+                request.society_code,
+                request.farmer_code,
+                e.response.status_code,
+                body,
+            )
+            return []
+        else:
+            _logger.error(
+                "[GetFarmerBonusAmount(%s,%s,%s)] :: Request failed with status code %s, "
+                "and message = %s",
+                request.union_code,
+                request.society_code,
+                request.farmer_code,
+                e.response.status_code,
+                body,
+            )
+    except json.JSONDecodeError as e:
+        _logger.error(
+            "[GetFarmerBonusAmount(%s,%s,%s)] :: Response didn't give a valid json, "
+            "failed due to decoding error %s",
+            request.union_code,
+            request.society_code,
+            request.farmer_code,
+            str(e),
+        )
+    except Exception as e:
+        _logger.error(
+            "[GetFarmerBonusAmount(%s,%s,%s)] :: Request failed, due to error %s",
+            request.union_code,
+            request.society_code,
+            request.farmer_code,
+            str(e),
         )
     return None
