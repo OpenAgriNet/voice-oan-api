@@ -734,9 +734,36 @@ def _append_animal_records(lines: list[str], envelope: FarmerDataEnvelope) -> No
         lines.extend(blocks)
 
 
+# An empty string told the agent nothing, so "this mobile has no farmer record"
+# and "we have not resolved this caller yet" arrived identically: as a blank.
+# The agent then invented identifiers and called the tools anyway — 393 of 393
+# failed bookings in 2026-09-01..09-14 ran on a prompt with no farmer block, and
+# no booking has ever succeeded from one. amul-oan-api already distinguishes
+# these (`lookupStatus` + `_not_found_context`); this brings voice in line.
+# See issue #282.
+_NO_RECORD_CONTEXT = (
+    "- Farmer identity: NO farmer record is registered for this mobile number.\n"
+    "- Do not book an AI call or a health call, and do not look up milk collection.\n"
+    "- Do not guess or construct union, society, farmer or technician codes.\n"
+    "- Tell the caller their number is not registered and ask them to contact their milk society."
+)
+_UNRESOLVED_CONTEXT = (
+    "- Farmer identity: NOT RESOLVED for this call yet.\n"
+    "- Do not book an AI call or a health call, and do not look up milk collection.\n"
+    "- Do not guess or construct union, society, farmer or technician codes.\n"
+    "- Tell the caller you cannot fetch their details right now and ask them to try again shortly."
+)
+
+
 def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
-    if envelope is None or not envelope.farmers:
-        return ""
+    if envelope is None:
+        return _UNRESOLVED_CONTEXT
+    if not envelope.farmers:
+        return (
+            _NO_RECORD_CONTEXT
+            if envelope.lookupStatus == "not_found"
+            else _UNRESOLVED_CONTEXT
+        )
 
     first = envelope.farmers[0]
     tags = _extract_farmer_tags(envelope.farmers)

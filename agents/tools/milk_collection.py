@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from pydantic_ai import RunContext
 
 from agents.deps import FarmerAccount, FarmerContext
+from agents.tools.identity_guard import invalid_code_field
 from app.models.milk_collection import FarmerMilkCollectionRequestModel
 from agents.tools.farmer_animal_backends import get_farmer_milk_collection_details_api
 from helpers.utils import get_logger
@@ -135,6 +136,25 @@ async def get_farmer_milk_collection_details(
     # Fall back to the LLM-supplied codes only when context has none.
     accounts = list(ctx.deps.farmer_accounts) if ctx.deps and ctx.deps.farmer_accounts else []
     if not accounts:
+        # These are now the model's own codes, and with nothing in context to
+        # copy it invents them: 117 of 1,148 milk lookups in 2026-09-01..09-14
+        # carried UNKNOWN / missing / not_provided / a farmer's first name.
+        # Upstream then answered "no milk collection records" and the agent
+        # relayed that as fact — 96 farmers were told they had no milk data when
+        # we had simply looked up society `UNKNOWN`. The fallback itself is
+        # deliberate (a caller whose context failed to load can still be served),
+        # so screen the codes rather than remove it. See issue #282.
+        invalid_field = invalid_code_field(union_code, society_code, farmer_code)
+        if invalid_field:
+            logger.warning(
+                "Milk lookup blocked: no account in context and %s is not a real "
+                "code (llm_codes=%s/%s/%s)",
+                invalid_field, union_code, society_code, farmer_code,
+            )
+            return (
+                "Milk collection details are not available because your farmer "
+                "account could not be identified. Please try again shortly."
+            )
         accounts = [
             FarmerAccount(
                 union_code=union_code,

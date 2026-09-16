@@ -9,10 +9,15 @@ from agents.deps import FarmerContext
 from agents.models.ai_call import AISpecies
 from agents.models.health_call import HealthCallRequestModel, HealthCaseType
 from agents.tools.farmer_animal_backends import create_health_call_api
+from agents.tools.identity_guard import codes_absent_from_context, invalid_code_field
 from app.core.cache import cache, try_reserve, release_reservation
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
+
+INVALID_IDENTIFIERS_MESSAGE = (
+    "Health call booking failed. The farmer details are not available."
+)
 
 # One booking per session per 30 min (mirrors create_ai_call). Also makes this
 # tool idempotent against an agent re-run (OSS->managed streaming fallback).
@@ -60,6 +65,26 @@ async def create_health_call(
     if not await ctx.deps.ensure_in_scope():
         logger.info("Health call blocked: query failed moderation; session=%s", session_id)
         return "This helpline only handles dairy farming and animal husbandry questions."
+
+    # Same guard as create_ai_call. Health call was the WORST offender of the
+    # three identity-taking tools (33 of 163 calls carried invented codes in
+    # 2026-09-01..09-14, 20.2%) precisely because dbc2d23 only covered booking.
+    untrusted = codes_absent_from_context(
+        # farmer_accounts may be absent on test stubs, as farmer_unions is above.
+        getattr(ctx.deps, "farmer_accounts", []) if ctx and ctx.deps else [],
+        union_code, society_code, farmer_code,
+    )
+    if untrusted:
+        logger.warning("Health call blocked: %s; session=%s", untrusted, session_id)
+        return INVALID_IDENTIFIERS_MESSAGE
+
+    invalid_field = invalid_code_field(union_code, society_code, farmer_code)
+    if invalid_field:
+        logger.warning(
+            "Health call blocked: %s is not a real code (%r); session=%s",
+            invalid_field, locals().get(invalid_field), session_id,
+        )
+        return INVALID_IDENTIFIERS_MESSAGE
 
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:

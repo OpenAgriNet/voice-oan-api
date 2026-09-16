@@ -1,6 +1,10 @@
 """Tests for the Kutch AI-call ban: cache skip, technician-summary copy,
 create_ai_call hard refuse, and prompt precedence over try-again-later.
 """
+# Codes here are real-shaped ("159"/"00731"/"0554") rather than "U"/"S"/"F":
+# the identity guard rejects a code with no digit, because all 28,089 codes
+# on successful prod bookings carry one and the invented ones (UNKNOWN,
+# MISSING, not_provided) never do. See agents/tools/identity_guard.
 import os
 import asyncio
 from pathlib import Path
@@ -333,7 +337,7 @@ def test_create_ai_call_refuses_sarhad_without_writing(monkeypatch):
     monkeypatch.setattr(ai_mod, "try_reserve", fake_reserve)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(unions=["sarhad"]), "U", "S", "F", TECH_ID, SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(unions=["sarhad"]), "159", "00731", "0554", TECH_ID, SPECIES)
     )
     assert out == UNION_BANNED_MESSAGE
     assert calls == {"api": 0, "reserve": 0}
@@ -355,7 +359,7 @@ def test_create_ai_call_refuses_canonical_and_mixed_banned_unions(monkeypatch, u
     monkeypatch.setattr(ai_mod, "try_reserve", fake_reserve)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(unions=unions), "U", "S", "F", TECH_ID, SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(unions=unions), "159", "00731", "0554", TECH_ID, SPECIES)
     )
     assert out == UNION_BANNED_MESSAGE
     assert calls == {"n": 0, "reserve": 0}
@@ -372,7 +376,7 @@ def test_create_ai_call_still_books_for_kaira(monkeypatch):
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(session_id=None, unions=["kaira"]), "U", "S", "F", TECH_ID, SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(session_id=None, unions=["kaira"]), "159", "00731", "0554", TECH_ID, SPECIES)
     )
     assert calls["n"] == 1
     assert "booked successfully" in out
@@ -393,7 +397,7 @@ def test_create_ai_call_empty_or_missing_unions_is_not_banned(monkeypatch, union
     out = asyncio.run(
         ai_mod.create_ai_call(
             _booking_ctx(session_id=None, unions=unions, include_unions=include_unions),
-            "U", "S", "F", TECH_ID, SPECIES,
+            "159", "00731", "0554", TECH_ID, SPECIES,
         )
     )
     assert calls["n"] == 1
@@ -416,7 +420,7 @@ def test_moderation_block_runs_before_union_ban(monkeypatch):
         ensure_in_scope=_out_of_scope,
         farmer_unions=["kutch"],
     ))
-    out = asyncio.run(ai_mod.create_ai_call(ctx, "U", "S", "F", TECH_ID, SPECIES))
+    out = asyncio.run(ai_mod.create_ai_call(ctx, "159", "00731", "0554", TECH_ID, SPECIES))
     assert out == "This helpline only handles dairy farming and animal husbandry questions."
     assert calls["n"] == 0
 
@@ -433,7 +437,7 @@ def test_health_call_still_books_for_kutch_union(monkeypatch):
     out = asyncio.run(
         hc_mod.create_health_call(
             _booking_ctx(session_id=None, unions=["kutch"]),
-            "U", "S", "F", SPECIES, next(iter(HealthCaseType)), "fever",
+            "159", "00731", "0554", SPECIES, next(iter(HealthCaseType)), "fever",
         )
     )
     assert calls["n"] == 1

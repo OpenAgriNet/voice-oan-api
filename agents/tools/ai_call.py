@@ -12,6 +12,13 @@ from pydantic_ai import RunContext
 from agents.deps import FarmerContext
 from agents.models.ai_call import AICallRequestModel, AISpecies
 from agents.tools.farmer_animal_backends import create_ai_call_api
+from agents.tools.identity_guard import (
+    CODE_PATTERN,
+    codes_absent_from_context,
+    TECHNICIAN_ID_PATTERN,
+    invalid_code_field,
+    invalid_technician_id,
+)
 from app.core.cache import cache, try_reserve, release_reservation
 from app.models.union import UNION_BANNED_MESSAGE, any_union_banned_from_ai_calls
 from helpers.utils import get_logger
@@ -21,19 +28,13 @@ logger = get_logger(__name__)
 AI_CALL_COOLDOWN_TTL = 60 * 30  # 30 minutes
 AI_CALL_CACHE_NAMESPACE = "ai_call_booked"
 
-# With no farmer/technician context the model does not stop — it invents
-# identifiers and books anyway (U11223/S67890/F12345/T55667,
-# UNION_CODE_FROM_CONTEXT, farmer names in farmerCode), which the partner API
-# always 500s. Patterns validated on 9,945 successful prod bookings (30d to
-# 2026-09-08): every real code matches _CODE_PATTERN — they are NOT always
-# numeric, M001 and NA4192 book fine — and every real technician id is 24
-# base64 chars ending "==".
-_CODE_PATTERN = re.compile(r"^[A-Za-z0-9/-]{1,12}$")
-_TECHNICIAN_ID_PATTERN = re.compile(r"^[A-Za-z0-9+/]{22}==$")
+# See agents/tools/identity_guard for why this exists and the measured rates.
 INVALID_IDENTIFIERS_MESSAGE = (
     "Artificial insemination call booking failed. "
     "The farmer or technician details are not available."
 )
+_CODE_PATTERN = CODE_PATTERN              # re-exported: referenced by tests
+_TECHNICIAN_ID_PATTERN = TECHNICIAN_ID_PATTERN
 
 
 def _invalid_booking_identifier(
@@ -43,14 +44,10 @@ def _invalid_booking_identifier(
     user_id: str,
 ) -> Optional[str]:
     """Name of the first identifier that cannot be real, else None."""
-    for field, value in (
-        ("union_code", union_code),
-        ("society_code", society_code),
-        ("farmer_code", farmer_code),
-    ):
-        if not _CODE_PATTERN.match((value or "").strip()):
-            return field
-    if not _TECHNICIAN_ID_PATTERN.match((user_id or "").strip()):
+    bad = invalid_code_field(union_code, society_code, farmer_code)
+    if bad:
+        return bad
+    if invalid_technician_id(user_id):
         return "user_id"
     return None
 
@@ -110,6 +107,15 @@ async def create_ai_call(
             session_id,
         )
         return UNION_BANNED_MESSAGE
+
+    untrusted = codes_absent_from_context(
+        # farmer_accounts may be absent on test stubs, as farmer_unions is above.
+        getattr(ctx.deps, "farmer_accounts", []) if ctx and ctx.deps else [],
+        union_code, society_code, farmer_code,
+    )
+    if untrusted:
+        logger.warning("AI call booking blocked: %s; session=%s", untrusted, session_id)
+        return INVALID_IDENTIFIERS_MESSAGE
 
     invalid_field = _invalid_booking_identifier(union_code, society_code, farmer_code, user_id)
     if invalid_field is not None:
