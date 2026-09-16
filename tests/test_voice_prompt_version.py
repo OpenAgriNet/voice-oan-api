@@ -49,6 +49,7 @@ LIVE_TOOLS = [
     "create_ai_call",
     "create_health_call",
     "get_farmer_milk_collection_details",
+    "get_farmer_bonus_amount",
     "get_union_scheme_data",
     "signal_conversation_state",
 ]
@@ -231,6 +232,19 @@ class TestNewVariantInvariants:
         text = _load(version)
         assert "YYYY-MM-DD" in text
         assert "thirty one" in text.lower() or "31 days" in text
+
+    @pytest.mark.parametrize("version", list(VARIANTS))
+    def test_bonus_tool_routing_and_spoken_rules(self, version):
+        text = _load(version)
+        lower = text.lower()
+        assert "get_farmer_bonus_amount" in text
+        assert "bonus" in lower
+        # Personal amount vs conceptual distinction
+        assert "search_documents" in text
+        assert "passbook" in lower or "p d balance" in lower or "pd balance" in lower
+        # Voice must not prescribe markdown table output for bonus
+        assert "### Bonus Amount" not in text
+        assert "| Period | Society | Farmer | Bonus Amount |" not in text
 
     @pytest.mark.parametrize("version", NEW_VARIANTS)
     def test_ai_booking_no_ordinal_choice(self, version):

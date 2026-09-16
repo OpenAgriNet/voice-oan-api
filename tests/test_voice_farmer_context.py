@@ -67,13 +67,23 @@ def test_summary_handles_record_with_no_count_and_no_tags():
 
 
 def test_signed_in_farmer_tools_drops_brittle_three():
-    """The three brittle voice-only farmer tools are commented out; only the
-    union-scheme tool remains in SIGNED_IN_FARMER_TOOLS."""
+    """The three brittle voice-only farmer tools are commented out; scheme + bonus remain."""
     from agents.tools import SIGNED_IN_FARMER_TOOLS
+    from agents.tools.bonus import prepare_get_farmer_bonus_amount
 
-    assert len(SIGNED_IN_FARMER_TOOLS) == 1, (
-        f"expected only get_union_scheme_data; got {len(SIGNED_IN_FARMER_TOOLS)} tools"
+    assert len(SIGNED_IN_FARMER_TOOLS) == 2, (
+        f"expected get_union_scheme_data + get_farmer_bonus_amount; "
+        f"got {len(SIGNED_IN_FARMER_TOOLS)} tools"
     )
+    names = {getattr(t.function, "__name__", "") for t in SIGNED_IN_FARMER_TOOLS}
+    assert names == {"get_union_scheme_data", "get_farmer_bonus_amount"}
+    bonus_tool = next(
+        t
+        for t in SIGNED_IN_FARMER_TOOLS
+        if getattr(t.function, "__name__", "") == "get_farmer_bonus_amount"
+    )
+    assert bonus_tool.prepare is prepare_get_farmer_bonus_amount
+    assert bonus_tool.takes_ctx is True
 
 
 def test_scheme_summary_includes_sumul_and_sursagar(monkeypatch):

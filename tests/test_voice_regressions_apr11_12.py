@@ -113,6 +113,7 @@ def _set_voice_monkeypatches(
     farmer_data_override=None,
     moderation_override=None,
     non_meaningful_override=None,
+    fallback_enabled: bool = False,
 ):
     from agents import voice as voice_agent_module
     from app.services import voice as voice_module
@@ -195,6 +196,9 @@ def _set_voice_monkeypatches(
     monkeypatch.setattr(voice_module.settings, "nudge_timeout_seconds", 0.02, raising=False)
     monkeypatch.setattr(voice_module.settings, "voice_non_meaningful_timeout_seconds", 0.05, raising=False)
     monkeypatch.setattr(voice_module.settings, "voice_non_meaningful_gate_timeout_seconds", 0.01, raising=False)
+    # Default off so Agent.run_stream mocks are used. Tests that exercise the
+    # fallback-enabled pretranslation/agent.iter path can opt back in.
+    monkeypatch.setattr(voice_module.settings, "fallback_enabled", fallback_enabled, raising=False)
     return voice_module
 
 
@@ -216,6 +220,7 @@ async def _collect_stream(
     farmer_data_override=None,
     moderation_override=None,
     non_meaningful_override=None,
+    fallback_enabled: bool = False,
 ):
     history_store: dict[str, list] = {}
     voice_module = _set_voice_monkeypatches(
@@ -230,6 +235,7 @@ async def _collect_stream(
         farmer_data_override=farmer_data_override,
         moderation_override=moderation_override,
         non_meaningful_override=non_meaningful_override,
+        fallback_enabled=fallback_enabled,
     )
     chunks: list[str] = []
     async for chunk in voice_module.stream_voice_message(
@@ -357,8 +363,11 @@ class TestHelperCoverage:
         base_tool_names = set(voice_agent._function_toolset.tools.keys())
         signed_in_tool_names = set(voice_agent_signed_in._function_toolset.tools.keys())
         assert {"search_terms", "search_documents", "get_farmer_milk_collection_details", "create_ai_call", "create_health_call"}.issubset(base_tool_names)
-        assert {"get_farmer_profile", "get_herd_summary", "list_animal_tags"}.issubset(signed_in_tool_names)
+        # Brittle profile/herd/tag tools were dropped; signed-in surface keeps scheme + bonus.
+        assert {"get_union_scheme_data", "get_farmer_bonus_amount"}.issubset(signed_in_tool_names)
+        assert "get_farmer_profile" not in signed_in_tool_names
         assert "get_farmer_profile" not in base_tool_names
+        assert "get_farmer_bonus_amount" not in base_tool_names
 
     def test_voice_system_prompt_is_static(self):
         assert "Today's date:" not in STATIC_VOICE_SYSTEM_PROMPT
@@ -442,12 +451,13 @@ class TestHelperCoverage:
         assert "Do not mirror kinship words from the translation" in STATIC_VOICE_SYSTEM_PROMPT
         assert "Never address the caller as sister" in STATIC_VOICE_SYSTEM_PROMPT
         assert "Never infer or assign the caller's gender" in STATIC_VOICE_SYSTEM_PROMPT
-        assert "Female Persona (mandatory)" in STATIC_VOICE_SYSTEM_PROMPT
-        assert "feminine self-reference" in STATIC_VOICE_SYSTEM_PROMPT
+        assert "Sarlaben" in STATIC_VOICE_SYSTEM_PROMPT
+        assert "a woman" in STATIC_VOICE_SYSTEM_PROMPT.lower()
         assert "This is a live phone call, not a chat or article." in STATIC_VOICE_SYSTEM_PROMPT
         assert "Default to one short sentence." in STATIC_VOICE_SYSTEM_PROMPT
         assert "Do not use colons, headings, labels, hyphens, or en dashes" in STATIC_VOICE_SYSTEM_PROMPT
         assert "Do not organize the answer as \"one\", \"two\", \"three\"" in STATIC_VOICE_SYSTEM_PROMPT
+        assert "get_farmer_bonus_amount" in STATIC_VOICE_SYSTEM_PROMPT
 
     def test_gujarati_output_rules_keep_addressing_neutral_and_detached(self):
         rules = "\n".join(GU_PREFERRED_TRANSLATION_RULES)
@@ -771,12 +781,11 @@ class TestHelperCoverage:
         # agent instead, which clarifies in context. Here both primary and
         # fallback fail to yield text.
         from app.services import voice as voice_module
-        from agents import voice as voice_agent_module
 
-        async def _openai_pretranslation(*args, **kwargs):
+        async def _oss_pretranslation(*args, **kwargs):
             raise TimeoutError("primary pretranslation failed")
 
-        async def _fallback_pretranslation(*args, **kwargs):
+        async def _managed_pretranslation(*args, **kwargs):
             return ""
 
         agent_called = False
@@ -786,8 +795,9 @@ class TestHelperCoverage:
             nonlocal agent_called
             agent_called = True
 
-        monkeypatch.setattr(voice_module, "translate_to_english_with_gpt5_mini", _openai_pretranslation)
-        monkeypatch.setattr(voice_module, "translate_to_english_with_structured_fallback", _fallback_pretranslation)
+        monkeypatch.setattr(voice_module, "translate_to_english_with_oss_vllm", _oss_pretranslation)
+        monkeypatch.setattr(voice_module, "translate_to_english_with_gpt5_mini", _managed_pretranslation)
+        monkeypatch.setattr(voice_module, "translate_to_english_with_structured_fallback", _managed_pretranslation)
 
         output, saved_history = asyncio.run(
             _collect_stream(
@@ -798,6 +808,7 @@ class TestHelperCoverage:
                 response_stream=_FakeResponseStream(on_enter=_mark_called),
                 source_lang="gu",
                 target_lang="gu",
+                fallback_enabled=True,
             )
         )
 
@@ -974,7 +985,7 @@ class TestMultiTurnFlows:
         assert "Known animal tags: eight seven two one, five four zero eight" in runtime_context
 
     def test_signed_in_list_animal_tags_masks_identifiers(self, monkeypatch):
-        from agents.tools import farmer_cached as farmer_cached_module
+        from agents.services import farmer_cache as farmer_cache_module
 
         async def _fake_farmer_data(_mobile):
             return FarmerDataEnvelope(
@@ -985,7 +996,7 @@ class TestMultiTurnFlows:
                 source="cache",
             )
 
-        monkeypatch.setattr(farmer_cached_module, "get_or_fetch_farmer_data", _fake_farmer_data)
+        monkeypatch.setattr(farmer_cache_module, "get_or_fetch_farmer_data", _fake_farmer_data)
 
         result = asyncio.run(
             list_animal_tags(
