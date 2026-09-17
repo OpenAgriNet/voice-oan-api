@@ -22,6 +22,7 @@ from app.models.union import is_ai_call_banned_union
 from app.observability import start_observation
 from agents.models.farmer import AnimalRecord, FarmerDataEnvelope, FarmerRecord
 from agents.tools.farmer_animal_backends import (
+    BackendUnavailableError,
     GetAITechniciansBySocietyQueryParams,
     get_ai_technicians_by_society_api,
     fetch_animal_amulpashudhan,
@@ -241,7 +242,19 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             await enqueue_farmer_refresh(phone)
             return None
 
-        records = await fetch_farmer_info_raw(phone)
+        upstream_failed = False
+        try:
+            records = await fetch_farmer_info_raw(phone)
+        except BackendUnavailableError as e:
+            # Upstream is down; this is not "the farmer does not exist". Fall
+            # through to the empty branch, which must not write a not_found.
+            upstream_failed = True
+            records = None
+            logger.warning(
+                "Farmer lookup upstream unavailable for phone hash %s...: %s",
+                _cache_key(phone)[:8],
+                e,
+            )
         if records:
             envelope = FarmerDataEnvelope.from_records(records, source="api", lookup_status="found")
             envelope.aiTechnicians = await _fetch_ai_technicians(records)
@@ -266,10 +279,8 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
 
         # Upstream returned nothing. Never let a transient empty response wipe
         # known-good data — keep the "found" record regardless of age (it stays
-        # stale and is retried). We cannot distinguish a genuine "not found" from
-        # a transient failure here, so genuine removal is left to the 7d hard
-        # Redis TTL rather than an ambiguous empty response. (A confident
-        # not_found signal is a follow-up in the provider-interface PR.)
+        # stale and is retried). Genuine removal is left to the 7d hard Redis TTL
+        # rather than an ambiguous empty response.
         existing = await get_cached_farmer_data(phone)
         if existing is not None and existing.lookupStatus == "found":
             logger.info(
@@ -284,6 +295,17 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
                 await _restamp_kept_record(phone, existing)
             return existing
 
+        if upstream_failed:
+            # Nothing known-good to keep, and nothing trustworthy to write.
+            # Leave the cache empty so the next turn retries, rather than pinning
+            # a 2h not_found (FARMER_NEGATIVE_REFRESH_INTERVAL) on a caller whose
+            # lookup merely failed. Returning None reads as "unresolved"
+            # downstream, which tells the caller to try again rather than that
+            # their number is unregistered. See issue #282 root cause B.
+            return None
+
+        # Upstream answered and has no record for this mobile. That is a fact,
+        # and it is the only empty result we are willing to cache.
         envelope = FarmerDataEnvelope.not_found(source="api")
         await set_cached_farmer_data(phone, envelope)
         return envelope
