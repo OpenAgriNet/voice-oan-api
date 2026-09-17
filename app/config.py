@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # the stale record only if the API also fails). Backstop above the 12h/2h
     # soft-refresh; the 7d hard Redis TTL still deletes records entirely.
     farmer_max_serve_stale_seconds: int = int(os.getenv("FARMER_MAX_SERVE_STALE_SECONDS", str(60 * 60 * 24)))
+    # Partner latency is p50 1.0s / p90 2.2s with a long tail. 4.0s cut off just
+    # past p90 and cancelled ~134 lookups that would have succeeded.
+    farmer_cold_fetch_timeout: float = float(os.getenv("FARMER_COLD_FETCH_TIMEOUT", "8.0"))
+    # After a cancelled cold fetch, skip the blocking retry for this long — a
+    # worker is already on it.
+    farmer_inflight_marker_ttl: int = int(os.getenv("FARMER_INFLIGHT_MARKER_TTL", "60"))
     # Farmer/animal API tracing records a PII-SAFE structure summary by default
     # (status, record count, which keys are present/null) — enough to prove
     # inconsistent returns without shipping farmer PII to Langfuse. Raw response
