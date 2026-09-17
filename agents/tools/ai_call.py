@@ -4,8 +4,6 @@ One booking per session (30-min cooldown via Redis).
 """
 import json
 import os
-import re
-from typing import Optional
 
 from pydantic_ai import RunContext
 
@@ -13,10 +11,7 @@ from agents.deps import FarmerContext
 from agents.models.ai_call import AICallRequestModel, AISpecies
 from agents.tools.farmer_animal_backends import create_ai_call_api
 from app.core.cache import cache, try_reserve, release_reservation
-from agents.services.farmer_identity import (
-    CODE_PATTERN,
-    invalid_identity_code_field,
-)
+from agents.services.farmer_identity import match_technician
 from app.models.union import UNION_BANNED_MESSAGE, any_union_banned_from_ai_calls
 from helpers.utils import get_logger
 
@@ -25,70 +20,25 @@ logger = get_logger(__name__)
 AI_CALL_COOLDOWN_TTL = 60 * 30  # 30 minutes
 AI_CALL_CACHE_NAMESPACE = "ai_call_booked"
 
-# With no farmer/technician context the model does not stop — it invents
-# identifiers and books anyway (U11223/S67890/F12345/T55667,
-# UNION_CODE_FROM_CONTEXT, farmer names in farmerCode), which the partner API
-# always 500s. Patterns validated on 9,945 successful prod bookings (30d to
-# 2026-09-08): every real code matches _CODE_PATTERN — they are NOT always
-# numeric, M001 and NA4192 book fine — and every real technician id is 24
-# base64 chars ending "==".
-_CODE_PATTERN = CODE_PATTERN  # canonical rule lives in agents.services.farmer_identity
-_TECHNICIAN_ID_PATTERN = re.compile(r"^[A-Za-z0-9+/]{22}==$")
-INVALID_IDENTIFIERS_MESSAGE = (
-    "Artificial insemination call booking failed. "
-    "The farmer or technician details are not available."
-)
-
-
-def _invalid_booking_identifier(
-    union_code: str,
-    society_code: str,
-    farmer_code: str,
-    user_id: str,
-    accounts=None,
-) -> Optional[str]:
-    """Name of the first identifier that cannot be real, else None.
-
-    The code rules are shared with create_health_call so the two cannot drift;
-    only the technician id is specific to AI booking. `accounts` cross-checks the
-    triple against the caller's own accounts when they are known.
-    """
-    invalid_field = invalid_identity_code_field(
-        union_code, society_code, farmer_code, accounts
-    )
-    if invalid_field is not None:
-        return invalid_field
-    if not _TECHNICIAN_ID_PATTERN.match((user_id or "").strip()):
-        return "user_id"
-    return None
-
-
 async def create_ai_call(
     ctx: RunContext[FarmerContext],
-    union_code: str,
-    society_code: str,
-    farmer_code: str,
-    user_id: str,
+    technician_name: str,
     species: AISpecies,
 ) -> str:
     """
     Book an artificial insemination (beech daan / બીજ દાન) call for a farmer.
-    Extract union_code, society_code, farmer_code, and the selected AI technician user_id
-    from the farmer context in the system prompt.
-    If these details are not available, tell the farmer their details are not available right now.
-    Ask the farmer whether the booking is for a cow (ગાય) or buffalo (ભેંસ) before calling this tool.
-    Never ask the farmer to speak an internal technician ID. Use the selected technician option
-    already present in farmer context.
-    If Farmer Profile says AI call booking is not allowed for this union, tell the farmer
-    exactly: Kindly contact your Milk Society to book the service. Do not ask which
-    technician and do not book.
+
+    Pass the full name of the technician the farmer chose, exactly as it appears
+    in the AI technician context. All codes are read from context — you do not
+    supply them, and you must never ask the farmer to speak an internal ID.
+    Ask whether the booking is for a cow (ગાય) or buffalo (ભેંસ) before calling.
+    If Farmer Profile says AI call booking is not allowed for this union, tell the
+    farmer exactly: Kindly contact your Milk Society to book the service. Do not
+    ask which technician and do not book.
 
     Args:
         ctx: The run context (automatically provided).
-        union_code: Union code for the farmer from farmer context.
-        society_code: Society code for the farmer from farmer context.
-        farmer_code: Farmer code for the farmer from farmer context.
-        user_id: Selected AI technician user ID mapped from farmer context.
+        technician_name: Full name of the technician the farmer chose.
         species: Species to book the AI call for. Use `cow` or `buffalo`.
 
     Returns:
@@ -97,8 +47,8 @@ async def create_ai_call(
     """
     session_id = ctx.deps.session_id
     logger.info(
-        "AI call tool invoked: session=%s union=%s society=%s farmer=%s user_id=%s species=%s",
-        session_id, union_code, society_code, farmer_code, user_id, species.value,
+        "AI call tool invoked: session=%s technician_name=%r species=%s",
+        session_id, technician_name, species.value,
     )
 
     # Moderation runs concurrently with the agent, so this booking write must
@@ -119,19 +69,19 @@ async def create_ai_call(
         )
         return UNION_BANNED_MESSAGE
 
-    invalid_field = _invalid_booking_identifier(
-        union_code,
-        society_code,
-        farmer_code,
-        user_id,
-        getattr(ctx.deps, "farmer_accounts", None) if ctx and ctx.deps else None,
+    # The technician's group carries the account to book against, so one lookup
+    # yields both the technician id and the codes.
+    technician, problem = match_technician(
+        getattr(ctx.deps, "ai_technicians", None) or [], technician_name
     )
-    if invalid_field is not None:
-        logger.warning(
-            "AI call blocked: invalid %s; session=%s union=%s society=%s farmer=%s user_id=%s",
-            invalid_field, session_id, union_code, society_code, farmer_code, user_id,
-        )
-        return INVALID_IDENTIFIERS_MESSAGE
+    if technician is None:
+        logger.info("AI call not booked: %s; session=%s", problem, session_id)
+        return problem
+
+    union_code = technician.union_code or ""
+    society_code = technician.society_code or ""
+    farmer_code = technician.farmer_code or ""
+    user_id = technician.user_id or ""
 
     token = os.getenv("PASHUGPT_TOKEN")
     if not token:

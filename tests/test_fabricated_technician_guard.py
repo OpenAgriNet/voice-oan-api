@@ -17,6 +17,8 @@ import pytest
 
 from agents.models.ai_call import AISpecies
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
+from agents.deps import FarmerAccount, FarmerTechnician
+from agents.services import farmer_identity as fi
 from agents.tools import ai_call as ai_mod
 from app.services.voice import _build_ai_technician_summary
 
@@ -62,29 +64,47 @@ def test_populated_technician_context_is_unchanged():
     assert "Do NOT name any technician" not in summary
 
 
-# (union, society, farmer, technician id) seen hitting the partner API in prod
-@pytest.mark.parametrize("identifiers", [
-    ("U11223", "S67890", "F12345", "T55667"),
-    ("UNION_CODE_FROM_CONTEXT", "SOCIETY_CODE_FROM_CONTEXT", "647", "SURESH_PATEL_ID_FROM_CONTEXT"),
-    ("MISSING", "NOT_AVAILABLE", "None", "T001"),
-    ("159", "00002", "Rathod Sanjay Shri Jagats", "/cT4TzbfxFOo+L+ZN9x1ZQ=="),
-    ("2017", "00699", "0739", "Hiteshbhai Patel"),
-    ("", "", "", ""),
+# The model no longer supplies identifiers at all: create_ai_call takes a
+# technician name and reads every code from context. These pin that.
+
+_TECHNICIAN = FarmerTechnician(
+    user_id=VALID_TECH_ID, full_name="Rakesh Solanki", farmer_name="Rameshbhai",
+    union_code="159", society_code="00002", farmer_code="5058",
+)
+
+
+@pytest.mark.parametrize("spoken", [
+    "MISSING", "UNKNOWN", "T55667", "Hiteshbhai Patel", "",
 ])
-def test_invented_identifiers_are_rejected(identifiers):
-    assert ai_mod._invalid_booking_identifier(*identifiers) is not None
+def test_unknown_technician_name_books_nothing(spoken):
+    technician, problem = fi.match_technician([_TECHNICIAN], spoken)
+    assert technician is None
+    assert "Rakesh Solanki" in problem
 
 
-# real triples from successful prod bookings — codes are NOT always numeric
-@pytest.mark.parametrize("codes", [
-    ("159", "00002", "5058"), ("M001", "2169", "0092"),
-    ("2021", "NA4192", "NA0001"), ("2004", "55", "NA01"),
-])
-def test_real_prod_identifiers_pass(codes):
-    assert ai_mod._invalid_booking_identifier(*codes, VALID_TECH_ID) is None
+def test_spoken_name_resolves_to_the_real_id_and_codes():
+    technician, problem = fi.match_technician([_TECHNICIAN], "rakesh solanki")
+    assert problem is None
+    assert technician.user_id == VALID_TECH_ID
+    assert (technician.union_code, technician.society_code, technician.farmer_code) == (
+        "159", "00002", "5058",
+    )
 
 
-def test_invented_booking_never_reaches_the_partner_api(monkeypatch):
+def test_ambiguous_name_asks_instead_of_picking():
+    other = _TECHNICIAN.model_copy(update={"farmer_name": "Sureshbhai", "farmer_code": "5059"})
+    technician, problem = fi.match_technician([_TECHNICIAN, other], "Rakesh Solanki")
+    assert technician is None
+    assert "Rameshbhai" in problem and "Sureshbhai" in problem
+
+
+def test_no_technicians_books_nothing():
+    technician, problem = fi.match_technician([], "Rakesh Solanki")
+    assert technician is None
+    assert "No AI technician is available" in problem
+
+
+def test_unmatched_technician_never_reaches_the_partner_api(monkeypatch):
     calls = {"n": 0}
 
     async def fake_api(request, token):  # pragma: no cover - must not run
@@ -96,9 +116,64 @@ def test_invented_booking_never_reaches_the_partner_api(monkeypatch):
     async def in_scope():
         return True
 
-    ctx = SimpleNamespace(deps=SimpleNamespace(session_id="s1", ensure_in_scope=in_scope,
-                                               farmer_unions=[]))
-    out = asyncio.run(ai_mod.create_ai_call(ctx, "U11223", "S67890", "F12345", "T55667",
-                                            next(iter(AISpecies))))
+    ctx = SimpleNamespace(deps=SimpleNamespace(
+        session_id="s1", ensure_in_scope=in_scope, farmer_unions=[],
+        ai_technicians=[_TECHNICIAN],
+    ))
+    out = asyncio.run(ai_mod.create_ai_call(ctx, "MISSING", next(iter(AISpecies))))
     assert calls["n"] == 0
-    assert out == ai_mod.INVALID_IDENTIFIERS_MESSAGE
+    assert "No technician matched" in out
+
+
+def test_health_call_without_accounts_books_nothing(monkeypatch):
+    from agents.tools import health_call as hc_mod
+
+    calls = {"n": 0}
+
+    async def fake_api(request, token):  # pragma: no cover - must not run
+        calls["n"] += 1
+
+    monkeypatch.setattr(hc_mod, "create_health_call_api", fake_api)
+    monkeypatch.setenv("PASHUGPT_TOKEN", "tok")
+
+    async def in_scope():
+        return True
+
+    ctx = SimpleNamespace(deps=SimpleNamespace(
+        session_id="s1", ensure_in_scope=in_scope, farmer_accounts=[],
+    ))
+    from agents.models.health_call import HealthCaseType
+    out = asyncio.run(hc_mod.create_health_call(
+        ctx, next(iter(AISpecies)), next(iter(HealthCaseType)), "fever",
+    ))
+    assert calls["n"] == 0
+    assert "No farmer account is available" in out
+
+
+def test_health_call_asks_which_farmer_when_several(monkeypatch):
+    from agents.tools import health_call as hc_mod
+    from agents.models.health_call import HealthCaseType
+
+    calls = {"n": 0}
+
+    async def fake_api(request, token):  # pragma: no cover - must not run
+        calls["n"] += 1
+
+    monkeypatch.setattr(hc_mod, "create_health_call_api", fake_api)
+    monkeypatch.setenv("PASHUGPT_TOKEN", "tok")
+
+    async def in_scope():
+        return True
+
+    accounts = [
+        FarmerAccount(union_code="159", society_code="00002", farmer_code="5058", farmer_name="Rameshbhai"),
+        FarmerAccount(union_code="159", society_code="00002", farmer_code="5059", farmer_name="Sureshbhai"),
+    ]
+    ctx = SimpleNamespace(deps=SimpleNamespace(
+        session_id="s1", ensure_in_scope=in_scope, farmer_accounts=accounts,
+    ))
+    out = asyncio.run(hc_mod.create_health_call(
+        ctx, next(iter(AISpecies)), next(iter(HealthCaseType)), "fever",
+    ))
+    assert calls["n"] == 0
+    assert "Rameshbhai" in out and "Sureshbhai" in out

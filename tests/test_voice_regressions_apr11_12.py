@@ -749,7 +749,7 @@ class TestHelperCoverage:
             "Bad technician prompt: `Which technician should I book with? I can book with the first, second, or third technician.`",
             "",
         )
-        assert "selected farmer's technician group" in prompt_text
+        assert "with that technician's `full_name` as `technician_name`" in prompt_text
 
     @pytest.mark.parametrize("text, expected", [
         ("દૂધમાં ચરબી ઓછી છે.", "ફેટ"),

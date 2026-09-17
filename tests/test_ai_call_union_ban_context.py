@@ -11,6 +11,7 @@ os.environ.setdefault("LLM_MODEL_NAME", "gpt-test")
 
 import pytest
 
+from agents.deps import FarmerAccount, FarmerTechnician
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 from agents.models.ai_call import AISpecies
 from agents.models.health_call import HealthCaseType
@@ -311,8 +312,19 @@ async def _in_scope():
     return True
 
 
+_BAN_ACCOUNT = FarmerAccount(union_code="159", society_code="00002", farmer_code="5058")
+_BAN_TECHNICIAN = FarmerTechnician(
+    user_id=TECH_ID, full_name="Real Technician",
+    union_code="159", society_code="00002", farmer_code="5058",
+)
+TECH_NAME = "Real Technician"
+
+
 def _booking_ctx(session_id="s-ban", unions=None, include_unions=True):
-    deps = SimpleNamespace(session_id=session_id, ensure_in_scope=_in_scope)
+    deps = SimpleNamespace(
+        session_id=session_id, ensure_in_scope=_in_scope,
+        farmer_accounts=[_BAN_ACCOUNT], ai_technicians=[_BAN_TECHNICIAN],
+    )
     if include_unions:
         deps.farmer_unions = unions
     return SimpleNamespace(deps=deps)
@@ -333,7 +345,7 @@ def test_create_ai_call_refuses_sarhad_without_writing(monkeypatch):
     monkeypatch.setattr(ai_mod, "try_reserve", fake_reserve)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(unions=["sarhad"]), "159", "00002", "5058", TECH_ID, SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(unions=["sarhad"]), TECH_NAME, SPECIES)
     )
     assert out == UNION_BANNED_MESSAGE
     assert calls == {"api": 0, "reserve": 0}
@@ -355,7 +367,7 @@ def test_create_ai_call_refuses_canonical_and_mixed_banned_unions(monkeypatch, u
     monkeypatch.setattr(ai_mod, "try_reserve", fake_reserve)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(unions=unions), "159", "00002", "5058", TECH_ID, SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(unions=unions), TECH_NAME, SPECIES)
     )
     assert out == UNION_BANNED_MESSAGE
     assert calls == {"n": 0, "reserve": 0}
@@ -372,7 +384,7 @@ def test_create_ai_call_still_books_for_kaira(monkeypatch):
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
 
     out = asyncio.run(
-        ai_mod.create_ai_call(_booking_ctx(session_id=None, unions=["kaira"]), "159", "00002", "5058", TECH_ID, SPECIES)
+        ai_mod.create_ai_call(_booking_ctx(session_id=None, unions=["kaira"]), TECH_NAME, SPECIES)
     )
     assert calls["n"] == 1
     assert "booked successfully" in out
@@ -393,7 +405,7 @@ def test_create_ai_call_empty_or_missing_unions_is_not_banned(monkeypatch, union
     out = asyncio.run(
         ai_mod.create_ai_call(
             _booking_ctx(session_id=None, unions=unions, include_unions=include_unions),
-            "159", "00002", "5058", TECH_ID, SPECIES,
+            TECH_NAME, SPECIES,
         )
     )
     assert calls["n"] == 1
@@ -416,7 +428,7 @@ def test_moderation_block_runs_before_union_ban(monkeypatch):
         ensure_in_scope=_out_of_scope,
         farmer_unions=["kutch"],
     ))
-    out = asyncio.run(ai_mod.create_ai_call(ctx, "159", "00002", "5058", TECH_ID, SPECIES))
+    out = asyncio.run(ai_mod.create_ai_call(ctx, TECH_NAME, SPECIES))
     assert out == "This helpline only handles dairy farming and animal husbandry questions."
     assert calls["n"] == 0
 
@@ -433,7 +445,7 @@ def test_health_call_still_books_for_kutch_union(monkeypatch):
     out = asyncio.run(
         hc_mod.create_health_call(
             _booking_ctx(session_id=None, unions=["kutch"]),
-            "159", "00002", "5058", SPECIES, next(iter(HealthCaseType)), "fever",
+            SPECIES, next(iter(HealthCaseType)), "fever",
         )
     )
     assert calls["n"] == 1

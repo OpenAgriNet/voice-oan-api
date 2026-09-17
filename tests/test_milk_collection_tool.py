@@ -46,7 +46,7 @@ class TestMilkCollectionTool:
         accounts = [FarmerAccount(union_code="0201", society_code="001066", farmer_code="000123")]
         result = asyncio.run(
             get_farmer_milk_collection_details(
-                _ctx(accounts), "0201", "001066", "000123", "2026-04-01", "2026-04-01"
+                _ctx(accounts), "2026-04-01", "2026-04-01"
             )
         )
 
@@ -81,7 +81,7 @@ class TestMilkCollectionTool:
         ]
         result = asyncio.run(
             get_farmer_milk_collection_details(
-                _ctx(accounts), "2017", "1", "1006", "2026-06-03", "2026-06-03"
+                _ctx(accounts), "2026-06-03", "2026-06-03"
             )
         )
 
@@ -91,7 +91,7 @@ class TestMilkCollectionTool:
         assert "quantity 2.38 liters" in result
         assert "quantity 9.68 liters" in result
 
-    def test_refuses_instead_of_using_supplied_codes_when_no_accounts_in_context(self, monkeypatch):
+    def test_refuses_when_no_accounts_in_context(self, monkeypatch):
         monkeypatch.setenv("PASHUGPT_TOKEN", "test-token")
         seen = {}
 
@@ -106,12 +106,10 @@ class TestMilkCollectionTool:
             _fake_api,
         )
 
-        # Empty context -> refuse. The codes the model supplies here cannot have
-        # come from anywhere real: it is told to copy them out of a farmer block
-        # that is empty on precisely these turns (issue #282).
+        # No accounts in context -> refuse; there is nothing to look up.
         result = asyncio.run(
             get_farmer_milk_collection_details(
-                _ctx([]), "2021", "1066", "123", "2026-04-01", "2026-04-01"
+                _ctx([]), "2026-04-01", "2026-04-01"
             )
         )
         assert "codes" not in seen, "the backend must not be reached without context accounts"
@@ -133,7 +131,7 @@ class TestMilkCollectionTool:
         result = asyncio.run(
             get_farmer_milk_collection_details(
                 _ctx([FarmerAccount(union_code="2021", society_code="1066", farmer_code="123")]),
-                "2021", "1066", "123", "2026-04-01", "2026-04-01",
+                "2026-04-01", "2026-04-01",
             )
         )
 
@@ -153,7 +151,7 @@ class TestMilkCollectionTool:
         accounts = [FarmerAccount(union_code="2021", society_code="1066", farmer_code="123")]
         result = asyncio.run(
             get_farmer_milk_collection_details(
-                _ctx(accounts), "2021", "1066", "123", "01-04-2026", "2026-04-01"
+                _ctx(accounts), "01-04-2026", "2026-04-01"
             )
         )
 
@@ -174,7 +172,7 @@ class TestMilkCollectionTool:
         result = asyncio.run(
             get_farmer_milk_collection_details(
                 _ctx([FarmerAccount(union_code="2021", society_code="1066", farmer_code="123")]),
-                "2021", "1066", "123", "2026-04-01", "2026-04-01",
+                "2026-04-01", "2026-04-01",
             )
         )
 

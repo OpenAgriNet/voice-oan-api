@@ -30,7 +30,7 @@ from typing import Literal, Optional, Sequence
 from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 
-from agents.deps import FarmerContext
+from agents.deps import FarmerAccount, FarmerContext, FarmerTechnician
 from agents.models.farmer import FarmerDataEnvelope
 from helpers.utils import get_logger
 
@@ -274,3 +274,55 @@ def codes_match_known_account(
         for a in accounts
     }
     return supplied in known
+
+
+def _name_matches(candidate: str, spoken: str) -> bool:
+    """Loose match for a name the caller spoke and the model passed through."""
+    a = (candidate or "").strip().casefold()
+    b = (spoken or "").strip().casefold()
+    if not a or not b:
+        return False
+    return a == b or b in a or a in b
+
+
+def match_technician(
+    technicians: "Sequence[FarmerTechnician]", spoken_name: str
+) -> tuple[Optional[FarmerTechnician], Optional[str]]:
+    """Resolve a spoken technician name to one option, or say what to ask.
+
+    Returns (technician, None) on a single match, else (None, message).
+    """
+    if not technicians:
+        return None, "No AI technician is available for this caller right now."
+    matches = [t for t in technicians if _name_matches(t.full_name or "", spoken_name)]
+    if len(matches) == 1:
+        return matches[0], None
+    if not matches:
+        names = ", ".join(t.full_name for t in technicians if t.full_name)
+        return None, f"No technician matched that name. Available: {names}."
+    names = ", ".join(
+        f"{t.full_name} ({t.farmer_name or 'unknown farmer'})" for t in matches
+    )
+    return None, f"More than one technician matches that name. Ask which: {names}."
+
+
+def match_account(
+    accounts: "Sequence[FarmerAccount]", farmer_name: Optional[str] = None
+) -> tuple[Optional[FarmerAccount], Optional[str]]:
+    """Resolve which of the caller's accounts to act on.
+
+    One account needs no choice. Several need the farmer's name, because the
+    model must not pick silently.
+    """
+    if not accounts:
+        return None, "No farmer account is available for this caller."
+    if len(accounts) == 1:
+        return accounts[0], None
+    if not farmer_name:
+        names = ", ".join(a.farmer_name or "unnamed" for a in accounts)
+        return None, f"Several farmers are registered on this number. Ask which one: {names}."
+    matches = [a for a in accounts if _name_matches(a.farmer_name or "", farmer_name)]
+    if len(matches) == 1:
+        return matches[0], None
+    names = ", ".join(a.farmer_name or "unnamed" for a in accounts)
+    return None, f"That farmer name did not match one account. Ask which one: {names}."

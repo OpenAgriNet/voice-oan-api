@@ -10,6 +10,8 @@ os.environ.setdefault("LLM_MODEL_NAME", "gpt-test")
 import asyncio
 from types import SimpleNamespace
 
+from agents.deps import FarmerAccount, FarmerTechnician
+
 import pytest
 
 from agents.tools import ai_call as ai_mod
@@ -17,16 +19,23 @@ from agents.tools import health_call as hc_mod
 from agents.models.ai_call import AISpecies
 from agents.models.health_call import HealthCaseType
 
-# create_ai_call rejects identifiers that cannot be real; 24 base64 chars is the
-# shape of every real prod technician id.
 TECH_ID = "YWl0LXRlY2gtMDAwMDAwMQ=="
+TECH_NAME = "Real Technician"
+ACCOUNT = FarmerAccount(union_code="159", society_code="00002", farmer_code="5058")
+TECHNICIAN = FarmerTechnician(
+    user_id=TECH_ID, full_name=TECH_NAME,
+    union_code="159", society_code="00002", farmer_code="5058",
+)
 
 
 def _ctx(session_id):
     async def _ensure_in_scope():
         return True
 
-    return SimpleNamespace(deps=SimpleNamespace(session_id=session_id, ensure_in_scope=_ensure_in_scope))
+    return SimpleNamespace(deps=SimpleNamespace(
+        session_id=session_id, ensure_in_scope=_ensure_in_scope,
+        farmer_accounts=[ACCOUNT], ai_technicians=[TECHNICIAN],
+    ))
 
 
 def _patch_cache(monkeypatch, module):
@@ -69,8 +78,8 @@ def test_ai_call_idempotent_on_rerun(monkeypatch):
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
     species = next(iter(AISpecies))
 
-    r1 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "159", "00002", "5058", TECH_ID, species))
-    r2 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "159", "00002", "5058", TECH_ID, species))
+    r1 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), TECH_NAME, species))
+    r2 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), TECH_NAME, species))
 
     assert calls["n"] == 1
     assert "booked successfully" in r1
@@ -90,8 +99,8 @@ def test_health_call_idempotent_on_rerun(monkeypatch):
     case_type = next(iter(HealthCaseType))
 
     # remark differs across the re-run (model output varies) — session key still dedupes
-    r1 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), "159", "00002", "5058", species, case_type, "remark v1"))
-    r2 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), "159", "00002", "5058", species, case_type, "remark v2"))
+    r1 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), species, case_type, "remark v1"))
+    r2 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), species, case_type, "remark v2"))
 
     assert calls["n"] == 1
     assert "booked successfully" in r1
@@ -114,8 +123,8 @@ def test_ai_call_concurrent_submits_book_once(monkeypatch):
 
     async def go():
         return await asyncio.gather(
-            ai_mod.create_ai_call(_ctx("sX"), "159", "00002", "5058", TECH_ID, species),
-            ai_mod.create_ai_call(_ctx("sX"), "159", "00002", "5058", TECH_ID, species),
+            ai_mod.create_ai_call(_ctx("sX"), TECH_NAME, species),
+            ai_mod.create_ai_call(_ctx("sX"), TECH_NAME, species),
         )
 
     r1, r2 = asyncio.run(go())
@@ -132,5 +141,5 @@ def test_ai_call_no_session_does_not_crash(monkeypatch):
 
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
     species = next(iter(AISpecies))
-    r = asyncio.run(ai_mod.create_ai_call(_ctx(None), "159", "00002", "5058", TECH_ID, species))
+    r = asyncio.run(ai_mod.create_ai_call(_ctx(None), TECH_NAME, species))
     assert "booked successfully" in r

@@ -260,14 +260,14 @@ def test_crosscheck_accepts_the_callers_own_account():
     ) is None
 
 
-def test_milk_lookup_refuses_instead_of_using_model_codes():
-    """The fallback returned "fetched successfully - no milk collection records"
-    for 96 farmers who did have records. Refusing is the correct failure."""
+def test_milk_lookup_refuses_without_accounts():
+    """The old fallback returned "fetched successfully - no milk collection
+    records" for 96 farmers who did have records. Refusing is the right failure."""
     from agents.tools.milk_collection import get_farmer_milk_collection_details
 
     ctx = SimpleNamespace(deps=_deps(fi.UNRESOLVED, []))
     out = asyncio.run(get_farmer_milk_collection_details(
-        ctx, "U11223", "S67890", "F12345", "2026-09-01", "2026-09-14",
+        ctx, "2026-09-01", "2026-09-14",
     ))
     assert "not available" in out
     assert "fetched successfully" not in out

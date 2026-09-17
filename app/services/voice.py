@@ -78,7 +78,7 @@ from app.services.translation import (
 from app.services.voice_trace import VoiceTrace, create_voice_trace, sanitize_text
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
-from agents.deps import FarmerAccount, FarmerContext
+from agents.deps import FarmerAccount, FarmerContext, FarmerTechnician
 from agents.services.farmer_identity import (
     identity_state_for_envelope,
     identity_tool_groups,
@@ -1002,9 +1002,12 @@ def _append_ai_call_union_ban_lines(lines: list[str], farmer: FarmerRecord) -> N
     lines.append("- Do not ask which technician they want. Do not call `create_ai_call`.")
 
 
-def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
+def _bookable_technician_groups(
+    envelope: Optional[FarmerDataEnvelope],
+) -> tuple[list[FarmerRecord], list[dict]]:
+    """Banned farmers, and the technician groups still bookable after the ban."""
     if envelope is None:
-        return ""
+        return [], []
 
     banned_farmers: list[FarmerRecord] = []
     banned_identities: set[tuple[str, str, str]] = set()
@@ -1020,18 +1023,51 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
         if identity[2]:
             banned_union_codes.add(identity[2])
 
+    all_farmers_banned = bool(envelope.farmers) and len(banned_farmers) == len(envelope.farmers)
+    groups = [] if all_farmers_banned else [
+        group
+        for group in (envelope.aiTechnicians or [])
+        if not _technician_group_is_banned(group, banned_identities, banned_union_codes)
+    ]
+    return banned_farmers, groups
+
+
+def _collect_ai_technicians(envelope: Optional[FarmerDataEnvelope]) -> list[FarmerTechnician]:
+    """Bookable technicians, flattened, each carrying its group's account codes.
+
+    create_ai_call resolves a spoken name against this, so neither the technician
+    id nor the codes ever pass through the model.
+    """
+    _banned, groups = _bookable_technician_groups(envelope)
+    technicians: list[FarmerTechnician] = []
+    for group in groups:
+        for technician in _dedupe_technicians(group.get("technicians") or []):
+            if not technician.get("userId"):
+                continue
+            technicians.append(
+                FarmerTechnician(
+                    user_id=str(technician.get("userId")),
+                    full_name=technician.get("fullName"),
+                    mobile_number=technician.get("mobileNumber"),
+                    union_code=str(group.get("unionCode") or ""),
+                    society_code=str(group.get("societyCode") or ""),
+                    farmer_code=str(group.get("farmerCode") or ""),
+                    farmer_name=group.get("farmerName"),
+                )
+            )
+    return technicians
+
+
+def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
+    if envelope is None:
+        return ""
+
+    banned_farmers, technician_groups = _bookable_technician_groups(envelope)
     if banned_farmers:
         logger.info(
             "Skipping AI technician context; union is banned from AI-call booking unions=%s",
             [_farmer_record_union_name(farmer) for farmer in banned_farmers],
         )
-
-    all_farmers_banned = bool(envelope.farmers) and len(banned_farmers) == len(envelope.farmers)
-    technician_groups = [] if all_farmers_banned else [
-        group
-        for group in (envelope.aiTechnicians or [])
-        if not _technician_group_is_banned(group, banned_identities, banned_union_codes)
-    ]
     lines: list[str] = []
     for farmer in banned_farmers:
         _append_ai_call_union_ban_lines(lines, farmer)
@@ -1606,6 +1642,7 @@ async def stream_voice_message(
             farmer_info = "\n".join(unavailable_capability_lines(farmer_identity))
             farmer_unions: list[str] = []
             farmer_accounts: list[FarmerAccount] = []
+            ai_technicians: list[FarmerTechnician] = []
             ai_technician_info = ""
             farmer_cache_task = (
                 asyncio.create_task(get_or_fetch_farmer_data(mobile))
@@ -2321,6 +2358,7 @@ async def stream_voice_message(
                     if scheme_summary:
                         farmer_info = f"{farmer_info}\n{scheme_summary}" if farmer_info else scheme_summary
                     ai_technician_info = _build_ai_technician_summary(envelope)
+                    ai_technicians = _collect_ai_technicians(envelope)
                     trace.set_farmer_context(
                         source=getattr(envelope, "source", None) if envelope else None,
                         stale=getattr(envelope, "stale", None) if envelope else None,
@@ -2434,6 +2472,7 @@ async def stream_voice_message(
                 mobile=mobile,
                 farmer_identity=farmer_identity,
                 farmer_accounts=farmer_accounts,
+                ai_technicians=ai_technicians,
             )
             # Let side-effecting tools (bookings) self-gate on the concurrent
             # moderation verdict before performing any write.

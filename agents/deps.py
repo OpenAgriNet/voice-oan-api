@@ -18,6 +18,22 @@ class FarmerAccount(BaseModel):
     society_name: Optional[str] = None
 
 
+class FarmerTechnician(BaseModel):
+    """An AI technician the caller may pick, with the account to book against.
+
+    The technician's group carries the farmer/society/union codes, so resolving a
+    spoken name yields both the technician id and the account — the model never
+    handles either.
+    """
+    user_id: Optional[str] = None
+    full_name: Optional[str] = None
+    mobile_number: Optional[str] = None
+    union_code: Optional[str] = None
+    society_code: Optional[str] = None
+    farmer_code: Optional[str] = None
+    farmer_name: Optional[str] = None
+
+
 class FarmerContext(BaseModel):
     """Context for the voice agent.
 
@@ -53,6 +69,10 @@ class FarmerContext(BaseModel):
     farmer_accounts: list[FarmerAccount] = Field(
         default_factory=list,
         description="All (union, society, farmer) accounts on the caller's mobile, for multi-account fan-out.",
+    )
+    ai_technicians: list[FarmerTechnician] = Field(
+        default_factory=list,
+        description="Bookable AI technicians, already filtered for banned unions.",
     )
 
     # Handle to the per-turn content-moderation task, which now runs concurrently

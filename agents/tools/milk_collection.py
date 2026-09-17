@@ -104,26 +104,18 @@ def _account_label(account: FarmerAccount, multi: bool) -> str:
 
 async def get_farmer_milk_collection_details(
     ctx: RunContext[FarmerContext],
-    union_code: str,
-    society_code: str,
-    farmer_code: str,
     fromdate: str,
     todate: str,
 ) -> str:
     """
     Fetch milk collection and deduction details for the signed-in farmer.
 
-    A single mobile number can have more than one account (for example a
-    separate cow account and buffalo account). This tool automatically looks
-    up every account on the caller's mobile and reports them together, so you
-    do not need to pick one. The codes you pass are ignored whenever the
-    caller's accounts are known, which is every turn this tool is offered.
+    The caller's accounts are read from context — you do not supply or pick any
+    codes. A mobile can have several accounts (e.g. a cow and a buffalo account);
+    all of them are looked up and reported together.
 
     Args:
         ctx: The run context (automatically provided).
-        union_code: Union code from farmer context.
-        society_code: Society code from farmer context.
-        farmer_code: Farmer code from farmer context.
         fromdate: Start date in YYYY-MM-DD format (ISO).
         todate: End date in YYYY-MM-DD format (ISO).
 
@@ -131,26 +123,15 @@ async def get_farmer_milk_collection_details(
         str: Formatted milk collection and deduction details across all of the
              farmer's accounts, or a clear failure message.
     """
-    # Accounts come from context only. This used to fall back to the model's own
-    # codes when context had none — but context is empty precisely when identity
-    # is unresolved, so the fallback ran on invented codes every time. 117 of
-    # 1,148 voice lookups (10.2%) took it, and 96 of those returned "fetched
-    # successfully - no milk collection records", telling registered farmers they
-    # had none. That is worse than an error: the lookup succeeds and the wrong
-    # answer is spoken with confidence. The tool is now withheld on those turns
-    # (agents.services.farmer_identity); refusing here is the backstop. See #282.
     accounts = list(ctx.deps.farmer_accounts) if ctx.deps and ctx.deps.farmer_accounts else []
     if not accounts:
-        logger.warning(
-            "Milk collection blocked: no farmer accounts in context (llm_codes=%s/%s/%s)",
-            union_code, society_code, farmer_code,
-        )
+        logger.warning("Milk collection blocked: no farmer accounts in context")
         return (
             "Milk collection lookup failed. The farmer account details are not available."
         )
     logger.info(
-        "Milk collection tool invoked: accounts=%s from=%s to=%s (llm_codes=%s/%s/%s)",
-        len(accounts), fromdate, todate, union_code, society_code, farmer_code,
+        "Milk collection tool invoked: accounts=%s from=%s to=%s",
+        len(accounts), fromdate, todate,
     )
     return await fetch_milk_summary_for_accounts(accounts, fromdate, todate)
 
