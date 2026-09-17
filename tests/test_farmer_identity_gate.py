@@ -224,42 +224,6 @@ def test_runtime_context_does_not_promise_farmer_tools_when_unresolved():
     assert "- Farmer-data tools are not available for this turn." in message
 
 
-# ── Backstops ───────────────────────────────────────────────────────────────
-# These run below the gate. They exist so a tool reached by another path still
-# cannot forward an invented code to the partner API.
-
-@pytest.mark.parametrize("code", [
-    "MISSING", "UNKNOWN", "unknown", "not_provided", "not_available",
-    "NA", "None", "PLACEHOLDER", "UNION_CODE_FROM_CONTEXT", "",
-])
-def test_digit_rule_rejects_invented_codes(code):
-    """Every real code carries a digit — zero exceptions across 28,089 bookings.
-    Shape alone accepted MISSING, UNKNOWN, NA, None and PLACEHOLDER."""
-    assert fi.invalid_identity_code_field(code, "00002", "5058") == "union_code"
-
-
-@pytest.mark.parametrize("codes", [
-    ("159", "00002", "5058"), ("M001", "2169", "0092"),
-    ("2021", "NA4192", "NA0001"), ("2004", "55", "NA01"),
-])
-def test_real_prod_codes_pass(codes):
-    assert fi.invalid_identity_code_field(*codes) is None
-
-
-def test_digit_bearing_invention_caught_by_context_crosscheck():
-    """F12345 / U11223 pass shape and digit; only the caller's own accounts
-    distinguish them."""
-    assert fi.invalid_identity_code_field(
-        "U11223", "S67890", "F12345", [_REAL_ACCOUNT]
-    ) == "codes_not_in_context"
-
-
-def test_crosscheck_accepts_the_callers_own_account():
-    assert fi.invalid_identity_code_field(
-        "159", "00002", "5058", [_REAL_ACCOUNT]
-    ) is None
-
-
 def test_milk_lookup_refuses_without_accounts():
     """The old fallback returned "fetched successfully - no milk collection
     records" for 96 farmers who did have records. Refusing is the right failure."""

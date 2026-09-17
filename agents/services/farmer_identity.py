@@ -24,7 +24,6 @@ tool which is not in the schema is worse than either failure alone.
 
 See issue #282.
 """
-import re
 from typing import Literal, Optional, Sequence
 
 from pydantic_ai import RunContext
@@ -192,88 +191,6 @@ def identity_tool_groups(deps: Optional[FarmerContext]) -> list[str]:
     if getattr(deps, "signed_in", False) and getattr(deps, "mobile", None):
         groups.append("signed-in-farmer-data")
     return groups
-
-
-# Shape of a real identity code. Codes are NOT always numeric — M001 and NA4192
-# book fine — so the shape alone is permissive, and on its own it accepts
-# MISSING, UNKNOWN, PLACEHOLDER, NA and None. Validated against 9,945 successful
-# prod bookings (30d to 2026-09-08).
-CODE_PATTERN = re.compile(r"^[A-Za-z0-9/-]{1,12}$")
-# Every real code carries at least one digit. Verified against 28,089 successful
-# AI bookings (22 unions, 2,032 societies, 2,548 farmer codes) and 110 health
-# calls over 90 days: zero exceptions. This is what separates MISSING / UNKNOWN /
-# NA / None from M001 and NA4192, and it is why the dbc2d23 guard only worked for
-# create_ai_call — the technician-id check did the real work there, and health
-# call, which has no technician id, kept leaking at 20%.
-_HAS_DIGIT = re.compile(r"[0-9]")
-
-
-def invalid_identity_code_field(
-    union_code: str,
-    society_code: str,
-    farmer_code: str,
-    accounts: "Optional[Sequence[object]]" = None,
-) -> Optional[str]:
-    """Name of the first supplied code that cannot be real, else None.
-
-    A backstop, not the fix. By the time this runs the model has already decided
-    to act on an identity it does not have; the gate above the tool layer is what
-    prevents that. This exists so a tool reached by some other path — a fallback
-    re-run, a future caller, a gate someone forgets to attach — still cannot
-    forward an invented code to the partner API.
-
-    When the caller's own accounts are known, the triple must be one of them:
-    the model is told to copy these out of the farmer context, so a triple that
-    is not in that context did not come from it. That catches the digit-bearing
-    inventions (`F12345`, `U11223`) the shape and digit rules let through.
-    """
-    for field, value in (
-        ("union_code", union_code),
-        ("society_code", society_code),
-        ("farmer_code", farmer_code),
-    ):
-        cleaned = (value or "").strip()
-        if not CODE_PATTERN.match(cleaned) or not _HAS_DIGIT.search(cleaned):
-            return field
-    if accounts and not codes_match_known_account(
-        accounts, union_code, society_code, farmer_code
-    ):
-        return "codes_not_in_context"
-    return None
-
-
-def codes_match_known_account(
-    accounts: "Sequence[object]",
-    union_code: str,
-    society_code: str,
-    farmer_code: str,
-) -> bool:
-    """True when the supplied triple is one of the caller's own accounts.
-
-    The strongest available check on a model-supplied code, and structural rather
-    than cosmetic: the model is told to copy these out of the farmer context, so
-    a triple that is not in that context did not come from it.
-
-    With no accounts in context there is nothing to check against, so this
-    returns False — callers pair it with the state gate rather than using it
-    alone.
-    """
-    if not accounts:
-        return False
-    supplied = (
-        str(union_code or "").strip(),
-        str(society_code or "").strip(),
-        str(farmer_code or "").strip(),
-    )
-    known = {
-        (
-            str(getattr(a, "union_code", "") or "").strip(),
-            str(getattr(a, "society_code", "") or "").strip(),
-            str(getattr(a, "farmer_code", "") or "").strip(),
-        )
-        for a in accounts
-    }
-    return supplied in known
 
 
 def _name_matches(candidate: str, spoken: str) -> bool:
