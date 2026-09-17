@@ -69,8 +69,8 @@ def test_ai_call_idempotent_on_rerun(monkeypatch):
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
     species = next(iter(AISpecies))
 
-    r1 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "U", "S", "F", TECH_ID, species))
-    r2 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "U", "S", "F", TECH_ID, species))
+    r1 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "159", "00002", "5058", TECH_ID, species))
+    r2 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "159", "00002", "5058", TECH_ID, species))
 
     assert calls["n"] == 1
     assert "booked successfully" in r1
@@ -90,8 +90,8 @@ def test_health_call_idempotent_on_rerun(monkeypatch):
     case_type = next(iter(HealthCaseType))
 
     # remark differs across the re-run (model output varies) — session key still dedupes
-    r1 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), "U", "S", "F", species, case_type, "remark v1"))
-    r2 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), "U", "S", "F", species, case_type, "remark v2"))
+    r1 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), "159", "00002", "5058", species, case_type, "remark v1"))
+    r2 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), "159", "00002", "5058", species, case_type, "remark v2"))
 
     assert calls["n"] == 1
     assert "booked successfully" in r1
@@ -114,8 +114,8 @@ def test_ai_call_concurrent_submits_book_once(monkeypatch):
 
     async def go():
         return await asyncio.gather(
-            ai_mod.create_ai_call(_ctx("sX"), "U", "S", "F", TECH_ID, species),
-            ai_mod.create_ai_call(_ctx("sX"), "U", "S", "F", TECH_ID, species),
+            ai_mod.create_ai_call(_ctx("sX"), "159", "00002", "5058", TECH_ID, species),
+            ai_mod.create_ai_call(_ctx("sX"), "159", "00002", "5058", TECH_ID, species),
         )
 
     r1, r2 = asyncio.run(go())
@@ -132,5 +132,5 @@ def test_ai_call_no_session_does_not_crash(monkeypatch):
 
     monkeypatch.setattr(ai_mod, "create_ai_call_api", fake_api)
     species = next(iter(AISpecies))
-    r = asyncio.run(ai_mod.create_ai_call(_ctx(None), "U", "S", "F", TECH_ID, species))
+    r = asyncio.run(ai_mod.create_ai_call(_ctx(None), "159", "00002", "5058", TECH_ID, species))
     assert "booked successfully" in r

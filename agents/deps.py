@@ -42,6 +42,14 @@ class FarmerContext(BaseModel):
     ai_technician_info: str = Field(default="", description="Pre-built internal AI technician context string.")
     signed_in: bool = Field(default=False, description="Whether the session is signed in/authenticated for farmer-specific tools.")
     mobile: Optional[str] = Field(default=None, description="Normalized mobile number when available.")
+    # Whether this turn's farmer lookup resolved, and how. Drives BOTH the tool
+    # gates and the context lines that name what is unavailable — see
+    # agents.services.farmer_identity, which owns the vocabulary. Defaults to
+    # "unresolved" so a caller that never set it fails closed.
+    farmer_identity: Literal["found", "not_found", "unresolved"] = Field(
+        default="unresolved",
+        description="Farmer identity resolution state for this turn.",
+    )
     farmer_accounts: list[FarmerAccount] = Field(
         default_factory=list,
         description="All (union, society, farmer) accounts on the caller's mobile, for multi-account fan-out.",
@@ -86,6 +94,23 @@ class FarmerContext(BaseModel):
         """Get the primary farmer union name when available."""
         return self.farmer_unions[0] if self.farmer_unions else None
 
+    def has_usable_farmer_identity(self) -> bool:
+        """True only when this turn can act on a real, known farmer account.
+
+        The single implementation of the predicate: the tool gates, the
+        "tool groups in this run" line and the context wording in
+        agents.services.farmer_identity all resolve to this, so the prompt can
+        never advertise a capability the model was not given.
+
+        Both conditions are required and they are not redundant.
+        `farmer_identity` covers the fetch outcome; `farmer_accounts` covers
+        records that came back carrying no complete (union, society, farmer)
+        triple — app.services.voice._collect_farmer_accounts drops any record
+        missing one of the three, so a "found" caller can still have nothing to
+        book with.
+        """
+        return self.farmer_identity == "found" and bool(self.farmer_accounts)
+
     def get_runtime_context_message(self) -> str:
         """Compact runtime context that stays outside the static system prompt."""
         lines = [
@@ -98,10 +123,13 @@ class FarmerContext(BaseModel):
         if self.farmer_unions:
             lines.append(f"- Farmer unions: {', '.join(self.farmer_unions)}")
         lines.append("- Core loop language: English")
-        if self.signed_in:
+        # Keyed on resolved identity, not on signed_in: a signed-in caller whose
+        # lookup timed out has no usable identity, and this line used to promise
+        # farmer-data tools on exactly those turns (issue #282).
+        if self.has_usable_farmer_identity():
             lines.append("- Farmer-data tools may be available for this turn.")
         else:
-            lines.append("- Farmer-data tools should not be assumed available for this turn.")
+            lines.append("- Farmer-data tools are not available for this turn.")
         if self.farmer_info:
             lines.append("- Farmer context summary:")
             lines.append(self.farmer_info)

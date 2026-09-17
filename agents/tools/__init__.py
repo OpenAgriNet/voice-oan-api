@@ -16,6 +16,7 @@ from agents.tools.common import fire_tool_call_nudge
 from agents.tools.union_schemes import get_union_scheme_data, prepare_get_union_scheme_data
 from agents.tools.loan import check_loan_eligibility, prepare_check_loan_eligibility
 from agents.tools.bonus import get_farmer_bonus_amount, prepare_get_farmer_bonus_amount
+from agents.services.farmer_identity import prepare_requires_farmer_identity
 
 
 def _with_nudge_signal(func):
@@ -43,23 +44,32 @@ BASE_TOOLS = [
         _with_nudge_signal(search_documents),
         takes_ctx=True,
     ),
+    # The three identity-taking tools. `prepare` withholds each one on a turn
+    # whose farmer identity is unresolved: with no farmer block to copy codes
+    # from, the model invented them (`MISSING`, `F12345`, farmer names in
+    # `farmerCode`) rather than stopping. Telling it not to is already in the
+    # prompt and is what the measured 10-20% failure rate ignores — the tool has
+    # to be absent, not discouraged. See issue #282.
     Tool(
         _with_nudge_signal(create_ai_call),
         takes_ctx=True,
         docstring_format='auto',
         require_parameter_descriptions=True,
+        prepare=prepare_requires_farmer_identity,
     ),
     Tool(
         _with_nudge_signal(get_farmer_milk_collection_details),
         takes_ctx=True,
         docstring_format='auto',
         require_parameter_descriptions=True,
+        prepare=prepare_requires_farmer_identity,
     ),
     Tool(
         _with_nudge_signal(create_health_call),
         takes_ctx=True,
         docstring_format='auto',
         require_parameter_descriptions=True,
+        prepare=prepare_requires_farmer_identity,
     ),
     Tool(
         signal_conversation_state,
