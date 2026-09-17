@@ -13,6 +13,10 @@ from agents.deps import FarmerContext
 from agents.models.ai_call import AICallRequestModel, AISpecies
 from agents.tools.farmer_animal_backends import create_ai_call_api
 from app.core.cache import cache, try_reserve, release_reservation
+from agents.services.farmer_identity import (
+    CODE_PATTERN,
+    invalid_identity_code_field,
+)
 from app.models.union import UNION_BANNED_MESSAGE, any_union_banned_from_ai_calls
 from helpers.utils import get_logger
 
@@ -28,7 +32,7 @@ AI_CALL_CACHE_NAMESPACE = "ai_call_booked"
 # 2026-09-08): every real code matches _CODE_PATTERN — they are NOT always
 # numeric, M001 and NA4192 book fine — and every real technician id is 24
 # base64 chars ending "==".
-_CODE_PATTERN = re.compile(r"^[A-Za-z0-9/-]{1,12}$")
+_CODE_PATTERN = CODE_PATTERN  # canonical rule lives in agents.services.farmer_identity
 _TECHNICIAN_ID_PATTERN = re.compile(r"^[A-Za-z0-9+/]{22}==$")
 INVALID_IDENTIFIERS_MESSAGE = (
     "Artificial insemination call booking failed. "
@@ -41,15 +45,19 @@ def _invalid_booking_identifier(
     society_code: str,
     farmer_code: str,
     user_id: str,
+    accounts=None,
 ) -> Optional[str]:
-    """Name of the first identifier that cannot be real, else None."""
-    for field, value in (
-        ("union_code", union_code),
-        ("society_code", society_code),
-        ("farmer_code", farmer_code),
-    ):
-        if not _CODE_PATTERN.match((value or "").strip()):
-            return field
+    """Name of the first identifier that cannot be real, else None.
+
+    The code rules are shared with create_health_call so the two cannot drift;
+    only the technician id is specific to AI booking. `accounts` cross-checks the
+    triple against the caller's own accounts when they are known.
+    """
+    invalid_field = invalid_identity_code_field(
+        union_code, society_code, farmer_code, accounts
+    )
+    if invalid_field is not None:
+        return invalid_field
     if not _TECHNICIAN_ID_PATTERN.match((user_id or "").strip()):
         return "user_id"
     return None
@@ -111,7 +119,13 @@ async def create_ai_call(
         )
         return UNION_BANNED_MESSAGE
 
-    invalid_field = _invalid_booking_identifier(union_code, society_code, farmer_code, user_id)
+    invalid_field = _invalid_booking_identifier(
+        union_code,
+        society_code,
+        farmer_code,
+        user_id,
+        getattr(ctx.deps, "farmer_accounts", None) if ctx and ctx.deps else None,
+    )
     if invalid_field is not None:
         logger.warning(
             "AI call blocked: invalid %s; session=%s union=%s society=%s farmer=%s user_id=%s",
