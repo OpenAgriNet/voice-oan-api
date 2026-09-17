@@ -17,6 +17,7 @@ from agents.voice import voice_agent, voice_agent_signed_in, STATIC_VOICE_SYSTEM
 from agents.tools.farmer import normalize_phone_to_mobile
 from agents.services.farmer_cache import (
     get_farmer_data_cached_only,
+    is_fetch_inflight,
     refresh_farmer_data_bounded,
     enqueue_farmer_refresh,
     should_refresh_farmer_data,
@@ -629,6 +630,10 @@ async def get_or_fetch_farmer_data(mobile: str):
             fresh = await refresh_farmer_data_bounded(mobile)
             return fresh if fresh is not None else cached
         return cached
+    if await is_fetch_inflight(mobile):
+        # A recent cold fetch was cancelled and a worker is still on it. Don't
+        # pay the same budget again — this turn is unresolved.
+        return None
     return await refresh_farmer_data_bounded(mobile)
 
 
@@ -2286,6 +2291,13 @@ async def stream_voice_message(
                 try:
                     with trace.stage("farmer_context"):
                         envelope = await farmer_cache_task
+                    if envelope is None:
+                        # A concurrent fetch (e.g. the outbound prefetch) may have
+                        # landed while ours was giving up. Cheap Redis re-read
+                        # before we commit to an unresolved turn.
+                        envelope = await get_farmer_data_cached_only(mobile)
+                        if envelope is not None:
+                            logger.info("Farmer context resolved on re-read for mobile %s", mobile)
                     farmer_info = _build_compact_farmer_summary(envelope)
                     farmer_unions = _collect_farmer_unions(envelope)
                     farmer_accounts = _collect_farmer_accounts(envelope)
