@@ -37,6 +37,23 @@ BASE_AMULPASHUDHAN = "https://api.amulpashudhan.com/configman/v1/PashuGPT"
 BASE_HERDMAN = "https://herdman.live/apis/api"
 
 
+class BackendUnavailableError(RuntimeError):
+    """Upstream did not answer, or answered with an error we cannot interpret.
+
+    Distinct from "upstream answered, and this mobile has no farmer record".
+    Collapsing the two is what let a transient failure be written to Redis as a
+    confident `not_found` and served for the next two hours: 108 of the 356
+    failing voice sessions in 2026-09-01..09-14 had no fetch span at all, and 28
+    of those phones booked successfully at other times, so those envelopes should
+    never have been cached. See issue #282 root cause B.
+    """
+
+    def __init__(self, provider: str, detail: str) -> None:
+        super().__init__(f"{provider}: {detail}")
+        self.provider = provider
+        self.detail = detail
+
+
 # Why this read happened — tags every API observation so we can tell, in
 # Langfuse, a request-time cold fetch from a background-worker refresh. Reads
 # served straight from Redis never reach this layer, so a recorded API call
@@ -100,12 +117,31 @@ def _safe_response_summary(body: str) -> dict:
     return out
 
 
+# Upstream error bodies are short ("Farmer Record Not Found." is 36 bytes); this
+# is a safety bound, not a real limit.
+_ERROR_BODY_TRACE_CHARS = 500
+_LONG_DIGIT_RUN = re.compile(r"\d{10,}")
+
+
+def _redact_error_body(body: str) -> str:
+    """An upstream error body, with anything phone-shaped removed.
+
+    Error responses can echo the request, and the request carries the caller's
+    mobile. _safe_response_summary exists precisely so we never ship farmer PII
+    to Langfuse, and recording error text must not become the exception.
+    """
+    return _LONG_DIGIT_RUN.sub("[redacted]", body[:_ERROR_BODY_TRACE_CHARS])
+
+
 def _record_api_trace(observation, response, *, provider: str, url: str) -> None:
     """Attach status + a PII-safe response structure + source to a Langfuse
     observation. This is how we prove inconsistent upstream returns. Span latency
     is recorded by Langfuse from the observation duration. Raw bodies are only
-    included when FARMER_API_TRACE_BODY is enabled (deep-debug). Wrapped in
-    try/except: tracing must never break a read.
+    included when FARMER_API_TRACE_BODY is enabled (deep-debug), except for error
+    responses, whose (redacted) body is always kept — {status_code, bytes, keys}
+    alone cannot distinguish the partner's "Farmer Record Not Found." 500 from a
+    genuine fault, which is the question this trace exists to answer (#282 P2).
+    Wrapped in try/except: tracing must never break a read.
     """
     if observation is None:
         return
@@ -122,6 +158,8 @@ def _record_api_trace(observation, response, *, provider: str, url: str) -> None
         }
         if settings.farmer_api_trace_body and settings.farmer_api_trace_body_chars > 0:
             output["body"] = body[: settings.farmer_api_trace_body_chars]
+        elif not output["ok"] and body.strip():
+            output["error_body"] = _redact_error_body(body)
         observation.update(output=output, metadata={"provider": provider, "url": url})
     except Exception:
         pass
@@ -159,11 +197,50 @@ def normalize_tag(tag_no: str) -> str:
     return (tag_no or "").strip()
 
 
+# api.amulpashudhan.com represents "this mobile has no farmer record" as HTTP 500
+# with a 36-byte body. It is an authoritative absence dressed as a server error:
+# across 2026-09-01..09-14 every one of 1,810 voice and 12,710 chat 500s carried
+# this body, and over the full retained window only 9 of 234,340 HTTP 500s did
+# not. Treating it as an outage would make every turn from an unregistered caller
+# re-hit the partner. (The partner has been asked to return 404/204 instead.)
+_NOT_REGISTERED_MARKER = "Farmer Record Not Found"
+
+
+def _parse_farmer_response(r: "httpx.Response", provider: str) -> Optional[List[Dict[str, Any]]]:
+    """Farmer records, or None when upstream answered cleanly with no record.
+
+    Raises BackendUnavailableError when upstream answered with an error status or
+    a body we cannot read. The caller must never record that as "no such farmer":
+    an absence may be cached, an outage may not.
+    """
+    if r.status_code == 204:
+        return None
+    if r.status_code != 200:
+        if _NOT_REGISTERED_MARKER in (r.text or ""):
+            return None
+        raise BackendUnavailableError(provider, f"HTTP {r.status_code}")
+    if not (r.text or "").strip():
+        return None
+    try:
+        data = json.loads(r.text)
+    except json.JSONDecodeError as e:
+        raise BackendUnavailableError(provider, f"unparseable body: {e}") from e
+    if isinstance(data, list) and len(data) > 0:
+        return data
+    if isinstance(data, dict) and data.get("data") and isinstance(data["data"], list):
+        return data["data"]
+    return None
+
+
 # --- Farmer ---
 
 
 async def fetch_farmer_amulpashudhan(mobile: str, token: str) -> Optional[List[Dict[str, Any]]]:
-    """Returns list of farmer records or None on 204/error/empty."""
+    """Farmer records, or None when upstream says this mobile has no record.
+
+    Raises BackendUnavailableError when upstream failed — never None for that,
+    because None is what gets cached as a confident negative.
+    """
     url = f"{BASE_AMULPASHUDHAN}/GetFarmerDetailsByMobile?mobileNumber={mobile}"
     try:
         with start_observation(
@@ -177,22 +254,21 @@ async def fetch_farmer_amulpashudhan(mobile: str, token: str) -> Optional[List[D
                     headers={"accept": "application/json", "Authorization": f"Bearer {token}"},
                 )
             _record_api_trace(observation, r, provider="amulpashudhan", url=url)
-        if r.status_code == 204 or not (r.text or "").strip():
-            return None
-        if r.status_code != 200:
-            return None
-        data = json.loads(r.text)
-        if isinstance(data, list) and len(data) > 0:
-            return data
-        if isinstance(data, dict) and data.get("data") and isinstance(data["data"], list):
-            return data["data"]
-        return None
-    except (json.JSONDecodeError, httpx.HTTPError, Exception):
-        return None
+    except BackendUnavailableError:
+        raise
+    except Exception as e:
+        # A timeout or transport error is the clearest possible "we do not know".
+        raise BackendUnavailableError("amulpashudhan", f"request failed: {e}") from e
+    return _parse_farmer_response(r, "amulpashudhan")
 
 
 async def fetch_farmer_herdman(mobile: str, token: str) -> Optional[List[Dict[str, Any]]]:
-    """Returns list of farmer records or None on error/empty."""
+    """Farmer records, or None when upstream says this mobile has no record.
+
+    Raises BackendUnavailableError when upstream failed. See #273 for the expired
+    token and the unparsed `{"Farmer": [...]}` response shape — with this change
+    that backend's failures stop being silently read as an absence.
+    """
     url = f"{BASE_HERDMAN}/get-amul-farmer"
     try:
         with start_observation(
@@ -207,16 +283,11 @@ async def fetch_farmer_herdman(mobile: str, token: str) -> Optional[List[Dict[st
                     headers={"accept": "application/json", "api-token": f"Bearer {token}"},
                 )
             _record_api_trace(observation, r, provider="herdman", url=url)
-        if r.status_code != 200 or not (r.text or "").strip():
-            return None
-        data = json.loads(r.text)
-        if isinstance(data, list) and len(data) > 0:
-            return data
-        if isinstance(data, dict) and data.get("data") and isinstance(data["data"], list):
-            return data["data"]
-        return None
-    except (json.JSONDecodeError, httpx.HTTPError, Exception):
-        return None
+    except BackendUnavailableError:
+        raise
+    except Exception as e:
+        raise BackendUnavailableError("herdman", f"request failed: {e}") from e
+    return _parse_farmer_response(r, "herdman")
 
 
 def _farmer_record_key(rec: Dict[str, Any]) -> tuple:
