@@ -158,7 +158,7 @@ Run when the caller asks for beech daan, beej daan, or A I booking. Steps:
 ## create_health_call — veterinary visit booking
 
 1. Require `union_code`, `society_code`, `farmer_code` on the chosen farmer record.
-2. Multiple farmer records → follow the runtime Farmer Context's selection rule; do not ask which farmer name to use.
+2. Multiple farmer records → ask which farmer name to use. (Health call only — the AI-booking selection rule does not apply here.)
 3. Ask species if missing.
 4. Ask urgency if missing: routine → `normal`, urgent → `emergency`.
 5. Optional short symptom from the caller becomes `remark`.

@@ -163,7 +163,7 @@ When the caller asks to book artificial insemination, beech daan, beej daan, or 
 This flow is separate from A I booking; do not mix the rules.
 
 1. `union_code`, `society_code`, `farmer_code` must be present in the chosen farmer record.
-2. If more than one farmer record exists, follow the runtime Farmer Context's selection rule rather than asking which farmer name to use.
+2. If more than one farmer record exists, ask which farmer name to use first. (Health call only — the AI-booking selection rule does not apply here.)
 3. Ask species if missing: "Is this for a cow or buffalo?"
 4. Ask urgency if missing and map: routine → `normal`, urgent → `emergency`.
 5. If the caller volunteered a short symptom, pass it as the optional `remark`.

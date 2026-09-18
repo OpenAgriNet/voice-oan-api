@@ -849,53 +849,64 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
                 return ("name", name)
             return ("unknown", id(d))
 
-        def _village_label(d: dict) -> str:
-            """A choice the caller can actually say. Falls back to the society
-            code, then the farmer name, so we never offer 'unknown village'."""
-            for candidate in (
-                d.get("societyName"),
-                d.get("societyCode") or d.get("society_code"),
-                d.get("farmerName"),
-            ):
-                text = str(candidate or "").strip()
-                if text:
-                    return text
-            return "unknown village"
+        def _village_label(d: dict) -> Optional[str]:
+            """A village name the caller could say out loud, or None.
+
+            Deliberately NOT falling back to a society code or a farmer name: a
+            caller cannot read out "00731", and offering farmer names is the
+            byte-similar-name question this whole block exists to remove. When
+            there is no speakable label we book option 1 rather than ask
+            something unanswerable.
+            """
+            text = str(d.get("societyName") or "").strip()
+            return text or None
 
         villages = {_village_key(d) for d in _records}
         lines.append("- Multiple farmer records are registered on this mobile number.")
         if len(villages) > 1:
-            labels = []
+            # One label per village key: deduping by display text would let two
+            # genuinely different societies that share a societyName collapse to
+            # a single label, and we would then book option 1 for an animal that
+            # may be in the other one.
+            labels_by_key: dict = {}
             for d in _records:
-                label = _village_label(d)
-                if label not in labels:
-                    labels.append(label)
-            if len(labels) > 1:
+                labels_by_key.setdefault(_village_key(d), _village_label(d))
+            speakable = [v for v in labels_by_key.values() if v]
+            if len(labels_by_key) == len(speakable) and len(set(speakable)) == len(speakable):
                 lines.append(
                     "- For booking, they are in different villages, which means different technicians."
                 )
                 lines.append(
-                    f"- Ask which village the animal is in ({', '.join(labels)}). "
+                    f"- Ask which village the animal is in ({', '.join(speakable)}). "
                     "Do NOT ask which farmer name."
                 )
                 lines.append(
                     "- Then use the lowest-numbered Farmer option in that village."
                 )
             else:
-                # Different villages but nothing distinct to offer. Asking would
-                # be a one-option question with the only other disambiguator
-                # forbidden — the loop this block exists to remove.
+                # Different villages, but they cannot be named distinctly to the
+                # caller. Asking would be unanswerable — or worse, would fall
+                # back to the farmer names this block removes. Book option 1 and
+                # say so, rather than guessing silently.
                 lines.append(
-                    "- For booking, use Farmer option 1 below. Do NOT ask which farmer name to use."
+                    "- For booking, these records may be in different villages, but they "
+                    "cannot be told apart by village name."
+                )
+                lines.append(
+                    "- Use Farmer option 1 below. Do NOT ask which farmer name to use for booking."
                 )
         else:
-            names = {
-                n for n in (_normalize_farmer_name(d.get("farmerName")) for d in _records) if n
-            }
+            # "Duplicate records of one farmer" requires that EVERY record
+            # carries a name and they all normalise to the same one. One named
+            # record plus one with a name missing upstream is two household
+            # members, not a duplicate, and the agent relays this claim aloud.
+            _names = [_normalize_farmer_name(d.get("farmerName")) for d in _records]
+            names = {n for n in _names if n}
+            all_named = len(names) == 1 and all(_names)
             lines.append(
                 "- For booking, they are all in the same village, served by the same technicians, "
                 "so the visit is identical whichever record is used."
-                + (" They are duplicate records of one farmer." if len(names) == 1 else "")
+                + (" They are duplicate records of one farmer." if all_named else "")
             )
             lines.append(
                 "- Do NOT ask which farmer name to use for booking — the caller usually cannot tell "
