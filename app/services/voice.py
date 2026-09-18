@@ -79,6 +79,11 @@ from app.services.voice_trace import VoiceTrace, create_voice_trace, sanitize_te
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerAccount, FarmerContext
+from agents.services.farmer_identity import (
+    identity_state_for_envelope,
+    identity_tool_groups,
+    unavailable_capability_lines,
+)
 from app.llm_core import resolver as _llm_resolver
 from app.llm_core.config_model import Step as _LlmStep
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
@@ -639,9 +644,11 @@ def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
     vLLM prefix caching can reuse across turns. Per-query content that changes
     every turn lives in _build_query_hints_request() and is appended AFTER history
     so it never breaks this prefix."""
-    tool_groups = ["retrieval", "booking"]
-    if deps.signed_in and deps.mobile:
-        tool_groups.append("signed-in-farmer-data")
+    # Derived from the same predicate that drives the tool gates, so this line
+    # can never advertise a group the model was not given. It previously
+    # hardcoded "booking", announcing it on exactly the turns where booking was
+    # impossible (issue #282).
+    tool_groups = identity_tool_groups(deps)
     runtime_context = deps.get_runtime_context_message()
     context_lines = [
         "Runtime context for this turn:",
@@ -735,8 +742,20 @@ def _append_animal_records(lines: list[str], envelope: FarmerDataEnvelope) -> No
 
 
 def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
-    if envelope is None or not envelope.farmers:
-        return ""
+    """Farmer block for the runtime context, or an explicit statement of what is
+    unavailable and why.
+
+    This used to return "" for both "no record exists" and "we have not resolved
+    this caller yet", so the model received no farmer block at all and could not
+    distinguish the two — or tell the caller anything useful about either. It
+    then invented identifiers and called the tools anyway. The tools are now
+    withheld on those turns (agents.services.farmer_identity); these lines are
+    what lets the model say something true rather than "that feature does not
+    exist" or claiming a booking it never made. See issue #282.
+    """
+    state = identity_state_for_envelope(envelope)
+    if state != "found":
+        return "\n".join(unavailable_capability_lines(state))
 
     first = envelope.farmers[0]
     tags = _extract_farmer_tags(envelope.farmers)
@@ -1577,7 +1596,14 @@ async def stream_voice_message(
             non_meaningful_recent_turns = _collect_recent_user_turns_for_non_meaningful(history, query, limit=5)
             mobile = normalize_phone_to_mobile(user_id)
             signed_in = _is_signed_in_session(user_info, user_id)
-            farmer_info = ""
+            # Fails closed: a turn whose farmer lookup never ran (no resolvable
+            # mobile) or threw stays "unresolved", so the identity-taking tools
+            # stay hidden. The context lines are seeded here too — otherwise the
+            # model would find the tools simply absent, with nothing to tell the
+            # caller, which is how a small model ends up claiming a booking it
+            # never made. Both are replaced below once the lookup resolves.
+            farmer_identity = "unresolved"
+            farmer_info = "\n".join(unavailable_capability_lines(farmer_identity))
             farmer_unions: list[str] = []
             farmer_accounts: list[FarmerAccount] = []
             ai_technician_info = ""
@@ -2286,6 +2312,7 @@ async def stream_voice_message(
                 try:
                     with trace.stage("farmer_context"):
                         envelope = await farmer_cache_task
+                    farmer_identity = identity_state_for_envelope(envelope)
                     farmer_info = _build_compact_farmer_summary(envelope)
                     farmer_unions = _collect_farmer_unions(envelope)
                     farmer_accounts = _collect_farmer_accounts(envelope)
@@ -2405,6 +2432,7 @@ async def stream_voice_message(
                 ai_technician_info=ai_technician_info,
                 signed_in=signed_in,
                 mobile=mobile,
+                farmer_identity=farmer_identity,
                 farmer_accounts=farmer_accounts,
             )
             # Let side-effecting tools (bookings) self-gate on the concurrent
