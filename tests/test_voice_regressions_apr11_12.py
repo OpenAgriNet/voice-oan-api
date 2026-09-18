@@ -582,11 +582,14 @@ class TestHelperCoverage:
         assert "Farmer refresh after: 2026-04-18T00:00:00+00:00" in summary
         assert "Farmer name: Rameshbhai" in summary
         assert "Multiple farmer records are registered on this mobile number." in summary
-        # The "first ask which farmer name" instruction was removed: these two
-        # records share a society, so the technician and the visit are identical
-        # either way, and asking by name is unanswerable for a shared household
-        # mobile. See test_multi_farmer_no_unanswerable_question and #282.
-        assert "Do NOT ask which farmer name to use" in summary
+        # These two records carry no union/society codes and DIFFERENT society
+        # names ("Anand Dairy Society" vs "Vidya Dairy Society"), so they are two
+        # villages with two technician groups. The context must ask which
+        # village, not assert they are interchangeable — an earlier version of
+        # this test locked in the opposite and would have shipped callers into
+        # the wrong village. See test_multi_farmer_no_unanswerable_question.
+        assert "Ask which village the animal is in" in summary
+        assert "Anand Dairy Society" in summary and "Vidya Dairy Society" in summary
         assert "first ask which farmer name" not in summary
         assert "Farmer code available: yes" in summary
         assert "Known animal tags: one zero zero one, one zero zero two, one zero zero three" in summary
@@ -730,15 +733,23 @@ class TestHelperCoverage:
         assert "Bad Gujarati technician prompt: `મારે કયા ટેકનિશિયન સાથે એપોઇન્ટમેન્ટ બુક કરવી જોઈએ? હું પહેલા બીજા અથવા ત્રીજા ટેકનિશિયન સાથે એપોઇન્ટમેન્ટ બુક કરાવી શકું છું.`" in prompt_text
         assert "Good Gujarati technician prompt: `હું <A> અથવા <B> સાથે બુક કરી શકું છું. કયા ટેકનિશિયન સાથે બુક કરું?`" in prompt_text
         assert "User: `Book beech daan`" in prompt_text
-        assert "Assistant: `Which farmer name should I use for the booking? I found Rameshbhai and Sureshbhai.`" in prompt_text
+        # The worked example used to demonstrate asking by farmer name. A
+        # demonstrated example is the strongest instruction in the prompt, and
+        # it was reproducing verbatim in prod ("I found X and Y") on 2,595
+        # traces. Replaced with the species question, which is always asked.
+        assert "Assistant: `Is this for a cow or a buffalo?`" in prompt_text
+        assert "Which farmer name should I use for the booking" not in prompt_text
         assert "User: `No, that is all`" in prompt_text
         assert "Assistant: `All right. You can call again if you need help.`" in prompt_text
 
     def test_translation_pipeline_prompt_has_voice_specific_ai_booking_rules(self):
         prompt_path = Path(__file__).resolve().parents[1] / "assets" / "prompts" / "voice_system_translation_pipeline_en.md"
         prompt_text = prompt_path.read_text(encoding="utf-8")
-        assert "If the runtime Farmer Context shows more than one farmer record for the mobile number" in prompt_text
-        assert "Which farmer name should I use for the booking? I found Rameshbhai and Sureshbhai." in prompt_text
+        # Multi-record selection now defers to the runtime Farmer Context
+        # instead of instructing a question the caller cannot answer (#282).
+        assert "follow whatever that context says about selecting between them" in prompt_text
+        assert "ask which **village** the animal is in" in prompt_text
+        assert "Which farmer name should I use for the booking" not in prompt_text
         assert "separate internal AI technician context grouped by farmer and society" in prompt_text
         assert "the farmer does not know which technicians are available unless you tell them by name" in prompt_text
         assert "Each technician option only has these fields: `id`, `full_name`, and `mobile_number`." in prompt_text

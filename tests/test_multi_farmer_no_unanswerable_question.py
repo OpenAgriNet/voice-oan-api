@@ -22,6 +22,9 @@ def _env(records):
     return FarmerDataEnvelope.from_records(records, source="api", lookup_status="found")
 
 
+
+
+
 def _rec(farmer_code, name, society_code="00731", society_name="RAMOS", union_code="159"):
     return {
         "unionCode": union_code, "societyCode": society_code,
@@ -35,7 +38,7 @@ def test_same_village_does_not_ask_which_farmer():
         _rec("0192", "Patel Nuruben Ashvinbhai A"),
     ]))
     assert "Do NOT ask which farmer name" in out
-    assert "Book with Farmer option 1" in out
+    assert "lowest-numbered Farmer option that has technicians" in out
     assert "ask which farmer name the caller wants to use" not in out
 
 
@@ -71,3 +74,52 @@ def test_every_record_is_still_listed_for_the_technician_groups():
         _rec("0554", "Patel Asvinbhai"), _rec("0192", "Patel Nuruben"),
     ]))
     assert "Farmer option 1" in out and "Farmer option 2" in out
+
+
+def test_records_without_codes_group_by_society_name_not_by_nothing():
+    """unionCode/societyCode are `extra` fields and can be absent. If they are,
+    every record collapses to the same empty key and the context would assert
+    "same village" over genuinely different societies — booking the caller into
+    the wrong village. Regression for the HIGH finding on #292."""
+    out = _build_compact_farmer_summary(_env([
+        {"farmerCode": "0554", "farmerName": "Ramesh", "societyName": "ANAND"},
+        {"farmerCode": "0192", "farmerName": "Suresh", "societyName": "VIDYA"},
+    ]))
+    assert "Ask which village" in out
+    assert "ANAND" in out and "VIDYA" in out
+
+
+def test_different_villages_with_no_distinct_labels_do_not_ask_a_one_option_question():
+    """Asking "which village (unknown village)?" while forbidding the only other
+    disambiguator recreates the loop. Fall through to option 1 instead."""
+    out = _build_compact_farmer_summary(_env([
+        {"unionCode": "159", "societyCode": "00731", "farmerCode": "0554", "farmerName": "Ramesh"},
+        {"unionCode": "159", "societyCode": "00262", "farmerCode": "0192", "farmerName": "Ramesh"},
+    ]))
+    # society codes stand in as the village labels rather than "unknown village"
+    assert "unknown village" not in out
+    assert ("Ask which village" in out) or ("use Farmer option 1" in out)
+
+
+def test_all_names_empty_is_not_called_a_duplicate():
+    out = _build_compact_farmer_summary(_env([
+        _rec("0554", None), _rec("0192", None),
+    ]))
+    assert "duplicate records of one farmer" not in out
+
+
+def test_name_normalisation_handles_any_whitespace():
+    from app.services.voice import _normalize_farmer_name
+    assert _normalize_farmer_name("Patel   Asvin") == _normalize_farmer_name("Patel Asvin")
+    assert _normalize_farmer_name("Patel\tAsvin") == _normalize_farmer_name("Patel Asvin")
+    assert _normalize_farmer_name("PATEL ASVIN..") == _normalize_farmer_name("patel asvin")
+
+
+def test_the_instruction_is_scoped_to_booking():
+    """The removed line was booking-scoped. An unqualified "do not ask which
+    farmer" would also suppress the legitimate question for herd, milk and
+    treatment-history lookups."""
+    out = _build_compact_farmer_summary(_env([
+        _rec("0554", "Patel Asvinbhai"), _rec("0192", "Patel Nuruben"),
+    ]))
+    assert "for booking" in out.lower()

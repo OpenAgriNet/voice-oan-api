@@ -748,7 +748,8 @@ def _append_animal_records(lines: list[str], envelope: FarmerDataEnvelope) -> No
 
 def _normalize_farmer_name(value) -> str:
     """Names carry stray dots and double spaces (`PATEL..`, `A  B`)."""
-    return re.sub(r"[^\w\s]", "", str(value or "")).strip().casefold().replace("  ", " ")
+    cleaned = re.sub(r"[^\w\s]", "", str(value or ""))
+    return re.sub(r"\s+", " ", cleaned).strip().casefold()
 
 
 def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
@@ -826,37 +827,80 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
     # source of failed bookings. See issue #282.
     if len(envelope.farmers) > 1:
         _records = [r.model_dump() for r in envelope.farmers]
-        villages = {
-            (str(d.get("unionCode") or d.get("union_code") or ""),
-             str(d.get("societyCode") or d.get("society_code") or ""))
-            for d in _records
-        }
+
+        def _village_key(d: dict) -> tuple:
+            """How to group records into villages.
+
+            unionCode/societyCode are `extra="allow"` fields on FarmerRecord, not
+            declared ones, so they can be absent — `_collect_farmer_accounts` and
+            `_fetch_ai_technicians` both guard for exactly that. If they were
+            missing here every record would collapse to ("", "") and we would
+            assert "same village" over genuinely different societies, booking the
+            caller into the wrong one. Fall back to societyName, and treat a
+            record with no usable key at all as its own village so the ambiguous
+            case asks rather than guesses.
+            """
+            union = str(d.get("unionCode") or d.get("union_code") or "").strip()
+            society = str(d.get("societyCode") or d.get("society_code") or "").strip()
+            if union or society:
+                return ("code", union, society)
+            name = str(d.get("societyName") or "").strip().casefold()
+            if name:
+                return ("name", name)
+            return ("unknown", id(d))
+
+        def _village_label(d: dict) -> str:
+            """A choice the caller can actually say. Falls back to the society
+            code, then the farmer name, so we never offer 'unknown village'."""
+            for candidate in (
+                d.get("societyName"),
+                d.get("societyCode") or d.get("society_code"),
+                d.get("farmerName"),
+            ):
+                text = str(candidate or "").strip()
+                if text:
+                    return text
+            return "unknown village"
+
+        villages = {_village_key(d) for d in _records}
         lines.append("- Multiple farmer records are registered on this mobile number.")
         if len(villages) > 1:
-            # Different society means a different technician in a different
-            # village, so this one has to be resolved — but by village, which a
-            # caller can say out loud, not by two near-identical names.
-            village_names = sorted({
-                str(d.get("societyName") or "unknown village") for d in _records
-            })
-            lines.append(
-                "- They are in different villages, which means different technicians."
-            )
-            lines.append(
-                f"- Ask which village the animal is in ({', '.join(village_names)}). "
-                "Do NOT ask which farmer name."
-            )
-            lines.append("- Then use the codes of the option in that village.")
+            labels = []
+            for d in _records:
+                label = _village_label(d)
+                if label not in labels:
+                    labels.append(label)
+            if len(labels) > 1:
+                lines.append(
+                    "- For booking, they are in different villages, which means different technicians."
+                )
+                lines.append(
+                    f"- Ask which village the animal is in ({', '.join(labels)}). "
+                    "Do NOT ask which farmer name."
+                )
+                lines.append(
+                    "- Then use the lowest-numbered Farmer option in that village."
+                )
+            else:
+                # Different villages but nothing distinct to offer. Asking would
+                # be a one-option question with the only other disambiguator
+                # forbidden — the loop this block exists to remove.
+                lines.append(
+                    "- For booking, use Farmer option 1 below. Do NOT ask which farmer name to use."
+                )
         else:
-            names = {_normalize_farmer_name(d.get("farmerName")) for d in _records}
+            names = {
+                n for n in (_normalize_farmer_name(d.get("farmerName")) for d in _records) if n
+            }
             lines.append(
-                "- They are all in the same village, served by the same technicians, "
+                "- For booking, they are all in the same village, served by the same technicians, "
                 "so the visit is identical whichever record is used."
                 + (" They are duplicate records of one farmer." if len(names) == 1 else "")
             )
             lines.append(
-                "- Do NOT ask which farmer name to use — the caller usually cannot tell "
-                "these records apart by name. Book with Farmer option 1 below."
+                "- Do NOT ask which farmer name to use for booking — the caller usually cannot tell "
+                "these records apart by name. Use the lowest-numbered Farmer option that has "
+                "technicians listed for it."
             )
 
     # No cap: a farmer omitted here cannot be selected for booking, and its
