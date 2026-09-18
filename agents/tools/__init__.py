@@ -7,7 +7,17 @@ from agents.tools.scheme_info import get_scheme_info
 from agents.tools.pmkisan_scheme_status import initiate_pm_kisan_status_check, check_pm_kisan_status_with_otp
 from agents.tools.pmfby_scheme_status import initiate_pmfby_status_check, check_pmfby_status_with_otp
 from agents.tools.shc_scheme_status import check_shc_status
-from agents.tools.grievance import submit_pmkisan_grievance, grievance_status
+from agents.tools.pmkisan_grievance import (
+    pmkisan_grievance_send_otp,
+    pmkisan_submit_grievance,
+    pmkisan_grievance_status,
+)
+from agents.tools.pmfby_grievance import (
+    initiate_pmfby_grievance_otp,
+    check_pmfby_grievance_otp,
+    pmfby_grievance_status,
+    pmfby_submit_grievance,
+)
 from agents.tools.terms import search_terms
 from agents.tools.search import search_documents, search_videos, search_pests_diseases, search_schemes
 from agents.tools.weather import weather_forecast
@@ -49,13 +59,38 @@ TOOLS = [
         strict=False,
     ),
     Tool(
-        submit_pmkisan_grievance,
-        takes_ctx=False,
+        pmkisan_grievance_send_otp,
+        takes_ctx=True,
         strict=False,
     ),
     Tool(
-        grievance_status,
-        takes_ctx=False,
+        pmkisan_submit_grievance,
+        takes_ctx=True,
+        strict=False,
+    ),
+    Tool(
+        pmkisan_grievance_status,
+        takes_ctx=True,
+        strict=False,
+    ),
+    Tool(
+        initiate_pmfby_grievance_otp,
+        takes_ctx=True,
+        strict=False,
+    ),
+    Tool(
+        check_pmfby_grievance_otp,
+        takes_ctx=True,
+        strict=False,
+    ),
+    Tool(
+        pmfby_grievance_status,
+        takes_ctx=True,
+        strict=False,
+    ),
+    Tool(
+        pmfby_submit_grievance,
+        takes_ctx=True,
         strict=False,
     ),
     Tool(
