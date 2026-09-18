@@ -583,13 +583,13 @@ class TestHelperCoverage:
         assert "Farmer name: Rameshbhai" in summary
         assert "Multiple farmer records are registered on this mobile number." in summary
         # These two records carry no union/society codes and DIFFERENT society
-        # names ("Anand Dairy Society" vs "Vidya Dairy Society"), so they are two
-        # villages with two technician groups. The context must ask which
-        # village, not assert they are interchangeable — an earlier version of
-        # this test locked in the opposite and would have shipped callers into
-        # the wrong village. See test_multi_farmer_no_unanswerable_question.
-        assert "Ask which village the animal is in" in summary
-        assert "Anand Dairy Society" in summary and "Vidya Dairy Society" in summary
+        # names. They must not be declared "the same village" — but they also
+        # cannot be booked at all, since _fetch_ai_technicians returns None
+        # without both codes, so asking which village would spend a turn and
+        # still fail. The context says the codes are missing instead.
+        assert "all in the same village" not in summary
+        assert "Ask which village the animal is in" not in summary
+        assert "missing the society and union codes needed" in summary
         assert "first ask which farmer name" not in summary
         assert "Farmer code available: yes" in summary
         assert "Known animal tags: one zero zero one, one zero zero two, one zero zero three" in summary
