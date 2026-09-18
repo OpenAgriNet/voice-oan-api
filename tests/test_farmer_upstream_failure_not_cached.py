@@ -226,3 +226,27 @@ def test_successful_response_records_no_error_body():
         provider="amulpashudhan", url="https://x",
     )
     assert "error_body" not in captured["output"]
+
+
+def test_get_farmer_by_mobile_unpacks_the_dual_backend_result():
+    """_fetch_farmer_records_dual_backend returns (records, upstream_failed).
+    Both callers must unpack it: binding the 2-tuple to `records` makes
+    `if not records` permanently false and then calls .get() on a list."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+    import agents.tools.farmer as farmer_tool
+
+    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1", "PASHUGPT_TOKEN_3": "t3"}), \
+         patch.object(
+             farmer_tool, "_fetch_farmer_records_dual_backend",
+             new=AsyncMock(return_value=([{"farmerName": "Ramesh", "societyName": "S"}], False)),
+         ):
+        assert "Ramesh" in asyncio.run(farmer_tool.get_farmer_by_mobile("9999999999"))
+
+    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1", "PASHUGPT_TOKEN_3": "t3"}), \
+         patch.object(
+             farmer_tool, "_fetch_farmer_records_dual_backend",
+             new=AsyncMock(return_value=([], True)),
+         ):
+        out = asyncio.run(farmer_tool.get_farmer_by_mobile("9999999999"))
+    assert "could not be looked up" in out and "No farmer data found" not in out
