@@ -837,19 +837,19 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
                 str(d.get("societyCode") or d.get("society_code") or "").strip(),
             )
 
-        def _village_key(d: dict) -> tuple:
-            """How to group records into villages.
+        def _village(d: dict) -> tuple:
+            """The village a record belongs to, for grouping.
 
-            societyCode is the village-defining half of the (unionCode,
-            societyCode) technician lookup, so a union-only key would merge two
-            societies of one union. Both codes are `extra="allow"` fields on
-            FarmerRecord and can be absent, hence the societyName fallback.
+            (unionCode, societyCode) is exactly the key the technician lookup
+            uses — GetAITechniciansBySocietyQueryParams takes nothing else — so
+            two records share a village iff they share this pair. A union-only
+            key would merge two societies of one union.
+
+            Only ever called on `bookable` records, which carry both codes by
+            construction, so there is no missing-code case to handle here; that
+            is decided once, above, and those records are excluded.
             """
-            union, society = _codes(d)
-            if society:
-                return ("code", union, society)
-            name = _normalize_farmer_name(d.get("societyName"))
-            return ("name", name) if name else ("unknown", id(d))
+            return _codes(d)
 
         def _village_label(d: dict) -> Optional[str]:
             """A village name the caller could say out loud, or None.
@@ -886,7 +886,7 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
             # the mapping from the option lines' society names.
             by_village: dict = {}
             for i, d in bookable:
-                key = _village_key(d)
+                key = _village(d)
                 entry = by_village.setdefault(key, {"label": None, "option": i})
                 if entry["label"] is None:
                     entry["label"] = _village_label(d)

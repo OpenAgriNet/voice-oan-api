@@ -90,9 +90,10 @@ def test_records_without_codes_are_never_asserted_to_share_a_village():
     assert "cannot be made from them" in out
 
 
-def test_union_only_key_does_not_merge_two_societies():
-    """societyCode is the village-defining half of the technician lookup, so a
-    union-only key must not declare two societies to be one village."""
+def test_union_only_records_are_not_merged_into_one_village():
+    """A record with a union code but no society code cannot be booked at all
+    (the technician lookup needs both), so it is excluded before grouping — and
+    must never be declared to share a village with another society."""
     out = _build_compact_farmer_summary(_env([
         {"unionCode": "159", "farmerCode": "0554", "farmerName": "Ramesh", "societyName": "ANAND"},
         {"unionCode": "159", "farmerCode": "0192", "farmerName": "Suresh", "societyName": "VIDYA"},
