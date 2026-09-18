@@ -746,6 +746,11 @@ def _append_animal_records(lines: list[str], envelope: FarmerDataEnvelope) -> No
         lines.extend(blocks)
 
 
+def _normalize_farmer_name(value) -> str:
+    """Names carry stray dots and double spaces (`PATEL..`, `A  B`)."""
+    return re.sub(r"[^\w\s]", "", str(value or "")).strip().casefold().replace("  ", " ")
+
+
 def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
     """Farmer block for the runtime context, or an explicit statement of what is
     unavailable and why.
@@ -809,10 +814,50 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
     if tags:
         # All tags inline — no truncation, since the list-tags tool was dropped.
         lines.append(f"- Known animal tags: {', '.join(tags)}")
+    # Which farmer to book for is only a real question when the answer changes
+    # the visit. Technicians come from (unionCode, societyCode) alone, so when
+    # every record sits in one society they all yield the same technician, the
+    # same village and the same visit — 90% of multi-account mobiles. Asking
+    # anyway is what killed the call: the mobile is shared by a household and
+    # the names are not separable by ear (of 364 real pairs the agent offered,
+    # 250 share a name token and 19 are byte identical), so the caller answers,
+    # the answer fits both, and the agent asks again. 71 of the 265 calls in
+    # "AI booking not done" died in that loop — the largest single remaining
+    # source of failed bookings. See issue #282.
     if len(envelope.farmers) > 1:
+        _records = [r.model_dump() for r in envelope.farmers]
+        villages = {
+            (str(d.get("unionCode") or d.get("union_code") or ""),
+             str(d.get("societyCode") or d.get("society_code") or ""))
+            for d in _records
+        }
         lines.append("- Multiple farmer records are registered on this mobile number.")
-        lines.append("- For AI booking, first ask which farmer name the caller wants to use.")
-        lines.append("- Use the selected farmer's society and codes only after the farmer is identified.")
+        if len(villages) > 1:
+            # Different society means a different technician in a different
+            # village, so this one has to be resolved — but by village, which a
+            # caller can say out loud, not by two near-identical names.
+            village_names = sorted({
+                str(d.get("societyName") or "unknown village") for d in _records
+            })
+            lines.append(
+                "- They are in different villages, which means different technicians."
+            )
+            lines.append(
+                f"- Ask which village the animal is in ({', '.join(village_names)}). "
+                "Do NOT ask which farmer name."
+            )
+            lines.append("- Then use the codes of the option in that village.")
+        else:
+            names = {_normalize_farmer_name(d.get("farmerName")) for d in _records}
+            lines.append(
+                "- They are all in the same village, served by the same technicians, "
+                "so the visit is identical whichever record is used."
+                + (" They are duplicate records of one farmer." if len(names) == 1 else "")
+            )
+            lines.append(
+                "- Do NOT ask which farmer name to use — the caller usually cannot tell "
+                "these records apart by name. Book with Farmer option 1 below."
+            )
 
     # No cap: a farmer omitted here cannot be selected for booking, and its
     # technician group in _build_ai_technician_summary becomes unreachable.
