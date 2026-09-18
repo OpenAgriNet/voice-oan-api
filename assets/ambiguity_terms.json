@@ -526,5 +526,26 @@
     ],
     "type": "hardcode",
     "rule": "CRITICAL DOMAIN DISTINCTION — ગરમી (heat/estrus) and ગાભણ (pregnancy) are COMPLETELY DIFFERENT concepts. ગરમી means the animal is in heat (estrus cycle, ready for mating). ગાભણ means the animal is pregnant (carrying a calf). When a farmer says 'ગરમી નથી આવતી' or 'not coming in heat', they mean the animal is NOT showing estrus signs — do NOT use the word ગાભણ (pregnant) in your response. Say 'ગરમીમાં ન આવવું' NOT 'ગાભણ ન આવવું'. Say 'છેલ્લે ગરમીમાં ક્યારે આવ્યું?' NOT 'છેલ્લે ક્યારે ગાભણ આવ્યું?'. Anestrus (not coming in heat) is about missing estrus cycles. Pregnancy is about carrying offspring. Never confuse these."
+  },
+  {
+    "gu_terms": [
+      "બિદાન",
+      "બિદદાન",
+      "બિદન",
+      "બિદોન",
+      "બિદંગ",
+      "બિદણ",
+      "બિદ્ધાન",
+      "બિજાન",
+      "બિજદાન",
+      "બિજદણ",
+      "બિજ્ઞાન",
+      "વિદાન",
+      "વિધાન",
+      "બીદાન",
+      "નિદાન"
+    ],
+    "type": "hardcode",
+    "rule": "Insemination vs diagnosis. On this helpline the caller usually means **બીજદાન** (artificial insemination / AI). ASR routinely drops the જ and returns non-words: બિદાન, બિદદાન, બિદન, બિદોન, બિદંગ, બિદણ, બિદ્ધાન, બિજાન, બિજદાન, બિજદણ, બિજ્ઞાન, વિદાન, વિધાન. Any of these — anything starting બિ/બી/વિ and ending -દાન/-જ્ઞાન — means **artificial insemination**; translate as 'artificial insemination'. Do NOT translate them as 'diagnosis': the nearest real word નિદાન is one letter away (ન vs બ), which is exactly the trap. **નિદાન itself, spelled with the initial ન, genuinely means diagnosis** — when the transcript literally contains નિદાન, translate it as 'diagnosis' and do not change it to insemination."
   }
 ]
