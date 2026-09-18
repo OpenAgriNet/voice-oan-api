@@ -582,7 +582,12 @@ class TestHelperCoverage:
         assert "Farmer refresh after: 2026-04-18T00:00:00+00:00" in summary
         assert "Farmer name: Rameshbhai" in summary
         assert "Multiple farmer records are registered on this mobile number." in summary
-        assert "For AI booking, first ask which farmer name the caller wants to use." in summary
+        # The "first ask which farmer name" instruction was removed: these two
+        # records share a society, so the technician and the visit are identical
+        # either way, and asking by name is unanswerable for a shared household
+        # mobile. See test_multi_farmer_no_unanswerable_question and #282.
+        assert "Do NOT ask which farmer name to use" in summary
+        assert "first ask which farmer name" not in summary
         assert "Farmer code available: yes" in summary
         assert "Known animal tags: one zero zero one, one zero zero two, one zero zero three" in summary
         assert "Farmer option 1: name=Rameshbhai, society_name=Anand Dairy Society, farmer_code=F123" in summary
