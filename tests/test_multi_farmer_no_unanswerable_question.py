@@ -38,7 +38,7 @@ def test_same_village_does_not_ask_which_farmer():
         _rec("0192", "Patel Nuruben Ashvinbhai A"),
     ]))
     assert "Do NOT ask which farmer name" in out
-    assert "lowest-numbered Farmer option that has technicians" in out
+    assert "Use Farmer option 1" in out
     assert "ask which farmer name the caller wants to use" not in out
 
 
@@ -76,17 +76,61 @@ def test_every_record_is_still_listed_for_the_technician_groups():
     assert "Farmer option 1" in out and "Farmer option 2" in out
 
 
-def test_records_without_codes_group_by_society_name_not_by_nothing():
-    """unionCode/societyCode are `extra` fields and can be absent. If they are,
-    every record collapses to the same empty key and the context would assert
-    "same village" over genuinely different societies — booking the caller into
-    the wrong village. Regression for the HIGH finding on #292."""
+def test_records_without_codes_are_never_asserted_to_share_a_village():
+    """unionCode/societyCode are `extra` fields and can be absent. They must not
+    collapse to one empty key and be declared "the same village". These records
+    also cannot be booked at all — _fetch_ai_technicians returns None without
+    both codes — so the village question would spend a turn and still fail."""
     out = _build_compact_farmer_summary(_env([
         {"farmerCode": "0554", "farmerName": "Ramesh", "societyName": "ANAND"},
         {"farmerCode": "0192", "farmerName": "Suresh", "societyName": "VIDYA"},
     ]))
+    assert "all in the same village" not in out
+    assert "Ask which village" not in out
+    assert "missing the society and union codes needed" in out
+
+
+def test_union_only_key_does_not_merge_two_societies():
+    """societyCode is the village-defining half of the technician lookup, so a
+    union-only key must not declare two societies to be one village."""
+    out = _build_compact_farmer_summary(_env([
+        {"unionCode": "159", "farmerCode": "0554", "farmerName": "Ramesh", "societyName": "ANAND"},
+        {"unionCode": "159", "farmerCode": "0192", "farmerName": "Suresh", "societyName": "VIDYA"},
+    ]))
+    assert "all in the same village" not in out
+
+
+def test_village_labels_that_sound_identical_are_not_offered_as_a_choice():
+    out = _build_compact_farmer_summary(_env([
+        {"unionCode": "159", "societyCode": "00731", "farmerCode": "0554",
+         "farmerName": "Ramesh", "societyName": "RAMOS"},
+        {"unionCode": "159", "societyCode": "00262", "farmerCode": "0192",
+         "farmerName": "Suresh", "societyName": "Ramos "},
+    ]))
+    assert "Ask which village" not in out
+    assert "Use Farmer option 1" in out
+
+
+def test_first_non_empty_label_wins_within_a_society():
+    """Record 1 of a society may lack societyName while record 2 carries it."""
+    out = _build_compact_farmer_summary(_env([
+        {"unionCode": "159", "societyCode": "00731", "farmerCode": "0554", "farmerName": "A"},
+        {"unionCode": "159", "societyCode": "00731", "farmerCode": "0555",
+         "farmerName": "B", "societyName": "RAMOS"},
+        {"unionCode": "159", "societyCode": "00262", "farmerCode": "0192",
+         "farmerName": "C", "societyName": "DHANSURA"},
+    ]))
     assert "Ask which village" in out
-    assert "ANAND" in out and "VIDYA" in out
+    assert "RAMOS" in out and "DHANSURA" in out
+
+
+def test_the_do_not_ask_line_is_scoped_to_ai_booking():
+    """A vet visit is also a booking; the health flow deliberately still asks."""
+    out = _build_compact_farmer_summary(_env([
+        _rec("0554", "Patel Asvinbhai"), _rec("0192", "Patel Nuruben"),
+    ]))
+    assert "for the AI booking" in out
+    assert "Do NOT ask which farmer name to use for booking" not in out
 
 
 def test_never_asks_the_village_question_with_an_unspeakable_label():
@@ -148,4 +192,4 @@ def test_the_instruction_is_scoped_to_booking():
     out = _build_compact_farmer_summary(_env([
         _rec("0554", "Patel Asvinbhai"), _rec("0192", "Patel Nuruben"),
     ]))
-    assert "for booking" in out.lower()
+    assert "for ai booking" in out.lower()

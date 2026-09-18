@@ -842,7 +842,10 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
             """
             union = str(d.get("unionCode") or d.get("union_code") or "").strip()
             society = str(d.get("societyCode") or d.get("society_code") or "").strip()
-            if union or society:
+            # societyCode is the village-defining half of the (unionCode,
+            # societyCode) technician lookup. Keying on a union alone merges
+            # different societies of one union into a single "village".
+            if society:
                 return ("code", union, society)
             name = str(d.get("societyName") or "").strip().casefold()
             if name:
@@ -870,30 +873,55 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
             # may be in the other one.
             labels_by_key: dict = {}
             for d in _records:
-                labels_by_key.setdefault(_village_key(d), _village_label(d))
+                key = _village_key(d)
+                if not labels_by_key.get(key):
+                    # first NON-EMPTY label wins: record 1 of a society may have
+                    # no societyName while record 2 of the same society does.
+                    labels_by_key[key] = _village_label(d)
             speakable = [v for v in labels_by_key.values() if v]
-            if len(labels_by_key) == len(speakable) and len(set(speakable)) == len(speakable):
+            # Distinctness is judged the way a caller hears it, not byte-exact:
+            # "RAMOS" and "Ramos " are one choice out loud.
+            spoken = {_normalize_farmer_name(v) for v in speakable}
+            # A record with no codes has no technician group (_fetch_ai_technicians
+            # returns None without both codes) and cannot be booked at all, so
+            # asking which village would spend a turn and still fail.
+            all_bookable = all(_village_key(d)[0] == "code" for d in _records)
+            if (
+                all_bookable
+                and len(labels_by_key) == len(speakable)
+                and len(spoken) == len(speakable)
+            ):
                 lines.append(
-                    "- For booking, they are in different villages, which means different technicians."
+                    "- For AI booking, they are in different villages, which means different technicians."
                 )
                 lines.append(
                     f"- Ask which village the animal is in ({', '.join(speakable)}). "
-                    "Do NOT ask which farmer name."
+                    "Do NOT ask which farmer name for the AI booking."
                 )
                 lines.append(
                     "- Then use the lowest-numbered Farmer option in that village."
                 )
-            else:
-                # Different villages, but they cannot be named distinctly to the
-                # caller. Asking would be unanswerable — or worse, would fall
-                # back to the farmer names this block removes. Book option 1 and
-                # say so, rather than guessing silently.
+            elif not all_bookable:
+                # No union/society codes on some record, so it has no technician
+                # group and create_ai_call cannot run for it either way. Asking
+                # which village would spend a turn and still fail.
                 lines.append(
-                    "- For booking, these records may be in different villages, but they "
+                    "- Some of these records are missing the society and union codes needed "
+                    "to book, so they cannot be used for an AI booking."
+                )
+                lines.append(
+                    "- Do NOT ask which farmer name for the AI booking. If no option has the "
+                    "codes, tell the caller their details are not available right now."
+                )
+            else:
+                # Different villages that cannot be named distinctly to the
+                # caller. Asking would be unanswerable. Book option 1 and say so.
+                lines.append(
+                    "- For AI booking, these records may be in different villages, but they "
                     "cannot be told apart by village name."
                 )
                 lines.append(
-                    "- Use Farmer option 1 below. Do NOT ask which farmer name to use for booking."
+                    "- Use Farmer option 1 below. Do NOT ask which farmer name for the AI booking."
                 )
         else:
             # "Duplicate records of one farmer" requires that EVERY record
@@ -904,14 +932,14 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
             names = {n for n in _names if n}
             all_named = len(names) == 1 and all(_names)
             lines.append(
-                "- For booking, they are all in the same village, served by the same technicians, "
+                "- For AI booking, they are all in the same village, served by the same technicians, "
                 "so the visit is identical whichever record is used."
                 + (" They are duplicate records of one farmer." if all_named else "")
             )
             lines.append(
-                "- Do NOT ask which farmer name to use for booking — the caller usually cannot tell "
-                "these records apart by name. Use the lowest-numbered Farmer option that has "
-                "technicians listed for it."
+                "- Do NOT ask which farmer name for the AI booking — the caller usually cannot "
+                "tell these records apart by name. Use Farmer option 1. (Every option here "
+                "shares one society, so they all map to the same technician group.)"
             )
 
     # No cap: a farmer omitted here cannot be selected for booking, and its
