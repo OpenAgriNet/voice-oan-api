@@ -89,16 +89,42 @@ def test_records_without_codes_group_by_society_name_not_by_nothing():
     assert "ANAND" in out and "VIDYA" in out
 
 
-def test_different_villages_with_no_distinct_labels_do_not_ask_a_one_option_question():
-    """Asking "which village (unknown village)?" while forbidding the only other
-    disambiguator recreates the loop. Fall through to option 1 instead."""
+def test_never_asks_the_village_question_with_an_unspeakable_label():
+    """Different societies but no societyName. Falling back to the society code
+    would ask the caller to read out "00731"; falling back to farmerName would
+    re-ask the byte-similar-name question this block exists to remove. Neither
+    is acceptable — book option 1 and say so."""
     out = _build_compact_farmer_summary(_env([
         {"unionCode": "159", "societyCode": "00731", "farmerCode": "0554", "farmerName": "Ramesh"},
-        {"unionCode": "159", "societyCode": "00262", "farmerCode": "0192", "farmerName": "Ramesh"},
+        {"unionCode": "159", "societyCode": "00262", "farmerCode": "0192", "farmerName": "Suresh"},
     ]))
-    # society codes stand in as the village labels rather than "unknown village"
-    assert "unknown village" not in out
-    assert ("Ask which village" in out) or ("use Farmer option 1" in out)
+    assert "Ask which village" not in out
+    # the society CODE must never appear as a spoken choice
+    assert "Ask which village the animal is in (00731" not in out
+    assert "Use Farmer option 1" in out
+    assert "cannot be told apart by village name" in out
+
+
+def test_same_village_name_across_different_societies_is_not_collapsed():
+    """Labels are deduped per village key, not by display text: two societies
+    sharing a name must not silently become one choice."""
+    out = _build_compact_farmer_summary(_env([
+        {"unionCode": "159", "societyCode": "00731", "farmerCode": "0554",
+         "farmerName": "Ramesh", "societyName": "RAMOS"},
+        {"unionCode": "159", "societyCode": "00262", "farmerCode": "0192",
+         "farmerName": "Suresh", "societyName": "RAMOS"},
+    ]))
+    assert "Ask which village" not in out
+    assert "Use Farmer option 1" in out
+
+
+def test_duplicate_claim_needs_every_record_to_carry_that_name():
+    """One named record and one unnamed are not "duplicate records of one
+    farmer" — they may be two household members, one missing a name upstream."""
+    out = _build_compact_farmer_summary(_env([
+        _rec("0554", "Ramesh Patel"), _rec("0192", None),
+    ]))
+    assert "duplicate records of one farmer" not in out
 
 
 def test_all_names_empty_is_not_called_a_duplicate():

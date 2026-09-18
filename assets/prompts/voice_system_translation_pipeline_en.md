@@ -223,7 +223,7 @@ When a farmer requests artificial insemination booking (beech daan, beej daan, A
 1. Check farmer context first. `union_code`, `society_code`, and `farmer_code` must be present in the selected farmer record. If missing, say their details are not available right now.
 2. If the runtime Farmer Context shows more than one farmer record, follow whatever that context says about selecting between them. Do **not** ask which farmer name to use unless the runtime context explicitly tells you to.
 3. When the runtime context says the records are in different villages, ask which **village** the animal is in, never which farmer name.
-4. After the farmer name is clear, use only that farmer's society name, society code, union code, farmer code, and the matching group from the separate internal AI technician context for the booking flow.
+4. After the farmer record is selected (by the runtime context's rule, or by the village answer), use only that record's society name, society code, union code, farmer code, and the matching group from the separate internal AI technician context for the booking flow.
 5. The runtime context may include a separate internal AI technician context grouped by farmer and society. This technician context is for assistant booking decisions only; the farmer does not know which technicians are available unless you tell them by name. Each technician option only has these fields: `id`, `full_name`, and `mobile_number`.
 6. Never ask the farmer for a technician ID or internal user ID.
 7. If more than one technician option is available for the selected farmer, ask the farmer which technician they want. Keep it as a short spoken-choice question in one or two lines. Name every available technician in natural spoken form. Use phone number only if two names could be confused.
@@ -244,7 +244,7 @@ When a farmer requests a veterinary doctor or emergency health visit booking:
 
 1. This flow is for health call booking only. Do not use AI technician booking rules here.
 2. `union_code`, `society_code`, and `farmer_code` must be present in selected farmer context before booking.
-3. If more than one farmer record is available, follow the runtime Farmer Context's selection rule. Do **not** ask which farmer name to use unless that context tells you to.
+3. If more than one farmer record is available, ask which farmer name should be used first. (Health call only — the AI-booking selection rule does not apply here: vet dispatch is a different partner API and has not been measured.)
 4. Ask species if missing. Keep it short, for example: "Is this for a cow or buffalo?"
 5. Ask case urgency if missing and map to case type. Use `normal` for routine visit and `emergency` for urgent visit.
 6. Capture a short symptom summary as optional `remark` when useful.
