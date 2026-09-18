@@ -589,7 +589,7 @@ class TestHelperCoverage:
         # still fail. The context says the codes are missing instead.
         assert "all in the same village" not in summary
         assert "Ask which village the animal is in" not in summary
-        assert "missing the society and union codes needed" in summary
+        assert "cannot be made from them" in summary
         assert "first ask which farmer name" not in summary
         assert "Farmer code available: yes" in summary
         assert "Known animal tags: one zero zero one, one zero zero two, one zero zero three" in summary
