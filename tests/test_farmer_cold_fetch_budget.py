@@ -21,9 +21,16 @@ def _envelope():
     )
 
 
-def test_budget_clears_observed_p90():
-    """p90 is 2.24s; 4.0s cancelled ~134 lookups that would have succeeded."""
-    assert fc.FARMER_COLD_FETCH_TIMEOUT > 4.0
+def test_budget_stays_inside_a_callers_patience():
+    """The budget is silence on a live call, so it is capped rather than widened.
+
+    Voice, successful 200s, 2026-09-01..09-16: 94.0% of lookups land within 2s,
+    3.9% in 2-4s, only 0.86% in 4-8s, and 1.2% exceed 8s anyway. Raising the
+    budget past 4s buys under 1% of lookups and doubles the wait for every slow
+    caller; the in-flight marker is what recovers a cancelled fetch, on the next
+    turn, at no cost to this one.
+    """
+    assert fc.FARMER_COLD_FETCH_TIMEOUT <= 4.0
 
 
 def test_budget_is_configurable():
