@@ -1,6 +1,6 @@
 """
 Tool for fetching farmer details by mobile number from PashuGPT-style APIs.
-Uses amulpashudhan.com first, then herdman.live if needed (cohesive output, fallback on failure/empty).
+Backed by amulpashudhan.com.
 """
 import json
 import os
@@ -14,7 +14,6 @@ from agents.models.farmer import FarmerRecord
 from agents.tools.farmer_animal_backends import (
     BackendUnavailableError,
     fetch_farmer_amulpashudhan,
-    fetch_farmer_herdman,
     merge_farmer_records,
     normalize_phone,
 )
@@ -52,8 +51,8 @@ def normalize_phone_to_mobile(user_id: str) -> Optional[str]:
     return digits[-10:]
 
 
-async def _fetch_farmer_records_dual_backend(mobile: str) -> Tuple[List[Dict[str, Any]], bool]:
-    """Merged farmer records, plus whether any backend failed to answer.
+async def _fetch_farmer_records(mobile: str) -> Tuple[List[Dict[str, Any]], bool]:
+    """Merged farmer records, plus whether upstream failed to answer.
 
     The flag is the whole point: "no records because upstream is down" and "no
     records because this caller is not registered" are different facts, and only
@@ -62,7 +61,6 @@ async def _fetch_farmer_records_dual_backend(mobile: str) -> Tuple[List[Dict[str
     records: List[Dict[str, Any]] = []
     upstream_failed = False
     token1 = os.getenv("PASHUGPT_TOKEN")
-    token3 = os.getenv("PASHUGPT_TOKEN_3")
 
     if token1:
         try:
@@ -77,26 +75,13 @@ async def _fetch_farmer_records_dual_backend(mobile: str) -> Tuple[List[Dict[str
             upstream_failed = True
             logger.warning(f"amulpashudhan farmer API error for {mobile}: {e}")
 
-    if token3:
-        try:
-            data = await fetch_farmer_herdman(mobile, token3)
-            if data:
-                records = merge_farmer_records(records + data)
-                logger.info(f"Farmer data for {mobile}: got {len(data)} record(s) from herdman")
-        except BackendUnavailableError as e:
-            upstream_failed = True
-            logger.warning(f"herdman farmer API unavailable for {mobile}: {e}")
-        except Exception as e:
-            upstream_failed = True
-            logger.warning(f"herdman farmer API error for {mobile}: {e}")
-
     return records, upstream_failed
 
 
 async def fetch_farmer_info_raw(mobile_number: str) -> Optional[List[FarmerRecord]]:
     """
     Fetch farmer details by mobile number and return raw data for programmatic use.
-    Tries both backends (amulpashudhan + herdman), merges and deduplicates.
+    Fetches from amulpashudhan and deduplicates.
 
     Args:
         mobile_number: The mobile number (10 digits) to fetch details for
@@ -113,19 +98,17 @@ async def fetch_farmer_info_raw(mobile_number: str) -> Optional[List[FarmerRecor
     if not mobile or len(mobile) < 10:
         return None
 
-    token1 = os.getenv("PASHUGPT_TOKEN")
-    token3 = os.getenv("PASHUGPT_TOKEN_3")
-    if not token1 and not token3:
-        logger.warning("Neither PASHUGPT_TOKEN nor PASHUGPT_TOKEN_3 is set")
+    if not os.getenv("PASHUGPT_TOKEN"):
+        logger.warning("PASHUGPT_TOKEN is not set")
         return None
 
-    records, upstream_failed = await _fetch_farmer_records_dual_backend(mobile)
+    records, upstream_failed = await _fetch_farmer_records(mobile)
     if not records:
         if upstream_failed:
-            # Any backend failing while we hold no records leaves the question
+            # Upstream failing while we hold no records leaves the question
             # open. Returning None here would be indistinguishable from a
             # confirmed absence and would be cached as one.
-            raise BackendUnavailableError("farmer", "no records and a backend was unavailable")
+            raise BackendUnavailableError("farmer", "no records and upstream was unavailable")
         return None
 
     # Filter empty records optionally
@@ -144,7 +127,7 @@ async def get_farmer_by_mobile(mobile_number: str) -> str:
     """
     Fetch farmer information by mobile number. Returns farmer details including
     farmer ID, name, location, society, and associated animal tag numbers.
-    Tries multiple backends (amulpashudhan, herdman) and merges results when both return data.
+    Backed by amulpashudhan.
 
     Args:
         mobile_number: The mobile number of the farmer (required). Can include +91 or spaces.
@@ -157,17 +140,15 @@ async def get_farmer_by_mobile(mobile_number: str) -> str:
     if not mobile:
         return "Please provide a valid mobile number."
 
-    token1 = os.getenv("PASHUGPT_TOKEN")
-    token3 = os.getenv("PASHUGPT_TOKEN_3")
-    if not token1 and not token3:
-        logger.error("Neither PASHUGPT_TOKEN nor PASHUGPT_TOKEN_3 is set")
-        raise ValueError("PASHUGPT_TOKEN or PASHUGPT_TOKEN_3 environment variable must be set")
+    if not os.getenv("PASHUGPT_TOKEN"):
+        logger.error("PASHUGPT_TOKEN is not set")
+        raise ValueError("PASHUGPT_TOKEN environment variable must be set")
 
-    records, upstream_failed = await _fetch_farmer_records_dual_backend(mobile)
+    records, upstream_failed = await _fetch_farmer_records(mobile)
     if not records:
         if upstream_failed:
             # Same distinction the cache makes: do not report "no such farmer"
-            # when we simply could not reach a backend.
+            # when we simply could not reach upstream.
             logger.warning(f"Farmer lookup unavailable for mobile {mobile}")
             return (
                 f"Farmer details for mobile {mobile}:\n\n"

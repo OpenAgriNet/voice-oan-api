@@ -58,7 +58,7 @@ def test_error_statuses_are_outages(status):
 
 def test_unparseable_body_is_an_outage():
     with pytest.raises(BackendUnavailableError):
-        backends._parse_farmer_response(_response(200, "<html>gateway</html>"), "herdman")
+        backends._parse_farmer_response(_response(200, "<html>gateway</html>"), "amulpashudhan")
 
 
 def test_204_is_an_absence():
@@ -228,25 +228,47 @@ def test_successful_response_records_no_error_body():
     assert "error_body" not in captured["output"]
 
 
-def test_get_farmer_by_mobile_unpacks_the_dual_backend_result():
-    """_fetch_farmer_records_dual_backend returns (records, upstream_failed).
-    Both callers must unpack it: binding the 2-tuple to `records` makes
-    `if not records` permanently false and then calls .get() on a list."""
+def test_get_farmer_by_mobile_unpacks_the_fetch_result():
+    """_fetch_farmer_records returns (records, upstream_failed). Both callers
+    must unpack it: binding the 2-tuple to `records` makes `if not records`
+    permanently false and then calls .get() on a list."""
     import asyncio
     from unittest.mock import AsyncMock, patch
     import agents.tools.farmer as farmer_tool
 
-    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1", "PASHUGPT_TOKEN_3": "t3"}), \
+    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1"}), \
          patch.object(
-             farmer_tool, "_fetch_farmer_records_dual_backend",
+             farmer_tool, "_fetch_farmer_records",
              new=AsyncMock(return_value=([{"farmerName": "Ramesh", "societyName": "S"}], False)),
          ):
         assert "Ramesh" in asyncio.run(farmer_tool.get_farmer_by_mobile("9999999999"))
 
-    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1", "PASHUGPT_TOKEN_3": "t3"}), \
+    with patch.dict("os.environ", {"PASHUGPT_TOKEN": "t1"}), \
          patch.object(
-             farmer_tool, "_fetch_farmer_records_dual_backend",
+             farmer_tool, "_fetch_farmer_records",
              new=AsyncMock(return_value=([], True)),
          ):
         out = asyncio.run(farmer_tool.get_farmer_by_mobile("9999999999"))
     assert "could not be looked up" in out and "No farmer data found" not in out
+
+
+def test_absence_is_not_an_outage_now_that_herdman_is_gone(monkeypatch):
+    """An unregistered caller must read as a confirmed absence.
+
+    The herdman leg 401'd on every call once its token expired, so the flag came
+    back True for callers amulpashudhan had already answered about, and the
+    not_found was never cached. See #273.
+    """
+    import agents.tools.farmer as farmer_tool
+
+    async def _absent(mobile, token):
+        return None
+
+    monkeypatch.setenv("PASHUGPT_TOKEN", "t1")
+    monkeypatch.setenv("PASHUGPT_TOKEN_3", "expired")
+    monkeypatch.setattr(farmer_tool, "fetch_farmer_amulpashudhan", _absent)
+
+    records, upstream_failed = asyncio.run(farmer_tool._fetch_farmer_records("9876543210"))
+    assert records == []
+    assert upstream_failed is False
+    assert asyncio.run(farmer_tool.fetch_farmer_info_raw("9876543210")) is None

@@ -713,7 +713,7 @@ def _extract_farmer_tags(records: list[FarmerRecord]) -> list[str]:
 
 def _render_breeding_value(value) -> str:
     """Compact, model-readable form of lastBreedingActivity (amulpashudhan returns
-    a nested object with the AI date + bull id; herdman returns a flat string)."""
+    a nested object with the AI date + bull id, or a flat string)."""
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
