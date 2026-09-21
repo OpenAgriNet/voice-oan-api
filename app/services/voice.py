@@ -1014,20 +1014,42 @@ def _collect_farmer_location(envelope: Optional[FarmerDataEnvelope]) -> tuple[Op
     if envelope is None:
         return None, None
 
-    village = district = None
+    locations: list[tuple[Optional[str], Optional[str]]] = []
     for farmer in envelope.farmers:
         record = farmer.model_dump()
-        village = village or str(record.get("village") or record.get("Village") or "").strip() or None
-        district = district or str(record.get("district") or record.get("District") or "").strip() or None
-        if village and district:
-            break
+        village = (
+            str(record.get("village") or record.get("Village") or "").strip()
+            or (farmer.societyName or "").strip()
+            or None
+        )
+        district = str(record.get("district") or record.get("District") or "").strip() or None
+        if village or district:
+            locations.append((village, district))
 
-    if not village:
-        for farmer in envelope.farmers:
-            if farmer.societyName:
-                village = farmer.societyName.strip() or None
-                break
-    return village, district
+    if not locations:
+        return None, None
+
+    # One mobile may represent several household members in different villages.
+    # Only use a profile location when every usable record is compatible with one
+    # place. In particular, never manufacture a pair by taking the village from
+    # one farmer and the district from another.
+    def _location_key(value: Optional[str]) -> str:
+        return _normalize_farmer_name(value)
+
+    for i, left in enumerate(locations):
+        for right in locations[i + 1:]:
+            shared_field = False
+            for left_value, right_value in zip(left, right):
+                if left_value and right_value:
+                    shared_field = True
+                    if _location_key(left_value) != _location_key(right_value):
+                        return None, None
+            if not shared_field:
+                return None, None
+
+    # Prefer a complete record, but do not fill its missing field from a different
+    # record. Compatibility above only proves that overlapping fields agree.
+    return max(locations, key=lambda location: sum(bool(value) for value in location))
 
 
 async def _build_union_scheme_summary(farmer_unions: list[str]) -> str:

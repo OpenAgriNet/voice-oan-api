@@ -164,8 +164,6 @@ def _match_place(
     key = _norm(spoken)
     if not key:
         return None
-    if key in index:
-        return key
 
     names = list(index.keys())
     district_key = _district_key(district)
@@ -176,10 +174,22 @@ def _match_place(
             if any(_district_key(o.get("district")) == district_key for o in offices)
         ]
         if scoped:
+            # An exact name elsewhere in Gujarat must not override a district we
+            # can resolve. The directory does not list every village, and place
+            # names repeat freely, so doing the global exact check first can turn
+            # a missing local village into a confident result hundreds of
+            # kilometres away.
+            if key in scoped:
+                return key
+            if key in index:
+                return None
             hit = process.extractOne(
                 key, scoped, scorer=fuzz.WRatio, score_cutoff=_FUZZY_CUTOFF
             )
             return hit[0] if hit else None
+
+    if key in index:
+        return key
 
     hit = process.extractOne(
         key, names, scorer=fuzz.WRatio, score_cutoff=_FUZZY_CUTOFF
@@ -287,7 +297,7 @@ def _rank(
 
 def _format(offices: List[Dict[str, Any]]) -> str:
     """Flat labelled list — voice runs a small model and speaks the result aloud."""
-    lines = [f"Nearest veterinary offices ({len(offices)}):"]
+    lines = [f"Veterinary offices listed for the caller's location ({len(offices)}):"]
     for i, office in enumerate(offices, 1):
         lines.append(f"{i}. Office type to say in Gujarati: {office.get('office_type_gu')}")
         lines.append(f"   Office type in English: {office.get('category')}")
@@ -295,7 +305,9 @@ def _format(offices: List[Dict[str, Any]]) -> str:
         lines.append(f"   Taluka: {office.get('taluka')}, District: {office.get('district')}")
     lines.append(
         "The directory holds no phone number or address for these offices, so give "
-        "the caller the office type and the village only."
+        "the caller the office type and the village only. The directory has no "
+        "coordinates or distances: describe these as offices in their village or "
+        "taluka, never as the nearest or closest office."
     )
     return "\n".join(lines)
 
@@ -304,11 +316,13 @@ async def find_nearby_vet_offices(
     ctx: RunContext[FarmerContext],
     taluka: str = "",
 ) -> str:
-    """Find the government veterinary offices nearest to the caller.
+    """Find government veterinary offices listed for the caller's location.
 
     Use this whenever the caller asks where the nearest veterinary hospital,
     animal dispensary, pashu dawakhanu or first-aid centre is. The caller's
-    village and district are read from their profile — never ask them for those.
+    An unambiguous village and district are read from their profile. When the
+    profile is missing or carries several locations, ask for their taluka or
+    village as directed by the tool result.
 
     Args:
         ctx: Tool context.

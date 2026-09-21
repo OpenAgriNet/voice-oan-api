@@ -66,6 +66,51 @@ def test_summary_handles_record_with_no_count_and_no_tags():
     assert "Total animals" not in summary
 
 
+def test_farmer_location_uses_one_complete_record():
+    envelope = FarmerDataEnvelope.from_records(
+        [{"village": "Bagodara", "district": "Ahmedabad"}],
+        source="api",
+        lookup_status="found",
+    )
+    assert voice._collect_farmer_location(envelope) == ("Bagodara", "Ahmedabad")
+
+
+def test_farmer_location_is_withheld_when_accounts_disagree():
+    envelope = FarmerDataEnvelope.from_records(
+        [
+            {"village": "Bagodara", "district": "Ahmedabad"},
+            {"village": "Vijapur", "district": "Mehsana"},
+        ],
+        source="api",
+        lookup_status="found",
+    )
+    assert voice._collect_farmer_location(envelope) == (None, None)
+
+
+def test_farmer_location_never_combines_fields_from_different_records():
+    envelope = FarmerDataEnvelope.from_records(
+        [
+            {"village": "Bagodara"},
+            {"district": "Mehsana"},
+        ],
+        source="api",
+        lookup_status="found",
+    )
+    assert voice._collect_farmer_location(envelope) == (None, None)
+
+
+def test_farmer_location_accepts_compatible_partial_records():
+    envelope = FarmerDataEnvelope.from_records(
+        [
+            {"village": "Bagodara"},
+            {"village": "BAGODARA", "district": "Ahmedabad"},
+        ],
+        source="api",
+        lookup_status="found",
+    )
+    assert voice._collect_farmer_location(envelope) == ("BAGODARA", "Ahmedabad")
+
+
 def test_signed_in_farmer_tools_drops_brittle_three():
     """The three brittle voice-only farmer tools are commented out; scheme + bonus remain."""
     from agents.tools import SIGNED_IN_FARMER_TOOLS

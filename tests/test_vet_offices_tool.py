@@ -67,6 +67,13 @@ class TestLocationFromProfile:
         # Profiles and the sheet disagree on transliteration constantly.
         assert "Bavla" in _run(village="Bavala", district="Ahmedabad")
 
+    def test_exact_village_in_another_district_is_not_used(self):
+        # Vijapur is an exact directory key, but only in Mehsana. An exact global
+        # hit must not override a profile district that the directory recognizes.
+        result = _run(village="Vijapur", district="Ahmedabad")
+        assert "Ask the caller" in result
+        assert "District: Mehsana" not in result
+
 
 class TestSpokenTalukaFallback:
     def test_asks_for_taluka_when_profile_has_no_usable_location(self):
@@ -157,6 +164,12 @@ class TestOutput:
     def test_no_contact_details_are_promised(self):
         result = _run(district="Ahmedabad", taluka="Bavla")
         assert "no phone number or address" in result
+
+    def test_result_does_not_claim_distance_the_directory_cannot_measure(self):
+        result = _run(district="Ahmedabad", taluka="Bavla")
+        assert "listed for the caller's location" in result
+        assert "Nearest veterinary offices" not in result
+        assert "never as the nearest or closest office" in result
 
 
 class TestRanking:
