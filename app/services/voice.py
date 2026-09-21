@@ -17,6 +17,7 @@ from agents.voice import voice_agent, voice_agent_signed_in, STATIC_VOICE_SYSTEM
 from agents.tools.farmer import normalize_phone_to_mobile
 from agents.services.farmer_cache import (
     get_farmer_data_cached_only,
+    is_fetch_inflight,
     refresh_farmer_data_bounded,
     enqueue_farmer_refresh,
     should_refresh_farmer_data,
@@ -79,6 +80,11 @@ from app.services.voice_trace import VoiceTrace, create_voice_trace, sanitize_te
 # NOTE: Removing telemetry for now.
 # from app.tasks.telemetry import send_telemetry
 from agents.deps import FarmerAccount, FarmerContext
+from agents.services.farmer_identity import (
+    identity_state_for_envelope,
+    identity_tool_groups,
+    unavailable_capability_lines,
+)
 from app.llm_core import resolver as _llm_resolver
 from app.llm_core.config_model import Step as _LlmStep
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
@@ -629,6 +635,10 @@ async def get_or_fetch_farmer_data(mobile: str):
             fresh = await refresh_farmer_data_bounded(mobile)
             return fresh if fresh is not None else cached
         return cached
+    if await is_fetch_inflight(mobile):
+        # A recent cold fetch was cancelled and a worker is still on it. Don't
+        # pay the same budget again — this turn is unresolved.
+        return None
     return await refresh_farmer_data_bounded(mobile)
 
 
@@ -639,9 +649,11 @@ def _build_runtime_context_request(deps: FarmerContext) -> ModelRequest:
     vLLM prefix caching can reuse across turns. Per-query content that changes
     every turn lives in _build_query_hints_request() and is appended AFTER history
     so it never breaks this prefix."""
-    tool_groups = ["retrieval", "booking"]
-    if deps.signed_in and deps.mobile:
-        tool_groups.append("signed-in-farmer-data")
+    # Derived from the same predicate that drives the tool gates, so this line
+    # can never advertise a group the model was not given. It previously
+    # hardcoded "booking", announcing it on exactly the turns where booking was
+    # impossible (issue #282).
+    tool_groups = identity_tool_groups(deps)
     runtime_context = deps.get_runtime_context_message()
     context_lines = [
         "Runtime context for this turn:",
@@ -734,9 +746,29 @@ def _append_animal_records(lines: list[str], envelope: FarmerDataEnvelope) -> No
         lines.extend(blocks)
 
 
+def _normalize_farmer_name(value) -> str:
+    """Names carry stray dots and double spaces (`PATEL..`, `A  B`)."""
+    # \w excludes Unicode Mn/Mc, so a plain [^\w\s] strips Gujarati matras and
+    # collapses distinct names and villages (કડી and કડા both became કડ).
+    cleaned = regex.sub(r"[^\p{L}\p{M}\p{N}\s]", "", str(value or ""))
+    return regex.sub(r"\s+", " ", cleaned).strip().casefold()
+
+
 def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
-    if envelope is None or not envelope.farmers:
-        return ""
+    """Farmer block for the runtime context, or an explicit statement of what is
+    unavailable and why.
+
+    This used to return "" for both "no record exists" and "we have not resolved
+    this caller yet", so the model received no farmer block at all and could not
+    distinguish the two — or tell the caller anything useful about either. It
+    then invented identifiers and called the tools anyway. The tools are now
+    withheld on those turns (agents.services.farmer_identity); these lines are
+    what lets the model say something true rather than "that feature does not
+    exist" or claiming a booking it never made. See issue #282.
+    """
+    state = identity_state_for_envelope(envelope)
+    if state != "found":
+        return "\n".join(unavailable_capability_lines(state))
 
     first = envelope.farmers[0]
     tags = _extract_farmer_tags(envelope.farmers)
@@ -785,10 +817,115 @@ def _build_compact_farmer_summary(envelope: Optional[FarmerDataEnvelope]) -> str
     if tags:
         # All tags inline — no truncation, since the list-tags tool was dropped.
         lines.append(f"- Known animal tags: {', '.join(tags)}")
+    # Which farmer to book for is only a real question when the answer changes
+    # the visit. Technicians come from (unionCode, societyCode) alone, so when
+    # every record sits in one society they all yield the same technician, the
+    # same village and the same visit — 90% of multi-account mobiles. Asking
+    # anyway is what killed the call: the mobile is shared by a household and
+    # the names are not separable by ear (of 364 real pairs the agent offered,
+    # 250 share a name token and 19 are byte identical), so the caller answers,
+    # the answer fits both, and the agent asks again. 71 of the 265 calls in
+    # "AI booking not done" died in that loop — the largest single remaining
+    # source of failed bookings. See issue #282.
     if len(envelope.farmers) > 1:
+        # Option numbers here must match the "Farmer option N" lines emitted below.
+        _numbered = list(enumerate((r.model_dump() for r in envelope.farmers), start=1))
+
+        def _codes(d: dict) -> tuple:
+            return (
+                str(d.get("unionCode") or d.get("union_code") or "").strip(),
+                str(d.get("societyCode") or d.get("society_code") or "").strip(),
+            )
+
+        def _village(d: dict) -> tuple:
+            """The village a record belongs to, for grouping.
+
+            (unionCode, societyCode) is exactly the key the technician lookup
+            uses — GetAITechniciansBySocietyQueryParams takes nothing else — so
+            two records share a village iff they share this pair. A union-only
+            key would merge two societies of one union.
+
+            Only ever called on `bookable` records, which carry both codes by
+            construction, so there is no missing-code case to handle here; that
+            is decided once, above, and those records are excluded.
+            """
+            return _codes(d)
+
+        def _village_label(d: dict) -> Optional[str]:
+            """A village name the caller could say out loud, or None.
+
+            Deliberately never a society code or a farmer name: a caller cannot
+            read out "00731", and offering farmer names is the byte-similar-name
+            question this block exists to remove.
+            """
+            return str(d.get("societyName") or "").strip() or None
+
+        # _fetch_ai_technicians returns None unless BOTH codes are present, and
+        # create_ai_call needs all three, so a record missing either has no
+        # technician group and cannot be booked at all.
+        bookable = [(i, d) for i, d in _numbered if all(_codes(d))]
+
         lines.append("- Multiple farmer records are registered on this mobile number.")
-        lines.append("- For AI booking, first ask which farmer name the caller wants to use.")
-        lines.append("- Use the selected farmer's society and codes only after the farmer is identified.")
+        if not bookable:
+            lines.append(
+                "- None of these records carry the society and union codes needed to book, "
+                "so an AI booking cannot be made from them."
+            )
+            lines.append(
+                "- Do NOT ask which farmer name for the AI booking. Tell the caller their "
+                "details are not available right now."
+            )
+        else:
+            if len(bookable) < len(_numbered):
+                lines.append(
+                    "- Only these options can be used for an AI booking (the rest are missing "
+                    f"society or union codes): {', '.join(f'Farmer option {i}' for i, _ in bookable)}."
+                )
+            # One entry per village, carrying the first speakable label and the
+            # lowest option number in it — the model should never have to infer
+            # the mapping from the option lines' society names.
+            by_village: dict = {}
+            for i, d in bookable:
+                key = _village(d)
+                entry = by_village.setdefault(key, {"label": None, "option": i})
+                if entry["label"] is None:
+                    entry["label"] = _village_label(d)
+                entry["option"] = min(entry["option"], i)
+            first_option = min(i for i, _ in bookable)
+            labels = [e["label"] for e in by_village.values()]
+            spoken = {_normalize_farmer_name(l) for l in labels if l}
+            if len(by_village) == 1:
+                names = [_normalize_farmer_name(d.get("farmerName")) for _, d in bookable]
+                all_named = len(set(names)) == 1 and all(names)
+                lines.append(
+                    "- For AI booking, they are all in the same village, served by the same "
+                    "technicians, so the visit is identical whichever record is used."
+                    + (" They are duplicate records of one farmer." if all_named else "")
+                )
+                lines.append(
+                    f"- Do NOT ask which farmer name for the AI booking. Use Farmer option {first_option}."
+                )
+            elif all(labels) and len(spoken) == len(labels):
+                # Distinctness judged as the caller hears it: "RAMOS" and
+                # "Ramos " are two schema entries but one spoken choice.
+                choices = ", ".join(
+                    f"{e['label']} (Farmer option {e['option']})" for e in by_village.values()
+                )
+                lines.append(
+                    "- For AI booking, they are in different villages, which means different technicians."
+                )
+                lines.append(
+                    f"- Ask which village the animal is in, then use the option named here: {choices}. "
+                    "Do NOT ask which farmer name for the AI booking."
+                )
+            else:
+                lines.append(
+                    "- For AI booking, these records may be in different villages, but they "
+                    "cannot be told apart by village name."
+                )
+                lines.append(
+                    f"- Do NOT ask which farmer name for the AI booking. Use Farmer option {first_option}."
+                )
 
     # No cap: a farmer omitted here cannot be selected for booking, and its
     # technician group in _build_ai_technician_summary becomes unreachable.
@@ -1577,7 +1714,14 @@ async def stream_voice_message(
             non_meaningful_recent_turns = _collect_recent_user_turns_for_non_meaningful(history, query, limit=5)
             mobile = normalize_phone_to_mobile(user_id)
             signed_in = _is_signed_in_session(user_info, user_id)
-            farmer_info = ""
+            # Fails closed: a turn whose farmer lookup never ran (no resolvable
+            # mobile) or threw stays "unresolved", so the identity-taking tools
+            # stay hidden. The context lines are seeded here too — otherwise the
+            # model would find the tools simply absent, with nothing to tell the
+            # caller, which is how a small model ends up claiming a booking it
+            # never made. Both are replaced below once the lookup resolves.
+            farmer_identity = "unresolved"
+            farmer_info = "\n".join(unavailable_capability_lines(farmer_identity))
             farmer_unions: list[str] = []
             farmer_accounts: list[FarmerAccount] = []
             ai_technician_info = ""
@@ -2286,6 +2430,16 @@ async def stream_voice_message(
                 try:
                     with trace.stage("farmer_context"):
                         envelope = await farmer_cache_task
+                    if envelope is None:
+                        # A concurrent fetch (e.g. the outbound prefetch) may have
+                        # landed while ours was giving up. Cheap Redis re-read
+                        # before we commit to an unresolved turn.
+                        envelope = await get_farmer_data_cached_only(mobile)
+                        if envelope is not None:
+                            logger.info("Farmer context resolved on re-read for mobile %s", mobile)
+                    # Scored AFTER the re-read: a recovered envelope must not be
+                    # graded UNRESOLVED and have the identity tools withheld.
+                    farmer_identity = identity_state_for_envelope(envelope)
                     farmer_info = _build_compact_farmer_summary(envelope)
                     farmer_unions = _collect_farmer_unions(envelope)
                     farmer_accounts = _collect_farmer_accounts(envelope)
@@ -2405,6 +2559,7 @@ async def stream_voice_message(
                 ai_technician_info=ai_technician_info,
                 signed_in=signed_in,
                 mobile=mobile,
+                farmer_identity=farmer_identity,
                 farmer_accounts=farmer_accounts,
             )
             # Let side-effecting tools (bookings) self-gate on the concurrent

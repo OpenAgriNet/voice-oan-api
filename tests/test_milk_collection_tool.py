@@ -91,7 +91,7 @@ class TestMilkCollectionTool:
         assert "quantity 2.38 liters" in result
         assert "quantity 9.68 liters" in result
 
-    def test_falls_back_to_supplied_codes_when_no_accounts_in_context(self, monkeypatch):
+    def test_refuses_instead_of_using_supplied_codes_when_no_accounts_in_context(self, monkeypatch):
         monkeypatch.setenv("PASHUGPT_TOKEN", "test-token")
         seen = {}
 
@@ -106,14 +106,18 @@ class TestMilkCollectionTool:
             _fake_api,
         )
 
-        # Empty context -> use the LLM-supplied codes.
+        # Empty context -> refuse. The codes the model supplies here cannot have
+        # come from anywhere real: it is told to copy them out of a farmer block
+        # that is empty on precisely these turns (issue #282).
         result = asyncio.run(
             get_farmer_milk_collection_details(
                 _ctx([]), "2021", "1066", "123", "2026-04-01", "2026-04-01"
             )
         )
-        assert seen["codes"]["farmerCode"] == "123"
-        assert "quantity 5 liters" in result
+        assert "codes" not in seen, "the backend must not be reached without context accounts"
+        assert result == (
+            "Milk collection lookup failed. The farmer account details are not available."
+        )
 
     def test_missing_token_returns_clear_failure_and_does_not_call_backend(self, monkeypatch):
         monkeypatch.delenv("PASHUGPT_TOKEN", raising=False)
@@ -128,7 +132,8 @@ class TestMilkCollectionTool:
 
         result = asyncio.run(
             get_farmer_milk_collection_details(
-                _ctx(), "2021", "1066", "123", "2026-04-01", "2026-04-01"
+                _ctx([FarmerAccount(union_code="2021", society_code="1066", farmer_code="123")]),
+                "2021", "1066", "123", "2026-04-01", "2026-04-01",
             )
         )
 
@@ -168,7 +173,8 @@ class TestMilkCollectionTool:
 
         result = asyncio.run(
             get_farmer_milk_collection_details(
-                _ctx(), "2021", "1066", "123", "2026-04-01", "2026-04-01"
+                _ctx([FarmerAccount(union_code="2021", society_code="1066", farmer_code="123")]),
+                "2021", "1066", "123", "2026-04-01", "2026-04-01",
             )
         )
 

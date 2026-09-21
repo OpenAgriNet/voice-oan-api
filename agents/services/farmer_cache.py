@@ -22,6 +22,7 @@ from app.models.union import is_ai_call_banned_union
 from app.observability import start_observation
 from agents.models.farmer import AnimalRecord, FarmerDataEnvelope, FarmerRecord
 from agents.tools.farmer_animal_backends import (
+    BackendUnavailableError,
     GetAITechniciansBySocietyQueryParams,
     get_ai_technicians_by_society_api,
     fetch_animal_amulpashudhan,
@@ -39,7 +40,7 @@ FARMER_CACHE_TTL = 60 * 60 * 24 * 7  # 7 days hard retention in Redis (deletion)
 FARMER_REFRESH_INTERVAL = 60 * 60 * 12  # soft expiry: refresh a "found" record after 12h
 FARMER_NEGATIVE_REFRESH_INTERVAL = 60 * 60 * 2  # not_found refreshes sooner (caller may newly register)
 FARMER_REFRESH_LOCK_TTL = 60 * 5  # dedupe concurrent refreshes for 5 minutes
-FARMER_COLD_FETCH_TIMEOUT = 4.0  # bounded blocking fetch for a cold/never-cached miss (cold ~3.1s observed)
+FARMER_COLD_FETCH_TIMEOUT = settings.farmer_cold_fetch_timeout  # bounded cold-miss fetch
 # Beyond this age a cached record is too stale to serve: the read blocks on a
 # bounded API call instead (falls back to the stale record only if that fails).
 FARMER_MAX_SERVE_STALE_SECONDS = settings.farmer_max_serve_stale_seconds
@@ -49,6 +50,11 @@ FARMER_MAX_SERVE_STALE_SECONDS = settings.farmer_max_serve_stale_seconds
 FARMER_ANIMAL_FETCH_CONCURRENCY = 8
 FARMER_CACHE_NAMESPACE = "farmer"
 FARMER_REFRESH_LOCK_NAMESPACE = "farmer-refresh"
+FARMER_INFLIGHT_NAMESPACE = "farmer-inflight"
+FARMER_INFLIGHT_MARKER_TTL = settings.farmer_inflight_marker_ttl
+# Redis is local; anything slower means it is degraded. Bound the marker calls so
+# a Redis blip can't add its own client-level retry time to a voice turn.
+FARMER_INFLIGHT_REDIS_TIMEOUT = 0.25
 FARMER_REFRESH_QUEUE_NAMESPACE = "farmer-refresh-queue"
 # Single Redis set holding raw phone numbers awaiting a background refresh.
 FARMER_REFRESH_QUEUE_KEY = build_cache_key("pending", namespace=FARMER_REFRESH_QUEUE_NAMESPACE)
@@ -236,7 +242,19 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
             await enqueue_farmer_refresh(phone)
             return None
 
-        records = await fetch_farmer_info_raw(phone)
+        upstream_failed = False
+        try:
+            records = await fetch_farmer_info_raw(phone)
+        except BackendUnavailableError as e:
+            # Upstream is down; this is not "the farmer does not exist". Fall
+            # through to the empty branch, which must not write a not_found.
+            upstream_failed = True
+            records = None
+            logger.warning(
+                "Farmer lookup upstream unavailable for phone hash %s...: %s",
+                _cache_key(phone)[:8],
+                e,
+            )
         if records:
             envelope = FarmerDataEnvelope.from_records(records, source="api", lookup_status="found")
             envelope.aiTechnicians = await _fetch_ai_technicians(records)
@@ -261,10 +279,8 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
 
         # Upstream returned nothing. Never let a transient empty response wipe
         # known-good data — keep the "found" record regardless of age (it stays
-        # stale and is retried). We cannot distinguish a genuine "not found" from
-        # a transient failure here, so genuine removal is left to the 7d hard
-        # Redis TTL rather than an ambiguous empty response. (A confident
-        # not_found signal is a follow-up in the provider-interface PR.)
+        # stale and is retried). Genuine removal is left to the 7d hard Redis TTL
+        # rather than an ambiguous empty response.
         existing = await get_cached_farmer_data(phone)
         if existing is not None and existing.lookupStatus == "found":
             logger.info(
@@ -279,6 +295,17 @@ async def refresh_farmer_data(phone: str) -> Optional[FarmerDataEnvelope]:
                 await _restamp_kept_record(phone, existing)
             return existing
 
+        if upstream_failed:
+            # Nothing known-good to keep, and nothing trustworthy to write.
+            # Leave the cache empty so the next turn retries, rather than pinning
+            # a 2h not_found (FARMER_NEGATIVE_REFRESH_INTERVAL) on a caller whose
+            # lookup merely failed. Returning None reads as "unresolved"
+            # downstream, which tells the caller to try again rather than that
+            # their number is unregistered. See issue #282 root cause B.
+            return None
+
+        # Upstream answered and has no record for this mobile. That is a fact,
+        # and it is the only empty result we are willing to cache.
         envelope = FarmerDataEnvelope.not_found(source="api")
         await set_cached_farmer_data(phone, envelope)
         return envelope
@@ -332,14 +359,43 @@ async def enqueue_farmer_refresh(phone: str) -> None:
         logger.warning("Failed to enqueue farmer refresh: %s", e)
 
 
+def _inflight_key(phone: str) -> str:
+    return build_cache_key(_cache_key(phone), namespace=FARMER_INFLIGHT_NAMESPACE)
+
+
+async def is_fetch_inflight(phone: str) -> bool:
+    """True when a recent cold fetch was cancelled and a worker is still on it.
+
+    Fails open: an unreadable marker must not make every caller look unresolved.
+    """
+    try:
+        return bool(
+            await asyncio.wait_for(
+                redis_client.exists(_inflight_key(phone)),
+                timeout=FARMER_INFLIGHT_REDIS_TIMEOUT,
+            )
+        )
+    except Exception:
+        return False
+
+
+async def _mark_fetch_inflight(phone: str) -> None:
+    try:
+        await asyncio.wait_for(
+            redis_client.set(_inflight_key(phone), "1", ex=FARMER_INFLIGHT_MARKER_TTL),
+            timeout=FARMER_INFLIGHT_REDIS_TIMEOUT,
+        )
+    except Exception as e:
+        logger.warning("Failed to set farmer in-flight marker: %s", e)
+
+
 async def refresh_farmer_data_bounded(
     phone: str, timeout: float = FARMER_COLD_FETCH_TIMEOUT
 ) -> Optional[FarmerDataEnvelope]:
     """Blocking refresh with a hard timeout, for a cold/never-cached miss.
 
-    On timeout we defer to the background worker rather than hanging the turn:
-    the in-flight refresh is cancelled (its NX lock is released in its finally),
-    the phone is queued, and the caller proceeds with no farmer data this turn.
+    On timeout we defer to the background worker rather than hanging the turn,
+    and leave a marker so the next turn doesn't block on the same fetch again.
     """
     try:
         with fetch_reason("cold_fetch"):
@@ -350,6 +406,7 @@ async def refresh_farmer_data_bounded(
             timeout,
             _cache_key(phone)[:8],
         )
+        await _mark_fetch_inflight(phone)
         await enqueue_farmer_refresh(phone)
         return None
 
