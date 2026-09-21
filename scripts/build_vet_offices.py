@@ -6,8 +6,8 @@ Category (English) | Office Type (Gujarati).
 
 The sheet is a lookup table, not prose, so it is NOT indexed in Marqo — 3.2k
 near-identical rows ("Veterinary Dispensary, <village>, <taluka>") embed to
-almost the same vector and "nearest" is a filter, not a similarity. The voice
-agent reads this JSON directly (agents/tools/vet_offices.py).
+almost the same vector and location matching is a filter, not a similarity. The
+voice agent reads this JSON directly (agents/tools/vet_offices.py).
 
 This script only transcribes. The sheet is the department's, not ours, so every
 place name is carried across exactly as written — including the variant

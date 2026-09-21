@@ -2,8 +2,9 @@
 
 Deliberately not a Marqo index. The source is a 3.2k-row lookup table whose rows
 read almost identically ("Veterinary Dispensary, <village>, <taluka>"), so they
-embed to nearly the same vector, and "nearest" is a filter over village/taluka,
-not a semantic similarity. It is a flat JSON asset plus this tool instead — see
+embed to nearly the same vector, and location matching is a filter over
+village/taluka, not a semantic similarity. It is a flat JSON asset plus this
+tool instead — see
 scripts/build_vet_offices.py for how the asset is produced.
 
 Location comes from the caller's profile (FarmerContext), not from the model.
