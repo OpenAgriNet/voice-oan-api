@@ -26,8 +26,6 @@ from agents.tools.farmer_animal_backends import (
     GetAITechniciansBySocietyQueryParams,
     get_ai_technicians_by_society_api,
     fetch_animal_amulpashudhan,
-    fetch_animal_herdman,
-    merge_animal_data,
     normalize_tag,
     fetch_reason,
     current_fetch_reason,
@@ -441,28 +439,21 @@ async def drain_farmer_refresh_queue_once(batch: int = 20) -> int:
     return processed
 
 
-async def _fetch_one_animal(tag: str, token1: Optional[str], token3: Optional[str]) -> Optional[AnimalRecord]:
-    """Fetch + merge a single animal (amulpashudhan primary, herdman fallback)."""
+async def _fetch_one_animal(tag: str, token1: Optional[str]) -> Optional[AnimalRecord]:
+    """Fetch a single animal from amulpashudhan."""
     norm = normalize_tag(tag)
     if not norm:
         return None
-    primary = None
-    fallback = None
+    animal = None
     if token1:
         try:
-            primary = await fetch_animal_amulpashudhan(norm, token1)
+            animal = await fetch_animal_amulpashudhan(norm, token1)
         except Exception as e:
             logger.warning("amulpashudhan animal fetch failed for tag %s: %s", norm, e)
-    if token3:
-        try:
-            fallback = await fetch_animal_herdman(norm, token3)
-        except Exception as e:
-            logger.warning("herdman animal fetch failed for tag %s: %s", norm, e)
-    merged = merge_animal_data(primary, fallback)
-    if not merged:
+    if not animal:
         return None
     try:
-        return AnimalRecord.model_validate(merged)
+        return AnimalRecord.model_validate(animal)
     except Exception as e:
         logger.warning("Failed to validate animal record for tag %s: %s", norm, e)
         return None
@@ -473,8 +464,7 @@ async def _enrich_records_with_animals(records: list[FarmerRecord]) -> None:
     (incl. lastBreedingActivity = AI date + bull id). Runs only on the background
     refresh path — never on a voice turn. Mutates `records` in place; best-effort."""
     token1 = os.getenv("PASHUGPT_TOKEN")
-    token3 = os.getenv("PASHUGPT_TOKEN_3")
-    if not token1 and not token3:
+    if not token1:
         return
 
     # One flat gather across all farmers × tags so the worker fetches the whole
@@ -491,7 +481,7 @@ async def _enrich_records_with_animals(records: list[FarmerRecord]) -> None:
 
     async def _bounded(tag: str) -> Optional[AnimalRecord]:
         async with sem:
-            return await _fetch_one_animal(tag, token1, token3)
+            return await _fetch_one_animal(tag, token1)
 
     results = await asyncio.gather(
         *(_bounded(tag) for _, tag in jobs),
