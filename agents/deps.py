@@ -40,6 +40,11 @@ class FarmerContext(BaseModel):
     farmer_info: str = Field(default="", description="Pre-built markdown farmer context string.")
     farmer_unions: list[str] = Field(default_factory=list, description="Normalized union names derived from the farmer context.")
     ai_technician_info: str = Field(default="", description="Pre-built internal AI technician context string.")
+    # Where the caller lives, for the vet-office lookup. Kept off FarmerAccount
+    # because that list drops any record missing union/society/farmer codes, and
+    # a caller we cannot book for can still be told where their dispensary is.
+    farmer_village: Optional[str] = Field(default=None, description="Caller's village, when the farmer record carries one.")
+    farmer_district: Optional[str] = Field(default=None, description="Caller's district, when the farmer record carries one.")
     signed_in: bool = Field(default=False, description="Whether the session is signed in/authenticated for farmer-specific tools.")
     mobile: Optional[str] = Field(default=None, description="Normalized mobile number when available.")
     # Whether this turn's farmer lookup resolved, and how. Drives BOTH the tool

@@ -8,6 +8,7 @@ from pydantic_ai import Tool
 from agents.tools.milk_collection import get_farmer_milk_collection_details
 from agents.tools.terms import search_terms
 from agents.tools.search import search_documents
+from agents.tools.vet_offices import find_nearby_vet_offices
 from agents.tools.ai_call import create_ai_call
 from agents.tools.health_call import create_health_call
 from agents.tools.conversation_state import signal_conversation_state
@@ -75,6 +76,14 @@ BASE_TOOLS = [
         signal_conversation_state,
         takes_ctx=True,
         docstring_format='auto',
+    ),
+    # Not identity-gated: the lookup takes no farmer codes, and a caller whose
+    # record never resolved can still be placed by the taluka they say out loud.
+    Tool(
+        _with_nudge_signal(find_nearby_vet_offices),
+        takes_ctx=True,
+        docstring_format='auto',
+        require_parameter_descriptions=True,
     ),
     Tool(
         _with_nudge_signal(check_loan_eligibility),

@@ -1002,6 +1002,56 @@ def _collect_farmer_accounts(envelope: Optional[FarmerDataEnvelope]) -> list[Far
     return accounts
 
 
+def _collect_farmer_location(envelope: Optional[FarmerDataEnvelope]) -> tuple[Optional[str], Optional[str]]:
+    """The caller's (village, district), for the vet-office lookup.
+
+    Read off the raw record rather than FarmerAccount: account collection drops
+    any record without all three identity codes, and a caller we cannot book for
+    can still be told where their nearest dispensary is. societyName is the
+    village fallback — it is the village label the milk society is named for,
+    and the one _build_compact_farmer_summary already treats as speakable.
+    """
+    if envelope is None:
+        return None, None
+
+    locations: list[tuple[Optional[str], Optional[str]]] = []
+    for farmer in envelope.farmers:
+        record = farmer.model_dump()
+        village = (
+            str(record.get("village") or record.get("Village") or "").strip()
+            or (farmer.societyName or "").strip()
+            or None
+        )
+        district = str(record.get("district") or record.get("District") or "").strip() or None
+        if village or district:
+            locations.append((village, district))
+
+    if not locations:
+        return None, None
+
+    # One mobile may represent several household members in different villages.
+    # Only use a profile location when every usable record is compatible with one
+    # place. In particular, never manufacture a pair by taking the village from
+    # one farmer and the district from another.
+    def _location_key(value: Optional[str]) -> str:
+        return _normalize_farmer_name(value)
+
+    for i, left in enumerate(locations):
+        for right in locations[i + 1:]:
+            shared_field = False
+            for left_value, right_value in zip(left, right):
+                if left_value and right_value:
+                    shared_field = True
+                    if _location_key(left_value) != _location_key(right_value):
+                        return None, None
+            if not shared_field:
+                return None, None
+
+    # Prefer a complete record, but do not fill its missing field from a different
+    # record. Compatibility above only proves that overlapping fields agree.
+    return max(locations, key=lambda location: sum(bool(value) for value in location))
+
+
 async def _build_union_scheme_summary(farmer_unions: list[str]) -> str:
     scheme_unions = resolve_supported_unions(farmer_unions, SUPPORTED_SCHEME_CONTEXT_UNIONS)
     if not scheme_unions:
@@ -1724,6 +1774,8 @@ async def stream_voice_message(
             farmer_info = "\n".join(unavailable_capability_lines(farmer_identity))
             farmer_unions: list[str] = []
             farmer_accounts: list[FarmerAccount] = []
+            farmer_village: Optional[str] = None
+            farmer_district: Optional[str] = None
             ai_technician_info = ""
             farmer_cache_task = (
                 asyncio.create_task(get_or_fetch_farmer_data(mobile))
@@ -2443,6 +2495,7 @@ async def stream_voice_message(
                     farmer_info = _build_compact_farmer_summary(envelope)
                     farmer_unions = _collect_farmer_unions(envelope)
                     farmer_accounts = _collect_farmer_accounts(envelope)
+                    farmer_village, farmer_district = _collect_farmer_location(envelope)
                     with trace.stage("scheme_summary"):
                         scheme_summary = await _build_union_scheme_summary(farmer_unions)
                     if scheme_summary:
@@ -2561,6 +2614,8 @@ async def stream_voice_message(
                 mobile=mobile,
                 farmer_identity=farmer_identity,
                 farmer_accounts=farmer_accounts,
+                farmer_village=farmer_village,
+                farmer_district=farmer_district,
             )
             # Let side-effecting tools (bookings) self-gate on the concurrent
             # moderation verdict before performing any write.
