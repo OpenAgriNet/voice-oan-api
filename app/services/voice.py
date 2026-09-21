@@ -1002,6 +1002,34 @@ def _collect_farmer_accounts(envelope: Optional[FarmerDataEnvelope]) -> list[Far
     return accounts
 
 
+def _collect_farmer_location(envelope: Optional[FarmerDataEnvelope]) -> tuple[Optional[str], Optional[str]]:
+    """The caller's (village, district), for the vet-office lookup.
+
+    Read off the raw record rather than FarmerAccount: account collection drops
+    any record without all three identity codes, and a caller we cannot book for
+    can still be told where their nearest dispensary is. societyName is the
+    village fallback — it is the village label the milk society is named for,
+    and the one _build_compact_farmer_summary already treats as speakable.
+    """
+    if envelope is None:
+        return None, None
+
+    village = district = None
+    for farmer in envelope.farmers:
+        record = farmer.model_dump()
+        village = village or str(record.get("village") or record.get("Village") or "").strip() or None
+        district = district or str(record.get("district") or record.get("District") or "").strip() or None
+        if village and district:
+            break
+
+    if not village:
+        for farmer in envelope.farmers:
+            if farmer.societyName:
+                village = farmer.societyName.strip() or None
+                break
+    return village, district
+
+
 async def _build_union_scheme_summary(farmer_unions: list[str]) -> str:
     scheme_unions = resolve_supported_unions(farmer_unions, SUPPORTED_SCHEME_CONTEXT_UNIONS)
     if not scheme_unions:
@@ -1724,6 +1752,8 @@ async def stream_voice_message(
             farmer_info = "\n".join(unavailable_capability_lines(farmer_identity))
             farmer_unions: list[str] = []
             farmer_accounts: list[FarmerAccount] = []
+            farmer_village: Optional[str] = None
+            farmer_district: Optional[str] = None
             ai_technician_info = ""
             farmer_cache_task = (
                 asyncio.create_task(get_or_fetch_farmer_data(mobile))
@@ -2443,6 +2473,7 @@ async def stream_voice_message(
                     farmer_info = _build_compact_farmer_summary(envelope)
                     farmer_unions = _collect_farmer_unions(envelope)
                     farmer_accounts = _collect_farmer_accounts(envelope)
+                    farmer_village, farmer_district = _collect_farmer_location(envelope)
                     with trace.stage("scheme_summary"):
                         scheme_summary = await _build_union_scheme_summary(farmer_unions)
                     if scheme_summary:
@@ -2561,6 +2592,8 @@ async def stream_voice_message(
                 mobile=mobile,
                 farmer_identity=farmer_identity,
                 farmer_accounts=farmer_accounts,
+                farmer_village=farmer_village,
+                farmer_district=farmer_district,
             )
             # Let side-effecting tools (bookings) self-gate on the concurrent
             # moderation verdict before performing any write.
