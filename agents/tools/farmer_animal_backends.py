@@ -27,6 +27,15 @@ from app.models.milk_collection import (
     FarmerMilkCollectionRequestModel,
     FarmerMilkCollectionResponseModel,
 )
+from agents.tools.beckn.voice import (
+    BecknProviderUnavailable,
+    create_ai_call_booking,
+    create_health_call_booking,
+    fetch_animal_profile_by_tag,
+    fetch_farmer_records_by_mobile,
+    get_ai_technicians_by_society as get_ai_technicians_by_society_beckn,
+    get_farmer_milk_collection_details as get_farmer_milk_collection_details_beckn,
+)
 from app.config import settings
 from app.observability import start_observation
 from helpers.utils import get_logger
@@ -35,6 +44,10 @@ _logger = get_logger(__name__)
 
 BASE_AMULPASHUDHAN = "https://api.amulpashudhan.com/configman/v1/PashuGPT"
 BASE_HERDMAN = "https://herdman.live/apis/api"
+
+
+def _voice_beckn_enabled() -> bool:
+    return bool(getattr(settings, "voice_beckn_enabled", False))
 
 
 class BackendUnavailableError(RuntimeError):
@@ -241,6 +254,14 @@ async def fetch_farmer_amulpashudhan(mobile: str, token: str) -> Optional[List[D
     Raises BackendUnavailableError when upstream failed — never None for that,
     because None is what gets cached as a confident negative.
     """
+    if _voice_beckn_enabled():
+        try:
+            return await fetch_farmer_records_by_mobile(mobile)
+        except BecknProviderUnavailable as e:
+            _logger.warning("Beckn farmer lookup unavailable for %s: %s; falling back to direct API", mobile, e)
+        except Exception as e:
+            _logger.warning("Beckn farmer lookup failed for %s: %s; falling back to direct API", mobile, e)
+
     url = f"{BASE_AMULPASHUDHAN}/GetFarmerDetailsByMobile?mobileNumber={mobile}"
     try:
         with start_observation(
@@ -315,6 +336,14 @@ def merge_farmer_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 async def fetch_animal_amulpashudhan(tag_no: str, token: str) -> Optional[Dict[str, Any]]:
     """Returns single animal dict or None on 204/error/empty."""
+    if _voice_beckn_enabled():
+        try:
+            return await fetch_animal_profile_by_tag(tag_no)
+        except BecknProviderUnavailable as e:
+            _logger.warning("Beckn animal lookup unavailable for %s: %s; falling back to direct API", tag_no, e)
+        except Exception as e:
+            _logger.warning("Beckn animal lookup failed for %s: %s; falling back to direct API", tag_no, e)
+
     url = f"{BASE_AMULPASHUDHAN}/GetAnimalDetailsByTagNo?tagNo={tag_no}"
     try:
         with start_observation(
@@ -412,6 +441,18 @@ async def create_ai_call_api(
     request: AICallRequestModel, token: str
 ) -> AICallResponseModel | None:
     """Creates an artificial insemination call and returns the assigned technician."""
+    if _voice_beckn_enabled():
+        try:
+            return await create_ai_call_booking(request)
+        except BecknProviderUnavailable as e:
+            # Conservative for irreversible writes: when Beckn accepted but did
+            # not complete authoritatively, do NOT submit a second booking path.
+            _logger.warning("[CreateAICall] :: Beckn booking not completed safely: %s", e)
+            return None
+        except Exception as e:
+            _logger.warning("[CreateAICall] :: Beckn booking failed unexpectedly: %s", e)
+            return None
+
     api_url = f"{BASE_AMULPASHUDHAN}/CreateAICall"
     try:
         with start_observation(
@@ -446,6 +487,16 @@ async def create_health_call_api(
     request: HealthCallRequestModel, token: str
 ) -> HealthCallResponseModel | None:
     """Creates a health call and returns the ticket details."""
+    if _voice_beckn_enabled():
+        try:
+            return await create_health_call_booking(request)
+        except BecknProviderUnavailable as e:
+            _logger.warning("[CreateHealthCall] :: Beckn booking not completed safely: %s", e)
+            return None
+        except Exception as e:
+            _logger.warning("[CreateHealthCall] :: Beckn booking failed unexpectedly: %s", e)
+            return None
+
     api_url = f"{BASE_AMULPASHUDHAN}/CreateHealthCall"
     try:
         with start_observation(
@@ -502,6 +553,28 @@ async def get_ai_technicians_by_society_api(
     token: str,
 ) -> list[AITechnicianBySocietyRecord] | None:
     """Fetch AI technicians mapped to a union and society."""
+    if _voice_beckn_enabled():
+        try:
+            technicians = await get_ai_technicians_by_society_beckn(
+                union_code=query.union_code,
+                society_code=query.society_code,
+            )
+            return [AITechnicianBySocietyRecord.model_validate(item.model_dump()) for item in technicians]
+        except BecknProviderUnavailable as e:
+            _logger.warning(
+                "[GetAITechniciansBySociety(%s,%s)] :: Beckn unavailable: %s; falling back to direct API",
+                query.union_code,
+                query.society_code,
+                e,
+            )
+        except Exception as e:
+            _logger.warning(
+                "[GetAITechniciansBySociety(%s,%s)] :: Beckn failed: %s; falling back to direct API",
+                query.union_code,
+                query.society_code,
+                e,
+            )
+
     api_url = f"{BASE_AMULPASHUDHAN}/GetAITUserDetailsBySocietyCode"
     try:
         with start_observation(
@@ -548,6 +621,30 @@ async def get_farmer_milk_collection_details_api(
     token: str,
 ) -> FarmerMilkCollectionResponseModel | None:
     """Fetches farmer milk collection and deduction details from PashuGPT."""
+    if _voice_beckn_enabled():
+        try:
+            return await get_farmer_milk_collection_details_beckn(request)
+        except BecknProviderUnavailable as e:
+            _logger.warning(
+                "[FarmerMilkCollectionDetails(%s,%s,%s,%s,%s)] :: Beckn unavailable: %s; falling back to direct API",
+                request.union_code,
+                request.society_code,
+                request.farmer_code,
+                request.fromdate,
+                request.todate,
+                e,
+            )
+        except Exception as e:
+            _logger.warning(
+                "[FarmerMilkCollectionDetails(%s,%s,%s,%s,%s)] :: Beckn failed: %s; falling back to direct API",
+                request.union_code,
+                request.society_code,
+                request.farmer_code,
+                request.fromdate,
+                request.todate,
+                e,
+            )
+
     api_url = f"{BASE_AMULPASHUDHAN}/FarmerMilkCollectionDetails"
     try:
         with start_observation(

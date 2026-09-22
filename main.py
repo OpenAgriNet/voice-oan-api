@@ -14,7 +14,7 @@ load_dotenv()
 import app.observability  # noqa: F401, E402
 
 # Import all routers
-from app.routers import  voice, health
+from app.routers import beckn, health, voice
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,6 +41,11 @@ async def lifespan(app: FastAPI):
         raise
     except Exception as _llm_exc:  # pragma: no cover - defensive
         print(f"⚠️  llm_core configure skipped: {_llm_exc}")
+    if settings.voice_beckn_enabled:
+        # Beckn startup must fail fast when callback-transaction configuration
+        # is incomplete; this keeps cutovers explicit and avoids partial writes.
+        from agents.tools.beckn.operations import validate_beckn_startup_configuration
+        validate_beckn_startup_configuration()
     await start_farmer_refresh_worker()
     await start_health_poller()
     yield
@@ -90,3 +95,4 @@ async def metrics():
 
 app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(health.router, prefix=settings.api_prefix)
+app.include_router(beckn.router, prefix=settings.api_prefix)

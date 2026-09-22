@@ -213,6 +213,44 @@ class Settings(BaseSettings):
     # Voice pipeline behavioral flags
     # RETRIEVAL_AUDIT_LOG: log intent/retrieval_called/query per turn for replay analysis
     retrieval_audit_log: bool = _get_bool_env("RETRIEVAL_AUDIT_LOG", default=False)
+    # Stepwise migration flag: when true, farmer/animal/booking/milk backend
+    # adapters route through Beckn first, with controlled fallback behavior.
+    voice_beckn_enabled: bool = _get_bool_env("VOICE_BECKN_ENABLED", default=False)
+    # Shared Beckn network timeout budget used by transaction bridge forwards.
+    amul_network_timeout_s: float = float(os.getenv("AMUL_NETWORK_TIMEOUT_S", "35"))
+    # Seeker base URL (used by discovery/search legs).
+    amul_network_url: str = os.getenv("AMUL_NETWORK_URL", "http://amul-bap-seeker:3000")
+    # Private transaction bridge base. Client appends /search, /init, /confirm...
+    beckn_bap_caller_url: str = os.getenv("BECKN_BAP_CALLER_URL", "").rstrip("/")
+    beckn_transaction_bridge_token: Optional[str] = os.getenv("BECKN_TRANSACTION_BRIDGE_TOKEN")
+    beckn_bap_id: str = os.getenv("BECKN_BAP_ID", "bap.amul-net.internal")
+    # Public ONIX receiver base placed in context.bap_uri.
+    beckn_bap_uri: str = os.getenv("BECKN_BAP_URI", "")
+    # Shared Amul BPP identity/receiver for Amul-owned domains.
+    beckn_amul_bpp_id: str = os.getenv("BECKN_AMUL_BPP_ID", "bpp-amul.amul-net.internal")
+    beckn_amul_bpp_uri: str = os.getenv("BECKN_AMUL_BPP_URI", "")
+    beckn_booking_domain: str = os.getenv("BECKN_BOOKING_DOMAIN", "services:amul-vet-booking")
+    beckn_milk_domain: str = os.getenv("BECKN_MILK_DOMAIN", "services:amul-milk-collection")
+    beckn_farmer_domain: str = os.getenv("BECKN_FARMER_DOMAIN", "data:amul-farmer-profile")
+    beckn_animal_domain: str = os.getenv("BECKN_ANIMAL_DOMAIN", "data:amul-animal-profile")
+    beckn_country_code: str = os.getenv("BECKN_COUNTRY_CODE", "IND")
+    beckn_city_code: str = os.getenv("BECKN_CITY_CODE", "std:079")
+    beckn_message_ttl: str = os.getenv("BECKN_MESSAGE_TTL", "PT30S")
+    beckn_callback_wait_seconds: float = float(os.getenv("BECKN_CALLBACK_WAIT_SECONDS", "30"))
+    beckn_callback_poll_interval_seconds: float = float(
+        os.getenv("BECKN_CALLBACK_POLL_INTERVAL_SECONDS", "0.1")
+    )
+    beckn_forward_connect_attempts: int = int(os.getenv("BECKN_FORWARD_CONNECT_ATTEMPTS", "2"))
+    beckn_forward_retry_delay_seconds: float = float(os.getenv("BECKN_FORWARD_RETRY_DELAY_SECONDS", "0.2"))
+    beckn_operation_ttl_seconds: int = int(os.getenv("BECKN_OPERATION_TTL_SECONDS", str(60 * 60 * 24)))
+    beckn_callback_max_body_bytes: int = int(os.getenv("BECKN_CALLBACK_MAX_BODY_BYTES", str(2 * 1024 * 1024)))
+    # Callback ingress token expected in X-Beckn-Callback-Token.
+    beckn_callback_token: Optional[str] = os.getenv("BECKN_CALLBACK_TOKEN")
+    # Private SHC callback knobs (tokenless carveout only when explicitly enabled).
+    vistaar_shc_enabled: bool = _get_bool_env("VISTAAR_SHC_ENABLED", default=False)
+    shc_artifact_ttl_seconds: int = int(os.getenv("SHC_ARTIFACT_TTL_SECONDS", "600"))
+    vistaar_bpp_id: str = os.getenv("VISTAAR_BPP_ID", "")
+    vistaar_bpp_uri: str = os.getenv("VISTAAR_BPP_URI", "")
     # AMBIGUITY_MATCH_THRESHOLD: fuzzy-match cutoff for ambiguity_terms.json (0.0–1.0)
     ambiguity_match_threshold: float = float(os.getenv("AMBIGUITY_MATCH_THRESHOLD", "0.80"))
     ollama_endpoint_url: Optional[str] = None
