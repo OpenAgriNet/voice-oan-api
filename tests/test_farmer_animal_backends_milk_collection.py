@@ -52,6 +52,9 @@ class TestFarmerAnimalBackendsMilkCollection:
         )
 
     def test_sends_expected_endpoint_query_params_and_auth_header(self, monkeypatch):
+        # Keep this test as a direct-API contract: force Beckn off so the assertion
+        # remains about PashuGPT request shape, not adapter routing.
+        monkeypatch.setattr(farmer_animal_backends.settings, "voice_beckn_enabled", False)
         monkeypatch.setattr(farmer_animal_backends.httpx, "AsyncClient", _FakeAsyncClient)
 
         result = asyncio.run(get_farmer_milk_collection_details_api(self._request(), "test-token"))
