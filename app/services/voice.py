@@ -2,7 +2,6 @@ from typing import AsyncGenerator
 import asyncio
 import json
 import os
-import re
 from agents.voice import voice_agent
 from agents.deps import FarmerContext
 from agents.models import LLM_AGRINET_MODEL
@@ -49,12 +48,6 @@ def _prefix_disclaimer(disclaimer: str, audio: str) -> str:
     if not audio:
         return disclaimer
     return f"{disclaimer} {audio.lstrip()}"
-
-def _extract_audio_from_partial_json(text: str) -> str:
-    """Extract the audio field value from partial/incomplete JSON text during streaming."""
-    match = re.search(r'"audio"\s*:\s*"((?:[^"\\]|\\.)*)', text)
-    return match.group(1) if match else ""
-
 
 def _voice_output_dict(audio: str, end_interaction: bool, language: str | None) -> dict:
     """Build the voice response with its public Sarvam language code."""
@@ -139,7 +132,7 @@ async def stream_voice_message(
                         delta = event.delta
                         if getattr(delta, 'part_delta_kind', '') == 'text':
                             text_buffer += delta.content_delta
-                            audio = _extract_audio_from_partial_json(text_buffer)
+                            audio = text_buffer.strip()
                             if audio and audio != prev_audio:
                                 any_chunk_yielded = True
                                 prev_audio = audio
@@ -185,29 +178,15 @@ async def stream_voice_message(
             break
 
         if final_output is not None:
-            if isinstance(final_output, dict):
-                safe_update_observation(
-                    agent_obs,
-                    {
-                        "audio": (final_output.get("audio") or "")[:2000],
-                        "end_interaction": bool(final_output.get("end_interaction", False)),
-                    },
-                )
-            else:
-                safe_update_observation(
-                    agent_obs,
-                    {
-                        "audio": (getattr(final_output, "audio", None) or "")[:2000],
-                        "end_interaction": bool(getattr(final_output, "end_interaction", False)),
-                    },
-                )
+            safe_update_observation(
+                agent_obs,
+                {
+                    "audio": (final_output or "")[:2000],
+                    "end_interaction": deps.end_interaction,
+                },
+            )
 
-    agent_response_text: str | None = None
-    if final_output is not None:
-        if isinstance(final_output, dict):
-            agent_response_text = final_output.get("audio") or ""
-        else:
-            agent_response_text = final_output.audio or ""
+    agent_response_text: str | None = final_output
 
     async def _send_voice_turn_telemetry(
         agent_response: str | None, response_language: str
@@ -256,12 +235,8 @@ async def stream_voice_message(
             logger.exception("Voice turn telemetry failed, qid=%s", voice_qid)
 
     if final_output:
-        if isinstance(final_output, dict):
-            end_flag = final_output.get("end_interaction", False)
-            raw_audio = final_output.get("audio") or ""
-        else:
-            end_flag = getattr(final_output, "end_interaction", False)
-            raw_audio = final_output.audio or ""
+        end_flag = deps.end_interaction
+        raw_audio = final_output
 
         final_recording_prefix = (
             _get_recording_message(language_code) if is_first_message else ""
