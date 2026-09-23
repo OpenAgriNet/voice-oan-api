@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS heat_alert_webhook_events (
     partner_timestamp_at TIMESTAMPTZ,
     partner_alert_epoch_s BIGINT,
 
-    payload_raw JSONB NOT NULL
+    payload_raw JSONB NOT NULL,
+    CONSTRAINT uq_heat_alert_events_alert_id_farmer_contact
+        UNIQUE (alert_id, farmer_contact)
 );
 
 CREATE INDEX IF NOT EXISTS ix_heat_alert_events_received_at

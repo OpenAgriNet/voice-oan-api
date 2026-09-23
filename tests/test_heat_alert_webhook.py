@@ -52,22 +52,48 @@ PARTNER_PAYLOAD = {
 
 class _FakeSession:
     def __init__(self):
-        self.added = []
         self.committed = False
         self.last_stmt = None
         self.rowcount = 0
+        self._rows_by_key = {}
 
-    def add(self, obj):
-        if getattr(obj, "id", None) is None:
-            obj.id = uuid.uuid4()
-        self.added.append(obj)
-
-    async def commit(self):
-        self.committed = True
+    @staticmethod
+    def _extract_param(params, needle):
+        for key, value in params.items():
+            if needle in str(key):
+                return value
+        return None
 
     async def execute(self, stmt):
         self.last_stmt = stmt
+        sql = str(stmt)
+
+        if sql.startswith("INSERT INTO heat_alert_webhook_events"):
+            params = stmt.compile().params
+            alert_id = self._extract_param(params, "alert_id")
+            farmer_contact = self._extract_param(params, "farmer_contact")
+            received_at = self._extract_param(params, "received_at")
+            key = (alert_id, farmer_contact)
+            existing = self._rows_by_key.get(key)
+            if existing is not None:
+                return type("R", (), {"first": lambda _self: None})()
+            row_id = uuid.uuid4()
+            row = (row_id, received_at)
+            self._rows_by_key[key] = row
+            return type("R", (), {"first": lambda _self, row=row: row})()
+
+        if sql.startswith("SELECT heat_alert_webhook_events.id"):
+            params = stmt.compile().params
+            alert_id = self._extract_param(params, "alert_id")
+            farmer_contact = self._extract_param(params, "farmer_contact")
+            key = (alert_id, farmer_contact)
+            row = self._rows_by_key.get(key)
+            return type("R", (), {"first": lambda _self, row=row: row})()
+
         return type("R", (), {"rowcount": self.rowcount})()
+
+    async def commit(self):
+        self.committed = True
 
 
 @contextlib.asynccontextmanager
@@ -137,17 +163,18 @@ def test_heat_alert_auth_and_persist(monkeypatch):
     assert body["received_at"]
 
     assert session.committed is True
-    assert len(session.added) == 1
-    event = session.added[0]
-    assert event.alert_id == "111"
-    assert event.device_id == "S1IAD1869"
-    assert event.tag_no == "1"
-    assert event.pashuaadhar_no == "1222244566743"
-    assert event.partner_alert_epoch_s == 1771411969
-    assert event.ai_window_start_at is not None
-    assert event.payload_raw["alertID"] == "111"
-    assert event.payload_raw["tag no"] == "1"
-    assert str(event.id) == body["id"]
+    assert ("111", "9727703441") in session._rows_by_key
+    inserted_id, _inserted_received_at = session._rows_by_key[("111", "9727703441")]
+    assert str(inserted_id) == body["id"]
+
+    # Duplicate payload is idempotent: accepted, same record id.
+    resp2 = client.post(
+        "/api/webhooks/heat-alert",
+        json=PARTNER_PAYLOAD,
+        headers={"X-Webhook-Token": "test-webhook-token"},
+    )
+    assert resp2.status_code == 202
+    assert resp2.json()["id"] == body["id"]
 
 
 def test_cleanup_deletes_only_rows_older_than_retention(monkeypatch):

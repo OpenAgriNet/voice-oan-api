@@ -5,6 +5,8 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.auth.webhook_token import require_webhook_token
 from app.core.webhook_db import get_webhook_session, webhook_db_configured
@@ -69,7 +71,7 @@ async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebho
     ai_window_end_at = _parse_iso8601_utc(payload.ai_window_end_time)
     partner_timestamp_at = _parse_iso8601_utc(payload.timestamp)
 
-    event = HeatAlertWebhookEvent(
+    event_values = dict(
         received_at=received_at,
         alert_id=payload.alert_id,
         device_id=payload.device_id,
@@ -99,7 +101,41 @@ async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebho
 
     try:
         async with get_webhook_session() as session:
-            session.add(event)
+            # DB-level idempotency on (alert_id, farmer_contact): retries with the
+            # same pair are accepted without creating duplicate rows.
+            insert_stmt = (
+                pg_insert(HeatAlertWebhookEvent)
+                .values(**event_values)
+                .on_conflict_do_nothing(
+                    index_elements=["alert_id", "farmer_contact"]
+                )
+                .returning(
+                    HeatAlertWebhookEvent.id,
+                    HeatAlertWebhookEvent.received_at,
+                )
+            )
+            inserted_row = (await session.execute(insert_stmt)).first()
+            if inserted_row is not None:
+                record_id, stored_received_at = inserted_row
+            else:
+                existing_stmt = (
+                    select(
+                        HeatAlertWebhookEvent.id,
+                        HeatAlertWebhookEvent.received_at,
+                    )
+                    .where(
+                        HeatAlertWebhookEvent.alert_id == payload.alert_id,
+                        HeatAlertWebhookEvent.farmer_contact == payload.farmer_contact,
+                    )
+                    .order_by(HeatAlertWebhookEvent.received_at.desc())
+                    .limit(1)
+                )
+                existing_row = (await session.execute(existing_stmt)).first()
+                if existing_row is None:
+                    raise RuntimeError(
+                        "Webhook upsert conflict but existing row not found"
+                    )
+                record_id, stored_received_at = existing_row
             await session.commit()
     except Exception as exc:
         logger.error(
@@ -113,7 +149,7 @@ async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebho
             detail="Failed to persist webhook payload",
         ) from exc
 
-    record_id: UUID = event.id
+    record_id = UUID(str(record_id))
     logger.info(
         "Heat alert webhook accepted id=%s alert_id=%s device_id=%s "
         "notification_type=%s farmer_contact=%s",
@@ -123,4 +159,8 @@ async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebho
         payload.notification_type,
         payload.farmer_contact,
     )
-    return HeatAlertWebhookResponse(accepted=True, id=record_id, received_at=received_at)
+    return HeatAlertWebhookResponse(
+        accepted=True,
+        id=record_id,
+        received_at=stored_received_at or received_at,
+    )

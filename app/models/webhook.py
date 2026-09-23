@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Index, String, Text, func
+from sqlalchemy import BigInteger, DateTime, Index, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -26,6 +26,11 @@ class HeatAlertWebhookEvent(WebhookBase):
         Index("ix_heat_alert_events_received_at", "received_at"),
         Index("ix_heat_alert_events_farmer_contact", "farmer_contact"),
         Index("ix_heat_alert_events_device_id", "device_id"),
+        UniqueConstraint(
+            "alert_id",
+            "farmer_contact",
+            name="uq_heat_alert_events_alert_id_farmer_contact",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
