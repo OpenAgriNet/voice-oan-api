@@ -36,28 +36,32 @@ class HeatAlertWebhookRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    alert_id: Annotated[str, Field(alias="alertID", description="Partner alert identifier")]
+    alert_id: Annotated[
+        str, Field(alias="alertID", description="Partner alert identifier", max_length=64)
+    ]
     device_id: Annotated[
-        str, Field(alias="deviceid", description="Sensor / device identifier")
+        str, Field(alias="deviceid", description="Sensor / device identifier", max_length=128)
     ]
     tag_no: Annotated[
-        Optional[str], Field(alias="tag no", description="Animal tag number")
+        Optional[str], Field(alias="tag no", description="Animal tag number", max_length=64)
     ] = None
     pashuaadhar_no: Annotated[
-        Optional[str], Field(alias="Pashuaadhar No", description="Pashuaadhar number")
+        Optional[str], Field(alias="Pashuaadhar No", description="Pashuaadhar number", max_length=64)
     ] = None
     farm_name: Annotated[
-        Optional[str], Field(alias="FarmName", description="Farm display name")
+        Optional[str], Field(alias="FarmName", description="Farm display name", max_length=256)
     ] = None
     farm_id: Annotated[
-        Optional[str], Field(alias="farmid", description="Farm identifier")
+        Optional[str], Field(alias="farmid", description="Farm identifier", max_length=64)
     ] = None
     msg_title: str | None = Field(default=None, description="Notification title")
     msg_body: str | None = Field(default=None, description="Notification body")
-    heat_score: str | None = Field(default=None, description="Heat score as sent by partner")
-    alert_type: str = Field(description="Alert severity, e.g. Amber")
+    heat_score: str | None = Field(
+        default=None, description="Heat score as sent by partner", max_length=32
+    )
+    alert_type: str = Field(description="Alert severity, e.g. Amber", max_length=32)
     notification_type: str | None = Field(
-        default=None, description="Notification kind, e.g. HEAT"
+        default=None, description="Notification kind, e.g. HEAT", max_length=64
     )
     ai_window_start_time: Annotated[
         str, Field(alias="AI Window start_time", description="AI window start (ISO string)")
@@ -69,10 +73,12 @@ class HeatAlertWebhookRequest(BaseModel):
         default=None, description="Partner alert time (often a unix epoch string)"
     )
     timestamp: str = Field(description="Partner event timestamp (ISO string)")
-    society_code: str | None = Field(default=None, description="Society / mandali code")
-    farmer_code: str | None = Field(default=None, description="Farmer code")
-    farmer_contact: str = Field(description="Farmer phone / contact")
-    system_tag_no: str | None = Field(default=None, description="System tag number")
+    society_code: str | None = Field(
+        default=None, description="Society / mandali code", max_length=64
+    )
+    farmer_code: str | None = Field(default=None, description="Farmer code", max_length=64)
+    farmer_contact: str = Field(description="Farmer phone / contact", max_length=32)
+    system_tag_no: str | None = Field(default=None, description="System tag number", max_length=64)
 
     @field_validator(
         "alert_id",

@@ -151,6 +151,17 @@ def test_heat_alert_auth_and_persist(monkeypatch):
         == 401
     )
 
+    oversized = dict(PARTNER_PAYLOAD)
+    oversized["alertID"] = "a" * 65
+    assert (
+        client.post(
+            "/api/webhooks/heat-alert",
+            json=oversized,
+            headers={"X-Webhook-Token": "test-webhook-token"},
+        ).status_code
+        == 422
+    )
+
     resp = client.post(
         "/api/webhooks/heat-alert",
         json=PARTNER_PAYLOAD,

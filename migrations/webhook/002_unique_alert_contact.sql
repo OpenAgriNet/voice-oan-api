@@ -21,6 +21,17 @@ DELETE FROM heat_alert_webhook_events t
 USING dupes d
 WHERE t.id = d.id;
 
-ALTER TABLE heat_alert_webhook_events
-    ADD CONSTRAINT uq_heat_alert_events_alert_id_farmer_contact
-    UNIQUE (alert_id, farmer_contact);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'uq_heat_alert_events_alert_id_farmer_contact'
+          AND conrelid = 'heat_alert_webhook_events'::regclass
+    ) THEN
+        ALTER TABLE heat_alert_webhook_events
+            ADD CONSTRAINT uq_heat_alert_events_alert_id_farmer_contact
+            UNIQUE (alert_id, farmer_contact);
+    END IF;
+END
+$$;
