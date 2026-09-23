@@ -22,6 +22,10 @@ class FarmerContext(BaseModel):
     language_code: str = Field(
         description="Language selected from the validated X-Language header."
     )
+    end_interaction: bool = Field(
+        default=False,
+        description="Set by submit_feedback when the call is closing.",
+    )
     
     def _query_string(self):
         """Get the query string for the agrinet agent."""

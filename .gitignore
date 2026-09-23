@@ -207,3 +207,6 @@ marimo/_lsp/
 __marimo__/
 .DS_Store
 jwt_public_key.pem
+jwt_private_key.pem
+*.pem
+*.key
