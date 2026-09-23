@@ -7,6 +7,10 @@ from app.tasks.farmer_refresh_worker import start_farmer_refresh_worker, stop_fa
 # P2 health poller: active LB /health probe feeding the per-endpoint breaker.
 # start_/stop_ are no-ops unless HEALTH_POLLER_ENABLED (flag-off boot is untouched).
 from app.tasks.health_poller import start_health_poller, stop_health_poller
+from app.tasks.webhook_cleanup_worker import (
+    start_webhook_cleanup_worker,
+    stop_webhook_cleanup_worker,
+)
 
 load_dotenv()
 
@@ -14,7 +18,7 @@ load_dotenv()
 import app.observability  # noqa: F401, E402
 
 # Import all routers
-from app.routers import  voice, health
+from app.routers import voice, health, webhooks
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,8 +47,10 @@ async def lifespan(app: FastAPI):
         print(f"⚠️  llm_core configure skipped: {_llm_exc}")
     await start_farmer_refresh_worker()
     await start_health_poller()
+    await start_webhook_cleanup_worker()
     yield
     # Shutdown
+    await stop_webhook_cleanup_worker()
     await stop_health_poller()
     await stop_farmer_refresh_worker()
     print(f"🛑 {settings.app_name} shutting down...")
@@ -90,3 +96,4 @@ async def metrics():
 
 app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(health.router, prefix=settings.api_prefix)
+app.include_router(webhooks.router, prefix=settings.api_prefix)
