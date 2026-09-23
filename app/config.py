@@ -272,6 +272,19 @@ class Settings(BaseSettings):
     loan_db_url: Optional[str] = os.getenv("LOAN_DB_URL")
     loan_db_pool_size: int = int(os.getenv("LOAN_DB_POOL_SIZE", "5"))
 
+    # ── Partner heat-alert webhook ───────────────────────────────────────────
+    # Shared secret sent by the partner in the X-Webhook-Token header. When
+    # unset/empty the webhook endpoint rejects all requests (fail closed).
+    webhook_shared_token: Optional[str] = os.getenv("WEBHOOK_SHARED_TOKEN")
+    # Dedicated Postgres for partner webhook payloads (hosted on vm2).
+    webhook_db_url: Optional[str] = os.getenv("WEBHOOK_DB_URL")
+    webhook_db_pool_size: int = int(os.getenv("WEBHOOK_DB_POOL_SIZE", "5"))
+    # Retention + cleanup cadence for ephemeral webhook data.
+    webhook_retention_hours: int = int(os.getenv("WEBHOOK_RETENTION_HOURS", "24"))
+    webhook_cleanup_interval_seconds: int = int(
+        os.getenv("WEBHOOK_CLEANUP_INTERVAL_SECONDS", "900")
+    )
+
     # ── Onex-Aura / OneXtel SMS gateway (DLT-approved KDCC micro-loan template) ─
     # When false, SMS is a dry-run: nothing is sent, the code is still issued and
     # stored, and sms_status is recorded as 'dry_run'. Keep OFF while testing.
