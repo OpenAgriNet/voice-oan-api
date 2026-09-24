@@ -6,6 +6,7 @@ from agents.voice import voice_agent
 from agents.deps import FarmerContext
 from agents.models import LLM_AGRINET_MODEL
 from agents.routing import select_model_for_session
+from app.config import settings
 from app.core.languages import get_language, iso_language_code
 from helpers.telemetry import (
     TelemetryRequest,
@@ -40,6 +41,17 @@ def _is_first_user_message(history: list) -> bool:
 def _get_recording_message(lang: str | None) -> str:
     """Get the recording disclaimer in the response language."""
     return get_language(lang).recording_disclaimer
+
+
+def _turn_prefix(lang: str | None, is_first_message: bool) -> str:
+    """Fixed text spoken ahead of the LLM's answer: the recording disclaimer on the
+    first turn, then the hold message on every turn."""
+    parts = []
+    if is_first_message:
+        parts.append(_get_recording_message(lang))
+    if settings.voice_hold_message_enabled:
+        parts.append(get_language(lang).hold_message)
+    return " ".join(p for p in parts if p)
 
 
 def _prefix_disclaimer(disclaimer: str, audio: str) -> str:
@@ -79,6 +91,15 @@ async def stream_voice_message(
     logger.info(f"Trimmed history: {len(trimmed_history)} messages")
 
     is_first_message = _is_first_user_message(history)
+    turn_prefix = _turn_prefix(language_code, is_first_message)
+
+    # Send the fixed prefix before the model runs so the caller hears something while
+    # the LLM and any tools work. Every later chunk repeats it at the front, because
+    # each chunk carries the whole reply so far.
+    if settings.voice_hold_message_enabled and turn_prefix:
+        yield json.dumps(
+            _voice_output_dict(turn_prefix, False, response_language), ensure_ascii=False
+        )
     model, model_route = await select_model_for_session(session_id)
     model_name = getattr(model, "model_name", "unknown")
     logger.info(f"Routing session {session_id} to model_route={model_route} model={model_name}")
@@ -136,9 +157,8 @@ async def stream_voice_message(
                             if audio and audio != prev_audio:
                                 any_chunk_yielded = True
                                 prev_audio = audio
-                                recording_prefix = _get_recording_message(language_code) if is_first_message else ""
                                 output_dict = _voice_output_dict(
-                                    _prefix_disclaimer(recording_prefix, audio),
+                                    _prefix_disclaimer(turn_prefix, audio),
                                     False,
                                     response_language,
                                 )
@@ -238,10 +258,7 @@ async def stream_voice_message(
         end_flag = deps.end_interaction
         raw_audio = final_output
 
-        final_recording_prefix = (
-            _get_recording_message(language_code) if is_first_message else ""
-        )
-        audio_text = _prefix_disclaimer(final_recording_prefix, raw_audio)
+        audio_text = _prefix_disclaimer(turn_prefix, raw_audio)
         output_dict = _voice_output_dict(audio_text, end_flag, response_language)
         yield json.dumps(output_dict, ensure_ascii=False)
         logger.info(

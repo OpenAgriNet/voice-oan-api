@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # External Service URLs
     telemetry_api_url: str = "https://vistaar.kenpath.ai/observability-service/action/data/v3/telemetry"
     nudge_api_url: str = os.getenv("NUDGE_API_URL", "https://vistaar.getraya.app/api/nudge-user")
+    # Speak a short "one moment" line as soon as a turn starts, before the LLM answers.
+    voice_hold_message_enabled: bool = os.getenv("VOICE_HOLD_MESSAGE_ENABLED", "true").lower() in ("true", "1", "yes")
     bhashini_api_url: str = ""
     ollama_endpoint_url: Optional[str] = None
     marqo_endpoint_url: Optional[str] = None
