@@ -44,11 +44,11 @@ def _get_recording_message(lang: str | None) -> str:
 
 
 def _turn_prefix(lang: str | None, is_first_message: bool) -> str:
-    """Fixed text spoken ahead of the LLM's answer: the recording disclaimer on the
-    first turn, then the hold message on every turn."""
-    parts = []
-    if is_first_message:
-        parts.append(_get_recording_message(lang))
+    """Fixed text spoken ahead of the LLM's answer on the caller's first turn only:
+    the recording disclaimer, then the hold message. Later turns get no prefix."""
+    if not is_first_message:
+        return ""
+    parts = [_get_recording_message(lang)]
     if settings.voice_hold_message_enabled:
         parts.append(get_language(lang).hold_message)
     return " ".join(p for p in parts if p)
@@ -93,8 +93,8 @@ async def stream_voice_message(
     is_first_message = _is_first_user_message(history)
     turn_prefix = _turn_prefix(language_code, is_first_message)
 
-    # Send the fixed prefix before the model runs so the caller hears something while
-    # the LLM and any tools work. Every later chunk repeats it at the front, because
+    # On the first turn, send the fixed prefix before the model runs so the caller hears
+    # something while the LLM and any tools work. Every later chunk repeats it at the front, because
     # each chunk carries the whole reply so far.
     if settings.voice_hold_message_enabled and turn_prefix:
         yield json.dumps(
