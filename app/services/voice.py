@@ -45,13 +45,45 @@ def _get_recording_message(lang: str | None) -> str:
 
 def _turn_prefix(lang: str | None, is_first_message: bool) -> str:
     """Fixed text spoken ahead of the LLM's answer on the caller's first turn only:
-    the recording disclaimer, then the hold message. Later turns get no prefix."""
+    the hold message, then the recording disclaimer. Later turns get no prefix."""
     if not is_first_message:
         return ""
-    parts = [_get_recording_message(lang)]
+    parts = []
     if settings.voice_hold_message_enabled:
         parts.append(get_language(lang).hold_message)
+    parts.append(_get_recording_message(lang))
     return " ".join(p for p in parts if p)
+
+
+_DELAY_ELAPSED = object()
+
+
+async def _events_with_deadline(events, deadline: float | None):
+    """Pass agent events through, yielding _DELAY_ELAPSED once if the next event is
+    still pending at `deadline` (event-loop time). The pending read is never
+    cancelled while the turn is live: cancelling it would abort the agent run."""
+    iterator = events.__aiter__()
+    loop = asyncio.get_running_loop()
+    while True:
+        if deadline is None:
+            try:
+                event = await iterator.__anext__()
+            except StopAsyncIteration:
+                return
+        else:
+            pending = asyncio.ensure_future(iterator.__anext__())
+            try:
+                done, _ = await asyncio.wait({pending}, timeout=max(0.0, deadline - loop.time()))
+                if not done:
+                    deadline = None
+                    yield _DELAY_ELAPSED
+                event = await pending
+            except StopAsyncIteration:
+                return
+            finally:
+                if not pending.done():
+                    pending.cancel()
+        yield event
 
 
 def _prefix_disclaimer(disclaimer: str, audio: str) -> str:
@@ -92,6 +124,11 @@ async def stream_voice_message(
 
     is_first_message = _is_first_user_message(history)
     turn_prefix = _turn_prefix(language_code, is_first_message)
+    delay_deadline = (
+        asyncio.get_running_loop().time() + settings.voice_delay_message_after_seconds
+        if settings.voice_delay_message_enabled
+        else None
+    )
 
     # On the first turn, send the fixed prefix before the model runs so the caller hears
     # something while the LLM and any tools work. Every later chunk repeats it at the front, because
@@ -114,6 +151,7 @@ async def stream_voice_message(
 
     final_output = None
     new_messages = None
+    delay_sent = False
 
     agent_slug = (voice_agent.name or "voice").replace(" ", "_").lower()
     # Tags are trace-level in Langfuse, so they go through propagate_attributes;
@@ -141,12 +179,29 @@ async def stream_voice_message(
             any_chunk_yielded = False
             is_last_attempt = attempt_index == len(candidates) - 1
             try:
-                async for event in voice_agent.run_stream_events(
-                    user_prompt=user_message,
-                    message_history=trimmed_history,
-                    deps=deps,
-                    model=attempt_model,
+                async for event in _events_with_deadline(
+                    voice_agent.run_stream_events(
+                        user_prompt=user_message,
+                        message_history=trimmed_history,
+                        deps=deps,
+                        model=attempt_model,
+                    ),
+                    None if delay_sent else delay_deadline,
                 ):
+                    if event is _DELAY_ELAPSED:
+                        # No answer yet: apologise for the wait. Like the turn prefix, it
+                        # stays at the front of every later chunk.
+                        if not any_chunk_yielded:
+                            delay_sent = True
+                            turn_prefix = _prefix_disclaimer(
+                                turn_prefix, get_language(language_code).delay_message
+                            )
+                            yield json.dumps(
+                                _voice_output_dict(turn_prefix, False, response_language),
+                                ensure_ascii=False,
+                            )
+                        continue
+
                     kind = getattr(event, 'event_kind', '')
 
                     if kind == 'part_delta':
