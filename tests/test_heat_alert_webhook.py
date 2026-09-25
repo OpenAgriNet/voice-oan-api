@@ -38,7 +38,7 @@ PARTNER_PAYLOAD = {
     "msg_body": "Animal may be in heat",
     "heat_score": "89",
     "alert_type": "Amber",
-    "notification_type": "HEAT",
+    "notification_type": "heat",
     "AI Window start_time": "2026-09-16T09:40:39.000Z",
     "AI Window end_time": "2026-09-16T09:40:39.000Z",
     "alert_time": "1771411969",
@@ -113,6 +113,7 @@ def test_partner_payload_aliases_and_numeric_coercion():
             "farmid": 797,
             "heat_score": 89.0,
             "alert_type": "Amber",
+            "notification_type": "heat",
             "AI Window start_time": "2026-09-16T09:40:39.000Z",
             "AI Window end_time": "2026-09-16T09:40:39.000Z",
             "timestamp": "2026-09-16T09:40:39.000Z",
@@ -125,6 +126,7 @@ def test_partner_payload_aliases_and_numeric_coercion():
     assert parsed.farm_id == "797"
     assert parsed.heat_score == "89"
     assert parsed.alert_type == "Amber"
+    assert parsed.notification_type == "heat"
     assert parsed.ai_window_start_time == "2026-09-16T09:40:39.000Z"
     assert parsed.timestamp == "2026-09-16T09:40:39.000Z"
     assert parsed.farmer_contact == "9727703441"
@@ -140,11 +142,11 @@ def test_heat_alert_auth_and_persist(monkeypatch):
     client = TestClient(app)
 
     assert (
-        client.post("/api/webhooks/heat-alert", json=PARTNER_PAYLOAD).status_code == 401
+        client.post("/api/webhooks/heat", json=PARTNER_PAYLOAD).status_code == 401
     )
     assert (
         client.post(
-            "/api/webhooks/heat-alert",
+            "/api/webhooks/heat",
             json=PARTNER_PAYLOAD,
             headers={"X-Webhook-Token": "wrong"},
         ).status_code
@@ -155,7 +157,7 @@ def test_heat_alert_auth_and_persist(monkeypatch):
     oversized["alertID"] = "a" * 65
     assert (
         client.post(
-            "/api/webhooks/heat-alert",
+            "/api/webhooks/heat",
             json=oversized,
             headers={"X-Webhook-Token": "test-webhook-token"},
         ).status_code
@@ -163,7 +165,7 @@ def test_heat_alert_auth_and_persist(monkeypatch):
     )
 
     resp = client.post(
-        "/api/webhooks/heat-alert",
+        "/api/webhooks/heat",
         json=PARTNER_PAYLOAD,
         headers={"X-Webhook-Token": "test-webhook-token"},
     )
@@ -180,11 +182,29 @@ def test_heat_alert_auth_and_persist(monkeypatch):
 
     # Duplicate payload is idempotent: accepted, same record id.
     resp2 = client.post(
-        "/api/webhooks/heat-alert",
-        json=PARTNER_PAYLOAD,
+        "/api/webhooks/HEAT",
+        json={**PARTNER_PAYLOAD, "notification_type": "HEAT"},
         headers={"X-Webhook-Token": "test-webhook-token"},
     )
     assert resp2.status_code == 202
+
+    missing_type = dict(PARTNER_PAYLOAD)
+    missing_type.pop("notification_type")
+    assert (
+        client.post(
+            "/api/webhooks/heat",
+            json=missing_type,
+            headers={"X-Webhook-Token": "test-webhook-token"},
+        ).status_code
+        == 422
+    )
+
+    unknown = client.post(
+        "/api/webhooks/CALVING",
+        json=PARTNER_PAYLOAD,
+        headers={"X-Webhook-Token": "test-webhook-token"},
+    )
+    assert unknown.status_code == 404
     assert resp2.json()["id"] == body["id"]
 
 

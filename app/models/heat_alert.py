@@ -7,10 +7,17 @@ NOTE: Do not enable ``from __future__ import annotations`` here — Pydantic nee
 concrete field annotations at class-body time for aliases to bind correctly.
 """
 from datetime import datetime
+from enum import Enum
 from typing import Annotated, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+
+class NotificationType(str, Enum):
+    """Partner notification kinds. The URL path segment must be one of these."""
+
+    HEAT = "heat"
 
 
 def _coerce_optional_str(value: Any) -> Any:
@@ -60,8 +67,8 @@ class HeatAlertWebhookRequest(BaseModel):
         default=None, description="Heat score as sent by partner", max_length=32
     )
     alert_type: str = Field(description="Alert severity, e.g. Amber", max_length=32)
-    notification_type: str | None = Field(
-        default=None, description="Notification kind, e.g. HEAT", max_length=64
+    notification_type: NotificationType = Field(
+        description="Required. Must match the URL path, e.g. heat for /webhooks/heat"
     )
     ai_window_start_time: Annotated[
         str, Field(alias="AI Window start_time", description="AI window start (ISO string)")
@@ -103,8 +110,11 @@ class HeatAlertWebhookRequest(BaseModel):
         mode="before",
     )
     @classmethod
-    def _stringify_numeric_fields(cls, value: Any) -> Any:
-        return _coerce_optional_str(value)
+    def _stringify_numeric_fields(cls, value: Any, info: ValidationInfo) -> Any:
+        value = _coerce_optional_str(value)
+        if info.field_name == "notification_type" and isinstance(value, str):
+            return value.strip().lower()
+        return value
 
 
 class HeatAlertWebhookResponse(BaseModel):

@@ -94,7 +94,12 @@ Authentication contract:
 
 Inbound partner alerts are accepted at:
 
-`POST /api/webhooks/heat-alert`
+`POST /api/webhooks/{notification_type}`
+
+The path segment is the notification kind. Today the only value is `heat`
+(`POST /api/webhooks/heat`). `notification_type` in the body is required and
+must match that path (case-insensitive, stored as lowercase). An unknown path
+returns `404`. A body value that does not match the path returns `422`.
 
 Auth:
 - shared secret header `X-Webhook-Token` (not JWT)
@@ -139,10 +144,10 @@ Env reference: `example.webhook.env`
 4. Restart the API process and confirm startup log includes webhook cleanup worker start (or the "not started: WEBHOOK_DB_URL not configured" skip line).
 5. Smoke test:
    ```bash
-   curl -sS -X POST "$BASE_URL/api/webhooks/heat-alert" \
+   curl -sS -X POST "$BASE_URL/api/webhooks/heat" \
      -H "Content-Type: application/json" \
      -H "X-Webhook-Token: $WEBHOOK_SHARED_TOKEN" \
-     -d '{"alertID":"111","deviceid":"S1IAD1869","notification_type":"HEAT"}'
+     -d '{"alertID":"111","deviceid":"S1IAD1869","notification_type":"heat"}'
    ```
 6. Verify a row exists in `heat_alert_webhook_events`, then confirm old rows disappear after retention.
 

@@ -10,7 +10,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.auth.webhook_token import require_webhook_token
 from app.core.webhook_db import get_webhook_session, webhook_db_configured
-from app.models.heat_alert import HeatAlertWebhookRequest, HeatAlertWebhookResponse
+from app.models.heat_alert import (
+    HeatAlertWebhookRequest,
+    HeatAlertWebhookResponse,
+    NotificationType,
+)
 from app.models.webhook import HeatAlertWebhookEvent
 from helpers.utils import get_logger
 
@@ -46,18 +50,38 @@ def _parse_epoch_seconds(value: str | None) -> Optional[int]:
         return None
 
 
+def _path_notification_type(value: str) -> NotificationType:
+    """Map a URL segment to a known notification type (case-insensitive)."""
+    try:
+        return NotificationType(value.strip().lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown notification type: {value}",
+        ) from None
+
+
 @router.post(
-    "/heat-alert",
+    "/{notification_type}",
     response_model=HeatAlertWebhookResponse,
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(require_webhook_token)],
 )
-async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebhookResponse:
-    """Accept a partner heat-alert webhook payload.
+async def receive_partner_webhook(
+    notification_type: str,
+    payload: HeatAlertWebhookRequest,
+) -> HeatAlertWebhookResponse:
+    """Accept a partner webhook for one notification type.
 
-    Validates the partner contract, persists to the webhook Postgres database,
-    and returns a 202 acknowledgement.
+    The path segment is the notification kind (``/webhooks/heat``). The body
+    field ``notification_type`` is required and must name the same kind.
     """
+    path_type = _path_notification_type(notification_type)
+    if payload.notification_type != path_type:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="notification_type does not match the URL path",
+        )
     if not webhook_db_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
