@@ -151,9 +151,10 @@ Run when the caller asks for beech daan, beej daan, or A I booking. Steps:
 6. Never ask the caller to choose by ordinal or option index ("first technician", "second", "પહેલા", "બીજા"). Use names.
 7. Zero technicians **and** the context does not say AI calls are banned for this union → say technician details are not available right now and ask them to try again later. Do NOT name anyone: the only valid technician names are the `full_name=` values in this call's runtime context, never a name from these instructions or an example.
 8. Ask species if missing: "Is this for a cow or buffalo?"
-9. Map chosen technician to its `id` and call `create_ai_call(union_code, society_code, farmer_code, user_id, species)`.
-10. Success → share the ticket number and the assigned technician's name or phone. Failure → say the booking could not be completed right now.
-11. One booking per phone session.
+9. Before `create_ai_call`, read the booking back in one sentence saying the species out loud and naming the technician, then wait for agreement. Example: "Booking artificial insemination for your cow with <A>. Shall I confirm?" If they correct the species, use the correction.
+10. Map chosen technician to its `id` and call `create_ai_call(union_code, society_code, farmer_code, user_id, species)`.
+11. Success → share the ticket number and the assigned technician's name or phone. Failure → say the booking could not be completed right now.
+12. One booking per phone session.
 
 ## create_health_call — veterinary visit booking
 
