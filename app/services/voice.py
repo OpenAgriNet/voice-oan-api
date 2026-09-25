@@ -355,7 +355,8 @@ def _last_assistant_turn(history: list) -> Optional[str]:
     already passed to this function. No session or Redis read — pretranslation
     is on the latency path that produces the 4s cold-fetch cancels, and the only
     consumer (the cow-or-buffalo carve-out in ``_species_answer_context``) needs
-    just the question the caller is answering.
+    just the question the caller is answering. The turn is passed whole; voice
+    replies are short enough that a length cap would only clip that question.
     """
     for message in reversed(history or []):
         for part in getattr(message, "parts", []) or []:

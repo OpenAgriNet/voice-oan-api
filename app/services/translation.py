@@ -1290,12 +1290,6 @@ def _apply_exact_glossary_transliteration_replacements(source_text: str, transla
     return cleaned
 
 
-# Cap on the single previous assistant turn handed to pretranslation. This stage
-# is per-utterance by design and sits inside the latency budget that produces the
-# 4s cold-fetch cancels, so we pass one turn, truncated — never a transcript, and
-# never anything that requires a session/Redis read on this path.
-_PRETRANSLATION_PREV_TURN_MAX_CHARS = 300
-
 # The species carve-out below is scoped to the turn that actually asked which
 # species, so the conservative rules stay fully in force everywhere else.
 _SPECIES_QUESTION_RE = re.compile(r"cow\s+or\s+(a\s+)?buffalo|buffalo\s+or\s+(a\s+)?cow", re.IGNORECASE)
@@ -1314,7 +1308,10 @@ def _species_answer_context(prev_assistant_turn: Optional[str]) -> str:
     """
     if not prev_assistant_turn or not _SPECIES_QUESTION_RE.search(prev_assistant_turn):
         return ""
-    prev = prev_assistant_turn.strip()[:_PRETRANSLATION_PREV_TURN_MAX_CHARS]
+    # Passed whole, not truncated. Voice replies are bounded by TTS: across 10,268
+    # prod assistant turns the longest was 589 characters (p50 140, p99 425), so a
+    # cap would only ever have clipped the question the rule below refers to.
+    prev = prev_assistant_turn.strip()
     return (
         "\nConversation context — the assistant's previous turn was:\n"
         f'"{prev}"\n'

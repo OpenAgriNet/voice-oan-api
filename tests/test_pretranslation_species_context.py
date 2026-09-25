@@ -12,7 +12,6 @@ from app.services.translation import (
     _build_openai_pretranslation_messages,
     _build_structured_pretranslation_prompt,
     _species_answer_context,
-    _PRETRANSLATION_PREV_TURN_MAX_CHARS,
 )
 
 SPECIES_Q = "Is this for a cow or a buffalo?"
@@ -49,11 +48,18 @@ def test_general_conservative_rules_survive_the_carve_out():
     assert "still say 'unclear animal'" in system
 
 
-def test_prev_turn_is_truncated_not_passed_whole():
-    long_turn = SPECIES_Q + " " + ("x" * 5_000)
-    block = _species_answer_context(long_turn)
-    quoted = block.split('"')[1]
-    assert len(quoted) == _PRETRANSLATION_PREV_TURN_MAX_CHARS
+def test_quoted_turn_always_contains_the_question_the_rule_refers_to():
+    """The turn is passed whole, so the quote can never lose the species question.
+
+    An earlier cut gated on the full turn but quoted a 300-char prefix, which for
+    a long turn handed the model a rule about a question it could no longer see.
+    Prod assistant turns top out at 589 chars, so there is nothing to cap.
+    """
+    long_turn = ("The technician will visit tomorrow morning. " * 20) + SPECIES_Q
+    assert len(long_turn) > 600
+    quoted = _species_answer_context(long_turn).split('"')[1]
+    assert quoted == long_turn
+    assert SPECIES_Q in quoted
 
 
 def test_structured_fallback_gets_the_same_carve_out():
