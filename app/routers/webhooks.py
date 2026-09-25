@@ -47,7 +47,7 @@ def _parse_epoch_seconds(value: str | None) -> Optional[int]:
 
 
 @router.post(
-    "/heat-alert",
+    "/alerts",
     response_model=HeatAlertWebhookResponse,
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(require_webhook_token)],
