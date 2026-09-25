@@ -1,21 +1,29 @@
 """Voice traces must match telemetry/contracts/<schema version>.json.
 
 Adding a key or an outcome only needs the contract file updated. Renaming or
-removing a key needs a new schema version, because readers of older traces
-depend on it.
+removing a key, a key inside a metadata block, a trace field or the root name
+needs a new schema version, because readers of older traces depend on it.
 """
 
 import ast
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
-from app.services import voice_trace
+import langfuse
+
+from app.config import settings
 from app.services.telemetry_stamps import VOICE_TELEMETRY_SCHEMA_VERSION
 from app.services.voice_trace import VoiceTrace
 
 REPO = Path(__file__).resolve().parents[1]
 CONTRACT = REPO / "telemetry" / "contracts" / f"{VOICE_TELEMETRY_SCHEMA_VERSION}.json"
 CONTRACT_NAME = f"telemetry/contracts/{VOICE_TELEMETRY_SCHEMA_VERSION}.json"
+BUMP_THE_VERSION = (
+    f"Readers of {VOICE_TELEMETRY_SCHEMA_VERSION} traces depend on it: bump VOICE_TELEMETRY_SCHEMA_VERSION in "
+    "app/services/telemetry_stamps.py, add a contract file for the new version, and add it to "
+    "telemetry/mappings/voice.yaml in amul-oan-api."
+)
 
 
 def _contract():
@@ -61,9 +69,33 @@ def _keys_written_in_app():
     return keys
 
 
-def _keys_sent_by_a_finished_turn(monkeypatch):
-    sent = {}
-    monkeypatch.setattr(voice_trace, "_safe_update", lambda observation, **kwargs: sent.update(kwargs))
+class _FakeLangfuse:
+    """Records what VoiceTrace hands to Langfuse for the root of one turn."""
+
+    def __init__(self):
+        self.sent = {}
+
+    @contextmanager
+    def start_as_current_observation(self, **kwargs):
+        self.sent.setdefault("open", kwargs)
+        yield self
+
+    @contextmanager
+    def propagate_attributes(self, **kwargs):
+        self.sent["propagate"] = kwargs
+        yield
+
+    def update(self, **kwargs):
+        self.sent["update"] = kwargs
+
+    def end(self):
+        pass
+
+
+def _send_a_turn(monkeypatch):
+    client = _FakeLangfuse()
+    monkeypatch.setattr(langfuse, "propagate_attributes", client.propagate_attributes)
+    monkeypatch.setattr(settings, "voice_trace_text_mode", "preview_hash")
     trace = VoiceTrace(
         session_id="session-redacted",
         user_id="<redacted-user-id>",
@@ -72,14 +104,20 @@ def _keys_sent_by_a_finished_turn(monkeypatch):
         query="<redacted question>",
         enabled=False,
     )
-    trace.set_route("agent")
-    trace.record_emit("<redacted answer>")
-    trace.finish(error=RuntimeError("<redacted>"))
-    return set(sent["metadata"])
+    trace.enabled, trace.langfuse_client = True, client
+    with trace.request_context():
+        trace.set_route("agent")
+        trace.set_moderation(None)
+        trace.set_pretranslation(text="<redacted question>", provider="<redacted-provider>", fallback_used=False)
+        trace.set_farmer_context()
+        trace.set_agent(signed_in=True, output="<redacted answer>")
+        trace.record_emit("<redacted answer>")
+        trace.finish(error=RuntimeError("<redacted>"))
+    return client.sent
 
 
 def _emitted_keys(monkeypatch):
-    return _keys_sent_by_a_finished_turn(monkeypatch) | _keys_written_in_app()
+    return set(_send_a_turn(monkeypatch)["update"]["metadata"]) | _keys_written_in_app()
 
 
 def _outcomes_in_app():
@@ -100,12 +138,42 @@ def test_contract_matches_the_stamped_schema_version():
 def test_no_contract_key_was_renamed_or_removed(monkeypatch):
     missing = set(_contract()["metadata_keys"]) - _emitted_keys(monkeypatch)
 
-    assert not missing, (
-        f"Voice traces no longer send {sorted(missing)}. Renaming or removing a key breaks readers of "
-        f"{VOICE_TELEMETRY_SCHEMA_VERSION} traces: bump VOICE_TELEMETRY_SCHEMA_VERSION in "
-        "app/services/telemetry_stamps.py, add a contract file for the new version, and add it to "
-        "telemetry/mappings/voice.yaml in amul-oan-api."
+    assert not missing, f"Voice traces no longer send {sorted(missing)}. {BUMP_THE_VERSION}"
+
+
+def test_turns_are_still_sent_on_the_contract_root(monkeypatch):
+    sent = _send_a_turn(monkeypatch)
+    root = _contract()["root"]
+    names = {sent["open"]["name"], sent["propagate"]["trace_name"]}
+
+    assert names == {root}, (
+        f"Voice turns are now sent as {sorted(names)}, not {root!r}. Readers find turns by this name. "
+        f"{BUMP_THE_VERSION} Set the new root there too."
     )
+
+
+def test_no_trace_field_was_dropped(monkeypatch):
+    sent = _send_a_turn(monkeypatch)
+    fields = {
+        "input": sent["open"].get("input"),
+        "output": sent["update"].get("output"),
+        "session_id": sent["propagate"].get("session_id"),
+        "user_id": sent["propagate"].get("user_id"),
+    }
+    missing = [field for field in _contract()["trace_fields"] if not fields.get(field)]
+
+    assert not missing, f"Voice traces no longer send the trace fields {missing}. {BUMP_THE_VERSION}"
+
+
+def test_no_key_inside_a_block_was_renamed_or_removed(monkeypatch):
+    metadata = _send_a_turn(monkeypatch)["update"]["metadata"]
+    changed = {}
+    for block, keys in _contract()["nested_keys"].items():
+        sent = set(metadata[block]) if isinstance(metadata.get(block), dict) else set()
+        if missing := set(keys) - sent:
+            changed[block] = sorted(missing)
+
+    assert not changed, f"Voice traces no longer send these keys inside metadata blocks: {changed}. {BUMP_THE_VERSION}"
 
 
 def test_new_keys_are_listed_in_the_contract(monkeypatch):

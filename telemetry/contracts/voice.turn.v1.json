@@ -1,6 +1,13 @@
 {
   "schema_version": "voice.turn.v1",
-  "note": "Metadata keys and outcomes a voice turn sends to Langfuse. pipeline_flags and pc_<step> come from llm_core compact_metadata and are not listed here.",
+  "note": "What a voice turn sends to Langfuse: root name, trace fields, metadata keys, keys inside metadata blocks, and outcomes. pipeline_flags and pc_<step> come from llm_core compact_metadata and are not listed here.",
+  "root": "agent_journey",
+  "trace_fields": [
+    "input",
+    "output",
+    "session_id",
+    "user_id"
+  ],
   "metadata_keys": [
     "agent",
     "amul.schema_version",
@@ -34,6 +41,51 @@
     "trace_id",
     "user_id_hash"
   ],
+  "nested_keys": {
+    "agent": [
+      "new_message_count",
+      "output_chars",
+      "signed_in",
+      "tool_call_count"
+    ],
+    "error": [
+      "message",
+      "type"
+    ],
+    "farmer_context": [
+      "farmer_info_chars",
+      "source",
+      "stale",
+      "technician_info_chars",
+      "unions"
+    ],
+    "moderation": [
+      "actual_model",
+      "actual_provider",
+      "actual_tier",
+      "attempts",
+      "available",
+      "fallback_used",
+      "requested_model",
+      "requested_provider",
+      "requested_tier"
+    ],
+    "pretranslation": [
+      "fallback_used",
+      "provider",
+      "text"
+    ],
+    "query": [
+      "chars",
+      "preview",
+      "sha256"
+    ],
+    "response": [
+      "chars",
+      "preview",
+      "sha256"
+    ]
+  },
   "outcomes": [
     "client_disconnected",
     "error",
