@@ -15,6 +15,9 @@ checks the code against it.
   `telemetry/mappings/voice.yaml` in amul-oan-api. It can extend the old version
   and list only what moved.
 
+The amul-oan-api side has to be merged first: `tests/test_voice_telemetry_readers.py`
+checks its main branch for the outcome buckets and the mapping.
+
 Every turn is also stamped with `service` and `release`. `release` is the git
 commit of the running code: the checkout's HEAD when the repo is mounted, or
 `GIT_SHA` passed to `docker build` (`--build-arg GIT_SHA=$(git rev-parse HEAD)`).
