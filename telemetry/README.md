@@ -15,5 +15,10 @@ checks the code against it.
   `telemetry/mappings/voice.yaml` in amul-oan-api. It can extend the old version
   and list only what moved.
 
+Every turn is also stamped with `service` and `release`. `release` is the git
+commit of the running code: the checkout's HEAD when the repo is mounted, or
+`GIT_SHA` passed to `docker build` (`--build-arg GIT_SHA=$(git rev-parse HEAD)`).
+With neither, it reads `unknown`.
+
 Step by step, with every file to edit: `docs/TELEMETRY_CHANGES.md` in amul-oan-api.
 Full rules: `docs/TELEMETRY_STANDARD.md` there too.
