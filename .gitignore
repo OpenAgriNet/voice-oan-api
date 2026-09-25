@@ -210,3 +210,6 @@ jwt_public_key.pem
 jwt_private_key.pem
 *.pem
 *.key
+
+# Local prompt backups
+assets/prompts/backup_before_pmkisan_status/

@@ -7,6 +7,7 @@ class FarmerContext(BaseModel):
     Args:
         query (str): The user's question.
         session_id (str): The session ID for the conversation.
+        question_id (str): The voice question ID (qid) for this turn.
         user_id (str): The user ID for the conversation.
         language_code (str): Internal language selected from X-Language.
 
@@ -18,6 +19,10 @@ class FarmerContext(BaseModel):
     """
     query: str = Field(description="The user's question.")
     session_id: str = Field(description="The session ID for the conversation.")
+    question_id: str = Field(
+        default="",
+        description="Voice question ID (qid) for this turn, for telemetry correlation.",
+    )
     user_id: str = Field(description="The user ID for the conversation.")
     language_code: str = Field(
         description="Language selected from the validated X-Language header."

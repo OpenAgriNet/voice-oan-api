@@ -107,14 +107,15 @@ async def stream_voice_message(
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages using run_stream_events()."""
     response_language = iso_language_code(language_code)
+    voice_qid = generate_voice_question_id()
     deps = FarmerContext(
         query=query,
         session_id=session_id,
+        question_id=voice_qid,
         user_id=user_id,
         language_code=language_code,
     )
     user_message = deps.get_user_message()
-    voice_qid = generate_voice_question_id()
     logger.info(
         "Running agent (language=%s, voice_qid=%s)", response_language, voice_qid
     )
