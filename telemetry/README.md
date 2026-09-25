@@ -12,4 +12,5 @@ checks the code against it.
   contract file for it, and add the version to `telemetry/mappings/voice.yaml`
   in amul-oan-api. It can extend the old version and list only what moved.
 
-Full rules: `docs/TELEMETRY_STANDARD.md` in amul-oan-api.
+Step by step, with every file to edit: `docs/TELEMETRY_CHANGES.md` in amul-oan-api.
+Full rules: `docs/TELEMETRY_STANDARD.md` there too.
