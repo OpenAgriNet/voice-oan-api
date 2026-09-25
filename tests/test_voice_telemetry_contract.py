@@ -22,7 +22,7 @@ CONTRACT_NAME = f"telemetry/contracts/{VOICE_TELEMETRY_SCHEMA_VERSION}.json"
 BUMP_THE_VERSION = (
     f"Readers of {VOICE_TELEMETRY_SCHEMA_VERSION} traces depend on it: bump VOICE_TELEMETRY_SCHEMA_VERSION in "
     "app/services/telemetry_stamps.py, add a contract file for the new version, and add it to "
-    "telemetry/mappings/voice.yaml in amul-telemetry."
+    "telemetry/mappings/voice.yaml in amul-oan-api."
 )
 
 
@@ -196,7 +196,7 @@ def test_outcomes_match_the_contract():
 
     assert found <= listed, (
         f"New outcomes {sorted(found - listed)}. Add them to {CONTRACT_NAME} and to voice_outcome_vocabulary "
-        "in telemetry/eras.yaml (amul-telemetry), or the adapters will count them as unclassified."
+        "in telemetry/eras.yaml (amul-oan-api), or the adapters will count them as unclassified."
     )
     assert listed <= found, (
         f"Outcomes no longer emitted: {sorted(listed - found)}. Remove them from {CONTRACT_NAME} and note "
