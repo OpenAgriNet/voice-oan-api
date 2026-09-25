@@ -8,23 +8,32 @@ from pydantic import BaseModel, Field, field_validator
 # Partner records prefix the technician's name with an internal society/route
 # number — "1712 NARENDRAKUMAR-NARAYANDAS-PANDOR". The caller has no use for it
 # and TTS reads it aloud, sometimes as a time of day ("seventeen thirty
-# Sanjaykumar..."), so it is stripped everywhere a name reaches the model or the
-# caller. Measured over 54,014 technician options presented on prod (21-24 Sep):
-# 20.8% carry the prefix, no name has digits anywhere else, and none is digits
-# only — so an anchored leading-number strip cannot damage a real name.
-_AIT_NAME_CODE_PREFIX_RE = re.compile(r"^\s*\d+\s*[-\s]\s*")
+# Sanjaykumar..."), so every digit is dropped before a name reaches the model or
+# the caller.
+#
+# Dropping all digits rather than only a leading run is deliberate. Across 5,263
+# distinct technician names seen on prod over 30 days, 433 carry a leading code
+# and exactly one holds a digit anywhere else — "S0MJIBHAI-HEMTABHAI-CHAUDHARY",
+# which is SOMJIBHAI with the letter O mistyped as a zero. There is no such thing
+# as a legitimate digit in these names, so nothing here can be lost, and the rule
+# survives a code that arrives in a position we have not seen.
+_AIT_NAME_DIGITS_RE = re.compile(r"\d+")
+_AIT_NAME_EDGE_SEPARATORS_RE = re.compile(r"^[\s\-]+|[\s\-]+$")
+_AIT_NAME_INNER_SPACE_RE = re.compile(r"\s{2,}")
 
 
-def strip_ait_name_code_prefix(value: str | None) -> str | None:
-    """Drop a leading internal number from a technician name.
+def strip_ait_name_codes(value: str | None) -> str | None:
+    """Drop internal numbers from a technician name and tidy what they leave.
 
     Returns the original when stripping would leave nothing, so a record that is
     somehow all digits still identifies someone rather than becoming blank.
     """
     if not value:
         return value
-    stripped = _AIT_NAME_CODE_PREFIX_RE.sub("", value, count=1).strip()
-    return stripped or value
+    cleaned = _AIT_NAME_DIGITS_RE.sub("", value)
+    cleaned = _AIT_NAME_EDGE_SEPARATORS_RE.sub("", cleaned)
+    cleaned = _AIT_NAME_INNER_SPACE_RE.sub(" ", cleaned).strip()
+    return cleaned or value
 
 
 class AISpecies(str, Enum):
@@ -84,5 +93,5 @@ class AICallResponseModel(BaseModel):
             # "<phone>(<name>)" — the code rides on the name inside the parens,
             # and the leading digits are the phone, which must survive.
             phone_part, rest = normalized.split("(", 1)
-            return f"{phone_part}({strip_ait_name_code_prefix(rest)}"
-        return strip_ait_name_code_prefix(normalized)
+            return f"{phone_part}({strip_ait_name_codes(rest)}"
+        return strip_ait_name_codes(normalized)

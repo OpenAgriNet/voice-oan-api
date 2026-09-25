@@ -2,12 +2,13 @@
 
 Partner records ship names like "1712 NARENDRAKUMAR-NARAYANDAS-PANDOR". TTS
 reads the number aloud — one dev replay spoke "1730 Sanjaykumar" as a time of
-day ("સવારે પાંચ: ત્રણશૂન્ય વાગ્યે"). Measured on prod: 20.8% of technician
-options carry the prefix, no name has digits anywhere else, none is digits only.
+day ("સવારે પાંચ: ત્રણશૂન્ય વાગ્યે"). Every digit is dropped, not just a leading
+run: across 5,263 distinct names on prod over 30 days, 433 carry a leading code
+and exactly one holds a digit elsewhere, and that one is a mistyped letter.
 """
 import pytest
 
-from agents.models.ai_call import AICallResponseModel, strip_ait_name_code_prefix
+from agents.models.ai_call import AICallResponseModel, strip_ait_name_codes
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 from app.services.voice import _build_ai_technician_summary
 
@@ -18,31 +19,49 @@ from app.services.voice import _build_ai_technician_summary
     ("918 MITULKUMAR-RAMESHBHAI-PATEL", "MITULKUMAR-RAMESHBHAI-PATEL"),
     ("1730-Sanjaykumar Laxmanbhai Vanjara", "Sanjaykumar Laxmanbhai Vanjara"),
     ("  204   TUSHARKUMAR-HASMUKHBHAI  ", "TUSHARKUMAR-HASMUKHBHAI"),
+    ("204  HASMUKHBHAI  VIRSANGBHAI", "HASMUKHBHAI VIRSANGBHAI"),
 ])
 def test_prefix_is_stripped(raw, expected):
-    assert strip_ait_name_code_prefix(raw) == expected
+    assert strip_ait_name_codes(raw) == expected
 
 
 @pytest.mark.parametrize("raw", [
-    "SANJAYKUMAR-CHIMANBHAI-PATEL",      # no prefix at all
+    "SANJAYKUMAR-CHIMANBHAI-PATEL",
     "DINESHJI-RAMESHJI-PARMAR",
-    "K2-RAMESHBHAI-PATEL",               # digits not leading — left alone
+    "Sanjaykumar Laxmanbhai Vanjara",
 ])
 def test_real_names_are_untouched(raw):
-    assert strip_ait_name_code_prefix(raw) == raw
+    assert strip_ait_name_codes(raw) == raw
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("NARENDRAKUMAR-PANDOR-1712", "NARENDRAKUMAR-PANDOR"),   # trailing code
+    ("1712-NARENDRAKUMAR-99", "NARENDRAKUMAR"),              # both ends
+    ("204 TUSHARKUMAR 809", "TUSHARKUMAR"),
+])
+def test_codes_are_dropped_wherever_they_sit(raw, expected):
+    """Not anchored to the start — a code in an unseen position still goes."""
+    assert strip_ait_name_codes(raw) == expected
+
+
+def test_a_digit_mistyped_for_a_letter_is_dropped_not_spoken():
+    """"S0MJIBHAI" is SOMJIBHAI with a zero for the letter O — the one name in
+    5,263 with a digit outside a code. Dropping it reads better than letting TTS
+    say "S zero M"; correcting 0 -> O is not attempted on a single record."""
+    assert strip_ait_name_codes("S0MJIBHAI-HEMTABHAI-CHAUDHARY") == "SMJIBHAI-HEMTABHAI-CHAUDHARY"
 
 
 @pytest.mark.parametrize("raw", ["", None])
 def test_empty_passes_through(raw):
-    assert strip_ait_name_code_prefix(raw) == raw
+    assert strip_ait_name_codes(raw) == raw
 
 
 def test_all_digits_keeps_the_original_rather_than_blanking():
     """A degenerate record must still identify someone, not vanish."""
-    assert strip_ait_name_code_prefix("1712") == "1712"
+    assert strip_ait_name_codes("1712") == "1712"
     # The guard returns the input untouched — trailing space and all — rather
     # than a blank that would identify nobody.
-    assert strip_ait_name_code_prefix("1712 ") == "1712 "
+    assert strip_ait_name_codes("1712 ") == "1712 "
 
 
 def test_booking_response_name_is_cleaned_too():
@@ -107,3 +126,22 @@ def test_two_technicians_differing_only_by_code_stay_distinguishable():
     assert "full_name=HASMUKHBHAI-VIRSANGBHAI-PATEL" in summary
     assert "full_name=VISHNUBHAI-KANTIBHAI-PATEL" in summary
     assert "204" not in summary and "809" not in summary
+
+
+def test_two_technicians_whose_names_differ_only_by_code_collapse():
+    """A real consequence, recorded rather than hidden.
+
+    Over 30 days of prod, exactly one pair collides this way — "1998
+    KAMLESHKUMAR-KANTIBHAI-PATEL" and "1722 KAMLESHKUMAR-KANTIBHAI-PATEL" — and
+    they sit in different societies, so no caller was ever offered both (0 of
+    2,871 prompts naming either). Were it to happen, the two stay separate
+    options with distinct mobile numbers, which is the disambiguator the booking
+    prompt already reaches for on similar names.
+    """
+    summary = _summary_with(
+        "1998 KAMLESHKUMAR-KANTIBHAI-PATEL", "1722 KAMLESHKUMAR-KANTIBHAI-PATEL"
+    )
+    assert summary.count("full_name=KAMLESHKUMAR-KANTIBHAI-PATEL") == 2
+    assert "mobile_number=9876543200" in summary
+    assert "mobile_number=9876543201" in summary
+    assert "1998" not in summary and "1722" not in summary
