@@ -103,7 +103,8 @@ def test_no_contract_key_was_renamed_or_removed(monkeypatch):
     assert not missing, (
         f"Voice traces no longer send {sorted(missing)}. Renaming or removing a key breaks readers of "
         f"{VOICE_TELEMETRY_SCHEMA_VERSION} traces: bump VOICE_TELEMETRY_SCHEMA_VERSION in "
-        "app/services/telemetry_stamps.py and add a contract file for the new version."
+        "app/services/telemetry_stamps.py, add a contract file for the new version, and add it to "
+        "telemetry/mappings/voice.yaml in amul-oan-api."
     )
 
 

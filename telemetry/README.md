@@ -9,6 +9,7 @@ checks the code against it.
 - Added an outcome: list it in the contract, and add it to `voice_outcome_vocabulary`
   in `telemetry/eras.yaml` in amul-oan-api.
 - Renamed or removed a key, or changed what one means: bump the version, add a
-  contract file for it, and update the voice adapter in amul-oan-api.
+  contract file for it, and add the version to `telemetry/mappings/voice.yaml`
+  in amul-oan-api. It can extend the old version and list only what moved.
 
 Full rules: `docs/TELEMETRY_STANDARD.md` in amul-oan-api.
