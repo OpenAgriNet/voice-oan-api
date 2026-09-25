@@ -348,6 +348,24 @@ TRANSLATION_TROUBLE_MESSAGE = {
 }
 
 
+def _last_assistant_turn(history: list) -> Optional[str]:
+    """The most recent assistant text in history, or None.
+
+    Deliberately narrow: one turn, read straight off the in-memory ``history``
+    already passed to this function. No session or Redis read — pretranslation
+    is on the latency path that produces the 4s cold-fetch cancels, and the only
+    consumer (the cow-or-buffalo carve-out in ``_species_answer_context``) needs
+    just the question the caller is answering.
+    """
+    for message in reversed(history or []):
+        for part in getattr(message, "parts", []) or []:
+            if getattr(part, "part_kind", "") == "text":
+                text = (getattr(part, "content", "") or "").strip()
+                if text:
+                    return text
+    return None
+
+
 def _has_meaningful_history(history: list) -> bool:
     """Return True when the session already contains non-trivial conversation."""
     for msg in reversed(history or []):
@@ -1854,6 +1872,8 @@ async def stream_voice_message(
                     _pretrans_model,
                     pipeline_profile,
                 )
+                # One turn of context for pretranslation — see _last_assistant_turn.
+                _prev_assistant_turn = _last_assistant_turn(history)
                 if await _request_is_stale("before_query_pretranslation"):
                     moderation_task.cancel()
                     non_meaningful_task.cancel()
@@ -1883,6 +1903,7 @@ async def stream_voice_message(
                                         user_id=user_id,
                                         process_id=process_id or "",
                                         pipeline_profile=pipeline_profile,
+                                        prev_assistant_turn=_prev_assistant_turn,
                                     )
                                 else:
                                     translated = await translate_to_english_with_gpt5_mini(
@@ -1892,6 +1913,7 @@ async def stream_voice_message(
                                         user_id=user_id,
                                         process_id=process_id or "",
                                         pipeline_profile=pipeline_profile,
+                                        prev_assistant_turn=_prev_assistant_turn,
                                     )
                             except Exception as _attempt_exc:
                                 attempt_info["status"] = "error"
@@ -1994,6 +2016,7 @@ async def stream_voice_message(
                                     user_id=user_id,
                                     process_id=process_id or "",
                                     pipeline_profile=pipeline_profile,
+                                    prev_assistant_turn=_prev_assistant_turn,
                                 )
                             else:
                                 processing_query = await translate_to_english_with_gpt5_mini(
@@ -2003,6 +2026,7 @@ async def stream_voice_message(
                                     user_id=user_id,
                                     process_id=process_id or "",
                                     pipeline_profile=pipeline_profile,
+                                    prev_assistant_turn=_prev_assistant_turn,
                                 )
                         _legacy_primary_attempt["status"] = "ok"
                         _pretranslation_actual_tier = _pretrans_requested_tier
@@ -2050,6 +2074,7 @@ async def stream_voice_message(
                                 processing_query = await translate_to_english_with_structured_fallback(
                                     text=query,
                                     source_lang=requested_source_lang,
+                                    prev_assistant_turn=_prev_assistant_turn,
                                 )
                             _legacy_fallback_attempt["status"] = "ok"
                             _pretranslation_actual_tier = "translategemma"

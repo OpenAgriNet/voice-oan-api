@@ -1290,7 +1290,50 @@ def _apply_exact_glossary_transliteration_replacements(source_text: str, transla
     return cleaned
 
 
-def _build_openai_pretranslation_messages(source_name: str, source_code: str, text: str) -> list[dict[str, str]]:
+# Cap on the single previous assistant turn handed to pretranslation. This stage
+# is per-utterance by design and sits inside the latency budget that produces the
+# 4s cold-fetch cancels, so we pass one turn, truncated — never a transcript, and
+# never anything that requires a session/Redis read on this path.
+_PRETRANSLATION_PREV_TURN_MAX_CHARS = 300
+
+# The species carve-out below is scoped to the turn that actually asked which
+# species, so the conservative rules stay fully in force everywhere else.
+_SPECIES_QUESTION_RE = re.compile(r"cow\s+or\s+(a\s+)?buffalo|buffalo\s+or\s+(a\s+)?cow", re.IGNORECASE)
+
+
+def _species_answer_context(prev_assistant_turn: Optional[str]) -> str:
+    """Extra prompt block for the turn that answers 'cow or buffalo?'.
+
+    ASR reliably mangles the one-word species answer: ગાય comes back as ગેસ/ગસ/
+    ગ્યાસ/કેસ and ભેંસ as બસ/બેસ/મેસ/પસ/દેસ. In isolation those are genuinely
+    ambiguous, which is why the blanket "do not infer animal species" rule exists.
+    Immediately after the assistant asked which species, they are not ambiguous,
+    and translating them literally ("for gas", "for mess", "for the bus") strands
+    the caller in a re-ask loop. Measured on 525 real answer turns: 46.1% -> 79.6%
+    yielded a usable species, 0 regressions. See issue #306.
+    """
+    if not prev_assistant_turn or not _SPECIES_QUESTION_RE.search(prev_assistant_turn):
+        return ""
+    prev = prev_assistant_turn.strip()[:_PRETRANSLATION_PREV_TURN_MAX_CHARS]
+    return (
+        "\nConversation context — the assistant's previous turn was:\n"
+        f'"{prev}"\n'
+        "The message you are translating is the farmer's ANSWER to that question.\n"
+        "Context rule: because the assistant just asked which species, a garbled token in "
+        "the answer slot that plausibly sounds like ગાય (cow) or ભેંસ (buffalo) should be "
+        "translated as that species, even though it would be ambiguous in isolation. "
+        "Common ASR corruptions: ગેસ/ગસ/ગ્યાસ/કેસ/ગાડી -> cow; બસ/બેસ/મેસ/બેંસ/પસ/દેસ -> buffalo. "
+        "This narrows the general 'do not infer animal species' rule for THIS turn only; "
+        "if the answer plausibly matches neither, still say 'unclear animal'.\n"
+    )
+
+
+def _build_openai_pretranslation_messages(
+    source_name: str,
+    source_code: str,
+    text: str,
+    prev_assistant_turn: Optional[str] = None,
+) -> list[dict[str, str]]:
     # -- Domain context ------------------------------------------------
     domain_preamble = (
         "You are translating messages from Indian dairy farmers calling the Amul AI helpline (voiced as 'Sarlaben' / સરલાબેન). "
@@ -1305,6 +1348,8 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
         "- Prefer veterinary/agricultural meanings only when the term is clear in the original transcript. If choosing the agricultural meaning requires guessing, preserve the uncertain token.\n"
         "- Do not infer animal species. If cow/buffalo/sheep/goat is unclear, write 'unclear animal' or keep the uncertain token.\n"
     )
+
+    domain_preamble += _species_answer_context(prev_assistant_turn)
 
     # -- Ambiguity hints from ambiguity_terms.json ---------------------
     # include_ask=False so "ask" type entries (clarifying-question rules
@@ -1340,9 +1385,16 @@ def _build_openai_pretranslation_messages(source_name: str, source_code: str, te
     ]
 
 
-def _build_structured_pretranslation_prompt(source_name: str, source_code: str, text: str) -> str:
+def _build_structured_pretranslation_prompt(
+    source_name: str,
+    source_code: str,
+    text: str,
+    prev_assistant_turn: Optional[str] = None,
+) -> str:
     """Build the structured translation prompt for non-OpenAI fallback models."""
-    messages = _build_openai_pretranslation_messages(source_name, source_code, text)
+    messages = _build_openai_pretranslation_messages(
+        source_name, source_code, text, prev_assistant_turn
+    )
     system_content = messages[0]["content"]
     user_content = messages[1]["content"]
     return (
@@ -1362,6 +1414,7 @@ async def _create_pretranslation_response(
     source_code: str,
     text: str,
     max_tokens: int,
+    prev_assistant_turn: Optional[str] = None,
 ):
     """Single OpenAI-compatible pretranslation call, parametrized by (client, model).
 
@@ -1370,7 +1423,9 @@ async def _create_pretranslation_response(
     return await asyncio.wait_for(
         client.chat.completions.create(
             model=model,
-            messages=_build_openai_pretranslation_messages(source_name, source_code, text),
+            messages=_build_openai_pretranslation_messages(
+                source_name, source_code, text, prev_assistant_turn
+            ),
             max_completion_tokens=max_tokens,
             response_format={"type": "json_object"},
         ),
@@ -1435,6 +1490,7 @@ async def translate_to_english_with_structured_fallback(
     source_lang: str,
     *,
     max_tokens: int = 1024,
+    prev_assistant_turn: Optional[str] = None,
 ) -> str:
     """Fallback pretranslation with the same structured contract as the OpenAI path.
 
@@ -1448,7 +1504,9 @@ async def translate_to_english_with_structured_fallback(
 
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
-    prompt = _build_structured_pretranslation_prompt(source_name, source_code, text)
+    prompt = _build_structured_pretranslation_prompt(
+        source_name, source_code, text, prev_assistant_turn
+    )
     # Voice pretranslation structured fallback still speaks TranslateGemma
     # /completions directly (not the post-translation chain). Uses the SINGULAR
     # LB endpoint/model — the client-side endpoint list + _resolve_model were removed.
@@ -1496,6 +1554,7 @@ async def _translate_to_english_pretranslation(
     translation_provider_label: str,
     extra_metadata: Optional[dict] = None,
     max_tokens: int = 1024,
+    prev_assistant_turn: Optional[str] = None,
 ) -> str:
     """Single parametrized pretranslation body — the collapse of the former
     ``translate_to_english_with_gpt5_mini`` / ``translate_to_english_with_oss_vllm``
@@ -1524,6 +1583,7 @@ async def _translate_to_english_pretranslation(
                 source_code=source_code,
                 text=text,
                 max_tokens=max_tokens,
+                prev_assistant_turn=prev_assistant_turn,
             )
             translated_text = _extract_translation_from_response(response)
             if not translated_text:
@@ -1556,6 +1616,7 @@ async def _translate_to_english_pretranslation(
                 source_code=source_code,
                 text=text,
                 max_tokens=max_tokens,
+                prev_assistant_turn=prev_assistant_turn,
             )
             translated_text = _extract_translation_from_response(response)
             if not translated_text:
@@ -1590,6 +1651,7 @@ async def translate_to_english_with_gpt5_mini(
     user_id: str = "",
     process_id: str = "",
     pipeline_profile: str = "",
+    prev_assistant_turn: Optional[str] = None,
 ) -> str:
     """Pretranslate to English via the managed OpenAI client (legacy sessions).
 
@@ -1605,6 +1667,7 @@ async def translate_to_english_with_gpt5_mini(
         label="OpenAI",
         translation_provider_label=PRETRANSLATION_PROVIDER,
         max_tokens=max_tokens,
+        prev_assistant_turn=prev_assistant_turn,
     )
 
 
@@ -1617,6 +1680,7 @@ async def translate_to_english_with_oss_vllm(
     user_id: str = "",
     process_id: str = "",
     pipeline_profile: str = "",
+    prev_assistant_turn: Optional[str] = None,
 ) -> str:
     """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
 
@@ -1633,6 +1697,7 @@ async def translate_to_english_with_oss_vllm(
         translation_provider_label="vllm",
         extra_metadata={"pipeline_profile": pipeline_profile or "oss"},
         max_tokens=max_tokens,
+        prev_assistant_turn=prev_assistant_turn,
     )
 
 
