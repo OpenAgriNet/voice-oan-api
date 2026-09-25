@@ -120,15 +120,21 @@ def _emitted_keys(monkeypatch):
     return set(_send_a_turn(monkeypatch)["update"]["metadata"]) | _keys_written_in_app()
 
 
-def _outcomes_in_app():
+def _outcomes_in(nodes):
+    """Strings passed as the outcome to set_outcome() or finish(), positionally or as outcome=."""
     outcomes = set()
-    for node in _app_nodes():
+    for node in nodes:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"set_outcome", "finish"}:
-            for arg in node.args:
+            values = list(node.args) + [keyword.value for keyword in node.keywords if keyword.arg == "outcome"]
+            for value in values:
                 outcomes.update(
-                    n.value for n in ast.walk(arg) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    n.value for n in ast.walk(value) if isinstance(n, ast.Constant) and isinstance(n.value, str)
                 )
     return outcomes
+
+
+def _outcomes_in_app():
+    return _outcomes_in(_app_nodes())
 
 
 def test_contract_matches_the_stamped_schema_version():
@@ -196,3 +202,13 @@ def test_outcomes_match_the_contract():
         f"Outcomes no longer emitted: {sorted(listed - found)}. Remove them from {CONTRACT_NAME} and note "
         "the change in telemetry/eras.yaml once it ships."
     )
+
+
+def test_outcomes_are_found_however_they_are_passed():
+    code = """
+trace.set_outcome("stale_request")
+trace.finish(outcome="hold_message")
+trace.finish(trace.outcome or "error", error=RuntimeError("not an outcome"))
+"""
+
+    assert _outcomes_in(ast.walk(ast.parse(code))) == {"stale_request", "hold_message", "error"}
