@@ -135,7 +135,7 @@ TOOLS = [
     ),
     Tool(
         get_mandi_prices,
-        takes_ctx=False,
+        takes_ctx=True,
         strict=False,
     ),
     Tool(
