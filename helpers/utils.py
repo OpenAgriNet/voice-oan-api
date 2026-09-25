@@ -2,7 +2,7 @@
 
 import os
 import re
-from typing import List, Dict
+from typing import Any, List, Dict
 import logging
 from dotenv import load_dotenv
 import tiktoken
@@ -155,6 +155,27 @@ def remove_redundant_angle_brackets(text: str) -> str:
     )
 
     return pattern.sub(lambda m: m.group('term'), text)
+
+
+def to_ascii_digits(value: Any) -> str:
+    """Convert any Unicode decimal digits (Devanagari, Bengali, Tamil, etc.) to ASCII 0-9.
+
+    `str.isdigit()` returns True for native-script digits too, so code that filters
+    with `c.isdigit()` alone silently lets them through unconverted. Use this before
+    any digit-only validation/filtering on farmer-provided IDs (OTP, phone, reg/application
+    numbers), since the LLM's own script-to-English conversion is a soft prompt instruction
+    and not guaranteed.
+    """
+    if value is None:
+        return ""
+    out_chars = []
+    for ch in str(value):
+        try:
+            out_chars.append(str(ud.digit(ch)))
+        except (TypeError, ValueError):
+            out_chars.append(ch)
+    return "".join(out_chars)
+
 
 def post_process_translation(translation: str) -> str:
     """Post process translation.
