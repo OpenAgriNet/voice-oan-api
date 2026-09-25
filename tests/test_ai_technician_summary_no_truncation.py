@@ -10,10 +10,22 @@ from app.services.voice import _build_ai_technician_summary, _dedupe_technicians
 from agents.models.farmer import FarmerDataEnvelope
 
 
+# Names are distinguished by letters, not digits: digits are stripped from
+# technician names before they reach the prompt (they are internal society/route
+# codes — see test_ait_name_codes.py), so a digit-numbered fixture would collapse
+# into one indistinguishable name and stop testing truncation at all.
+_NAME_SUFFIXES = ["Alpha", "Bravo", "Charlie", "Delta", "Echo",
+                  "Foxtrot", "Golf", "Hotel", "India", "Juliett"]
+
+
+def _technician_name(index: int) -> str:
+    return f"Technician {_NAME_SUFFIXES[(index - 1) % len(_NAME_SUFFIXES)]}"
+
+
 def _technician(index: int) -> dict:
     return {
         "userId": f"AIT{index:03d}",
-        "fullName": f"Technician {index}",
+        "fullName": _technician_name(index),
         "mobileNumber": f"90000000{index:02d}",
     }
 
@@ -60,7 +72,7 @@ class TestNoTruncation:
         technicians = [_technician(i) for i in range(1, 7)]
         summary = _build_ai_technician_summary(_envelope([_group(1, technicians)]))
 
-        assert "Technician 6" in summary
+        assert _technician_name(6) in summary
 
 
 class TestDedupe:
@@ -85,7 +97,7 @@ class TestDedupe:
         summary = _build_ai_technician_summary(_envelope([_group(1, rows)]))
 
         for index in (1, 2, 3):
-            assert f"Technician {index}" in summary
+            assert _technician_name(index) in summary
         assert summary.count("AIT001") == 1
 
 

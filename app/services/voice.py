@@ -87,6 +87,7 @@ from agents.services.farmer_identity import (
 )
 from app.llm_core import resolver as _llm_resolver
 from app.llm_core.config_model import Step as _LlmStep
+from agents.models.ai_call import strip_ait_name_codes
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 try:  # Langfuse is optional at import time
     from langfuse import get_client as _get_langfuse_client
@@ -346,6 +347,25 @@ TRANSLATION_TROUBLE_MESSAGE = {
     "gu": "માફ કરશો, હાલમાં તમારા સવાલનો જવાબ આપવામાં તકલીફ થઈ રહી છે. કૃપા કરીને થોડા સમય પછી ફરી કોલ કરો.",
     "en": "I'm having some trouble answering your question right now, please call in some time.",
 }
+
+
+def _last_assistant_turn(history: list) -> Optional[str]:
+    """The most recent assistant text in history, or None.
+
+    Deliberately narrow: one turn, read straight off the in-memory ``history``
+    already passed to this function. No session or Redis read — pretranslation
+    is on the latency path that produces the 4s cold-fetch cancels, and the only
+    consumer (the cow-or-buffalo carve-out in ``_species_answer_context``) needs
+    just the question the caller is answering. The turn is passed whole; voice
+    replies are short enough that a length cap would only clip that question.
+    """
+    for message in reversed(history or []):
+        for part in getattr(message, "parts", []) or []:
+            if getattr(part, "part_kind", "") == "text":
+                text = (getattr(part, "content", "") or "").strip()
+                if text:
+                    return text
+    return None
 
 
 def _has_meaningful_history(history: list) -> bool:
@@ -1238,7 +1258,7 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
                     lines.append("- AI technician option: none available for this farmer group.")
                 continue
             for technician in technicians:
-                name = technician.get("fullName")
+                name = strip_ait_name_codes(technician.get("fullName"))
                 mobile = technician.get("mobileNumber")
                 user_id = technician.get("userId")
                 option = "- AI technician option:"
@@ -1854,6 +1874,8 @@ async def stream_voice_message(
                     _pretrans_model,
                     pipeline_profile,
                 )
+                # One turn of context for pretranslation — see _last_assistant_turn.
+                _prev_assistant_turn = _last_assistant_turn(history)
                 if await _request_is_stale("before_query_pretranslation"):
                     moderation_task.cancel()
                     non_meaningful_task.cancel()
@@ -1883,6 +1905,7 @@ async def stream_voice_message(
                                         user_id=user_id,
                                         process_id=process_id or "",
                                         pipeline_profile=pipeline_profile,
+                                        prev_assistant_turn=_prev_assistant_turn,
                                     )
                                 else:
                                     translated = await translate_to_english_with_gpt5_mini(
@@ -1892,6 +1915,7 @@ async def stream_voice_message(
                                         user_id=user_id,
                                         process_id=process_id or "",
                                         pipeline_profile=pipeline_profile,
+                                        prev_assistant_turn=_prev_assistant_turn,
                                     )
                             except Exception as _attempt_exc:
                                 attempt_info["status"] = "error"
@@ -1994,6 +2018,7 @@ async def stream_voice_message(
                                     user_id=user_id,
                                     process_id=process_id or "",
                                     pipeline_profile=pipeline_profile,
+                                    prev_assistant_turn=_prev_assistant_turn,
                                 )
                             else:
                                 processing_query = await translate_to_english_with_gpt5_mini(
@@ -2003,6 +2028,7 @@ async def stream_voice_message(
                                     user_id=user_id,
                                     process_id=process_id or "",
                                     pipeline_profile=pipeline_profile,
+                                    prev_assistant_turn=_prev_assistant_turn,
                                 )
                         _legacy_primary_attempt["status"] = "ok"
                         _pretranslation_actual_tier = _pretrans_requested_tier
@@ -2050,6 +2076,7 @@ async def stream_voice_message(
                                 processing_query = await translate_to_english_with_structured_fallback(
                                     text=query,
                                     source_lang=requested_source_lang,
+                                    prev_assistant_turn=_prev_assistant_turn,
                                 )
                             _legacy_fallback_attempt["status"] = "ok"
                             _pretranslation_actual_tier = "translategemma"
