@@ -152,3 +152,14 @@ def safe_start_agent_observation(
         )
     except Exception:
         return nullcontext(None)
+
+
+def safe_update_current_span(*, metadata: Optional[Dict[str, Any]] = None) -> None:
+    """Attach metadata to the active observation (e.g. inside an ``@observe`` tool)."""
+    client = get_langfuse()
+    if client is None:
+        return
+    try:
+        client.update_current_span(metadata=metadata)
+    except Exception:
+        pass

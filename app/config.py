@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # External Service URLs
     telemetry_api_url: str = "https://vistaar.kenpath.ai/observability-service/action/data/v3/telemetry"
     nudge_api_url: str = os.getenv("NUDGE_API_URL", "https://vistaar.getraya.app/api/nudge-user")
+    # First turn: speak the hold message before the LLM answers.
+    voice_hold_message_enabled: bool = os.getenv("VOICE_HOLD_MESSAGE_ENABLED", "true").lower() in ("true", "1", "yes")
+    # Any turn: speak the delay message if no answer has started after this many seconds.
+    voice_delay_message_enabled: bool = os.getenv("VOICE_DELAY_MESSAGE_ENABLED", "true").lower() in ("true", "1", "yes")
+    voice_delay_message_after_seconds: float = float(os.getenv("VOICE_DELAY_MESSAGE_AFTER_SECONDS", "6.0"))
     bhashini_api_url: str = ""
     ollama_endpoint_url: Optional[str] = None
     marqo_endpoint_url: Optional[str] = None

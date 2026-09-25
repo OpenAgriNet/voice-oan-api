@@ -1,7 +1,7 @@
 import uuid
 import json
 from datetime import datetime, timezone
-from helpers.utils import get_logger
+from helpers.utils import get_logger, to_ascii_digits
 import httpx
 from app.config import get_default_httpx_timeout
 from pydantic import BaseModel, AnyHttpUrl
@@ -9,6 +9,8 @@ from typing import List, Optional, Dict, Any
 from pydantic_ai import ModelRetry, UnexpectedModelBehavior
 from pydantic_ai.tools import RunContext
 from agents.deps import FarmerContext   
+from langfuse import observe
+from app.observability.langfuse_client import safe_update_current_span
 import re
 import os
 
@@ -163,6 +165,8 @@ class SchemeInitRequest(BaseModel):
     transaction_id: str
     registration_number: str
     phone_number: str = ""
+    session_id: str = ""
+    question_id: str = ""
     
     def get_payload(self) -> Dict[str, Any]:
         """
@@ -197,7 +201,11 @@ class SchemeInitRequest(BaseModel):
                     "city": {
                         "code": "*"
                     }
-                }
+                },
+                "tags": {
+                    "session_id": self.session_id,
+                    "question_id": self.question_id,
+                },
             },
             "message": {
                 "order": {
@@ -407,6 +415,8 @@ class SchemeStatusRequest(BaseModel):
     # NOTE: These are not used but are retained for future compatibility
     registration_number: str 
     phone_number: str = ""
+    session_id: str = ""
+    question_id: str = ""
     
     def get_payload(self) -> Dict[str, Any]:
         """
@@ -440,7 +450,11 @@ class SchemeStatusRequest(BaseModel):
                     "city": {
                         "code": "*"
                     }
-                }
+                },
+                "tags": {
+                    "session_id": self.session_id,
+                    "question_id": self.question_id,
+                },
             },
             "message": {
                 "order_id": self.otp,
@@ -452,6 +466,7 @@ class SchemeStatusRequest(BaseModel):
 # -----------------------
 # Functions
 # -----------------------
+@observe(name="tool:initiate_pm_kisan_status_check", as_type="tool")
 def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str = "", phone_number: str = "") -> str:
     """Initiate PM Kisan status check by sending OTP to farmer's mobile.
     
@@ -465,8 +480,8 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
     Returns:
         str: Response from the scheme status check service
     """
-    # Normalize inputs: strip spaces, uppercase, and ensure correct field based on format
-    input_val = (reg_no or phone_number).strip().upper().replace(" ", "")
+    # Normalize inputs: convert local-script digits, strip spaces, uppercase, and ensure correct field based on format
+    input_val = to_ascii_digits(reg_no or phone_number).strip().upper().replace(" ", "")
     
     if not input_val:
         return "Please provide either a PM Kisan registration number or a registered phone number to check the status."
@@ -485,14 +500,21 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
         # Use whichever identifier is available for the transaction ID
         identifier = reg_no or phone_number
         transaction_id = generate_transaction_id(session_id, identifier)
+        logger.info(f"Transaction ID: {transaction_id}")
+        safe_update_current_span(
+            metadata={"tool": "pmkisan.init", "transaction_id": transaction_id}
+        )
         payload = SchemeInitRequest(
             registration_number=reg_no,
             transaction_id=transaction_id,
-            phone_number=phone_number
+            phone_number=phone_number,
+            session_id=session_id,
+            question_id=ctx.deps.question_id,
         ).get_payload()
         
         endpoint = os.getenv("BAP_ENDPOINT").rstrip("/") + "/init"
         logger.info(f"[PM KISAN INIT] Request URL: {endpoint}")
+        logger.info(f"[PM KISAN INIT] Request Payload: {json.dumps(payload, indent=2)}")
         
         response = httpx.post(
             endpoint,
@@ -501,6 +523,7 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
         )
         
         logger.info(f"[PM KISAN INIT] Response Status: {response.status_code}")
+        logger.info(f"[PM KISAN INIT] Response Payload: {response.text}")
         
         if response.status_code != 200:
             logger.error(f"Scheme init API returned status code {response.status_code}")
@@ -535,6 +558,7 @@ def initiate_pm_kisan_status_check(ctx: RunContext[FarmerContext], reg_no: str =
         logger.error(f"Error in scheme init: {e}")
         raise ModelRetry(f"Unexpected error in scheme init request. {str(e)}")
 
+@observe(name="tool:check_pm_kisan_status_with_otp", as_type="tool")
 def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg_no: str = "", phone_number: str = "") -> str:
     """Check PM Kisan status using OTP after initiating the OTP check.
      
@@ -549,8 +573,8 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
     Returns:
         str: Detailed scheme status information including beneficiary details, payment status, and any issues or next steps
     """
-    # Normalize inputs: strip spaces, uppercase, and ensure correct field based on format
-    input_val = (reg_no or phone_number).strip().upper().replace(" ", "")
+    # Normalize inputs: convert local-script digits, strip spaces, uppercase, and ensure correct field based on format
+    input_val = to_ascii_digits(reg_no or phone_number).strip().upper().replace(" ", "")
     
     if not input_val:
         return "Please provide either a PM Kisan registration number or a registered phone number to check the status."
@@ -565,7 +589,7 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
 
     try:
         # Validate OTP format - must be exactly 4 digits
-        otp_clean = str(otp).strip()
+        otp_clean = to_ascii_digits(otp).strip()
         if not otp_clean.isdigit() or len(otp_clean) != 4:
             raise ModelRetry("Invalid OTP format. Please provide a 4-digit OTP received via SMS.")
         # Get session_id from context
@@ -573,14 +597,22 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
         # Use whichever identifier is available for the transaction ID (must match what was used in init)
         identifier = reg_no or phone_number
         transaction_id = generate_transaction_id(session_id, identifier)
-        payload = SchemeStatusRequest(transaction_id=transaction_id,
-                                      otp=otp_clean,
-                                      registration_number=reg_no,
-                                      phone_number=phone_number,
-                                      ).get_payload()
+        logger.info(f"Transaction ID: {transaction_id}")
+        safe_update_current_span(
+            metadata={"tool": "pmkisan.status", "transaction_id": transaction_id}
+        )
+        payload = SchemeStatusRequest(
+            transaction_id=transaction_id,
+            otp=otp_clean,
+            registration_number=reg_no,
+            phone_number=phone_number,
+            session_id=session_id,
+            question_id=ctx.deps.question_id,
+        ).get_payload()
         
         endpoint = os.getenv("BAP_ENDPOINT").rstrip("/") + "/status"
         logger.info(f"[PM KISAN STATUS] Request URL: {endpoint}")
+        logger.info(f"[PM KISAN STATUS] Request Payload: {json.dumps(payload, indent=2)}")
         
         response = httpx.post(
             endpoint,
@@ -589,6 +621,7 @@ def check_pm_kisan_status_with_otp(ctx: RunContext[FarmerContext], otp: str, reg
         )
         
         logger.info(f"[PM KISAN STATUS] Response Status: {response.status_code}")
+        logger.info(f"[PM KISAN STATUS] Response Payload: {response.text}")
         
         if response.status_code != 200:
             logger.error(f"Scheme status API returned status code {response.status_code}")
