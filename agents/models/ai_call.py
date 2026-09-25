@@ -5,6 +5,28 @@ from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 
 
+# Partner records prefix the technician's name with an internal society/route
+# number — "1712 NARENDRAKUMAR-NARAYANDAS-PANDOR". The caller has no use for it
+# and TTS reads it aloud, sometimes as a time of day ("seventeen thirty
+# Sanjaykumar..."), so it is stripped everywhere a name reaches the model or the
+# caller. Measured over 54,014 technician options presented on prod (21-24 Sep):
+# 20.8% carry the prefix, no name has digits anywhere else, and none is digits
+# only — so an anchored leading-number strip cannot damage a real name.
+_AIT_NAME_CODE_PREFIX_RE = re.compile(r"^\s*\d+\s*[-\s]\s*")
+
+
+def strip_ait_name_code_prefix(value: str | None) -> str | None:
+    """Drop a leading internal number from a technician name.
+
+    Returns the original when stripping would leave nothing, so a record that is
+    somehow all digits still identifies someone rather than becoming blank.
+    """
+    if not value:
+        return value
+    stripped = _AIT_NAME_CODE_PREFIX_RE.sub("", value, count=1).strip()
+    return stripped or value
+
+
 class AISpecies(str, Enum):
     COW = "cow"
     BUFFALO = "buffalo"
@@ -57,4 +79,10 @@ class AICallResponseModel(BaseModel):
     def normalize_ait_name(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return cls._normalize_ait_phone(value)
+        normalized = cls._normalize_ait_phone(value)
+        if "(" in normalized:
+            # "<phone>(<name>)" — the code rides on the name inside the parens,
+            # and the leading digits are the phone, which must survive.
+            phone_part, rest = normalized.split("(", 1)
+            return f"{phone_part}({strip_ait_name_code_prefix(rest)}"
+        return strip_ait_name_code_prefix(normalized)

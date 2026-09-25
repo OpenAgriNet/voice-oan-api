@@ -87,6 +87,7 @@ from agents.services.farmer_identity import (
 )
 from app.llm_core import resolver as _llm_resolver
 from app.llm_core.config_model import Step as _LlmStep
+from agents.models.ai_call import strip_ait_name_code_prefix
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 try:  # Langfuse is optional at import time
     from langfuse import get_client as _get_langfuse_client
@@ -1257,7 +1258,7 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
                     lines.append("- AI technician option: none available for this farmer group.")
                 continue
             for technician in technicians:
-                name = technician.get("fullName")
+                name = strip_ait_name_code_prefix(technician.get("fullName"))
                 mobile = technician.get("mobileNumber")
                 user_id = technician.get("userId")
                 option = "- AI technician option:"
