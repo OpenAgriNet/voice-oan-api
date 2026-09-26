@@ -44,6 +44,11 @@ def _load(path):
 
 def _mapping(version, payload):
     """The mapping for a version, with whatever it extends filled in."""
+    if version not in payload:
+        pytest.fail(
+            f"telemetry/mappings/voice.yaml in amul-oan-api has no {version}. "
+            "Add it there first, or the adapters reject these traces."
+        )
     contract = payload[version]
     parent = _mapping(contract["extends"], payload) if contract.get("extends") else {"root": None, "fields": {}}
     fields = dict(parent["fields"])
@@ -68,7 +73,8 @@ def _sent(path):
 
 
 def test_every_outcome_has_a_bucket():
-    vocabulary = _load(ERAS)["voice_outcome_vocabulary"]
+    vocabulary = _load(ERAS).get("voice_outcome_vocabulary")
+    assert vocabulary, "amul-oan-api's telemetry/eras.yaml has no voice_outcome_vocabulary."
     bucketed = {outcome for outcomes in vocabulary.values() if isinstance(outcomes, list) for outcome in outcomes}
     missing = set(CONTRACT["outcomes"]) - bucketed
 
