@@ -15,7 +15,12 @@ from helpers.telemetry import (
     post_telemetry_payload,
 )
 from helpers.utils import get_logger
-from app.utils import update_message_history, trim_history
+from app.utils import (
+    mark_turn_finished,
+    resolve_turn_revision,
+    trim_history,
+    update_message_history,
+)
 from app.observability.langfuse_client import safe_propagate_attributes, safe_start_agent_observation
 from app.observability.voice import safe_update_observation
 
@@ -120,6 +125,9 @@ async def stream_voice_message(
         "Running agent (language=%s, voice_qid=%s)", response_language, voice_qid
     )
 
+    history, is_revision = await resolve_turn_revision(
+        session_id, history, settings.voice_turn_revision_window_seconds
+    )
     trimmed_history = trim_history(history, max_tokens=80_000)
     logger.info(f"Trimmed history: {len(trimmed_history)} messages")
 
@@ -158,7 +166,10 @@ async def stream_voice_message(
     # Tags are trace-level in Langfuse, so they go through propagate_attributes;
     # observations only carry metadata.
     with safe_propagate_attributes(
-        tags=["voice", "pydantic_ai", f"agent:{agent_slug}", f"model_route:{model_route}", f"model:{model_name}"],
+        tags=[
+            "voice", "pydantic_ai", f"agent:{agent_slug}", f"model_route:{model_route}", f"model:{model_name}",
+            *(["turn:revision"] if is_revision else []),
+        ],
     ), safe_start_agent_observation(
         name=f"agent.{agent_slug}",
         input={
@@ -330,3 +341,4 @@ async def stream_voice_message(
     # Update message history
     if new_messages:
         await update_message_history(session_id, [*history, *new_messages])
+        await mark_turn_finished(session_id, len(history))
