@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
 from app.config import settings
+from app.services.telemetry_stamps import forward_voice_telemetry_metadata, running_release
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +187,7 @@ class VoiceTrace:
                 logger.debug("Langfuse client lookup failed: %s", exc)
         self.metadata.update(
             {
+                **forward_voice_telemetry_metadata(running_release()),
                 "trace_id": self.trace_id,
                 "provider": self.provider,
                 "process_id": self.process_id,

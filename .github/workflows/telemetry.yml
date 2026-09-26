@@ -1,0 +1,28 @@
+name: telemetry
+
+# Runs the telemetry contract tests on every PR. The rest of the suite needs
+# model credentials, so it isn't run here yet.
+on:
+  pull_request:
+  push:
+    branches: [amul-dev, amul-prod]
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # What amul-oan-api reads, for tests/test_voice_telemetry_readers.py.
+      - uses: actions/checkout@v4
+        with:
+          repository: OpenAgriNet/amul-oan-api
+          ref: main
+          path: amul-oan-api
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: pip install -r requirements.txt pytest pyyaml
+      - run: python -m pytest -q tests/test_voice_telemetry_schema_stamps.py tests/test_voice_telemetry_contract.py tests/test_voice_telemetry_readers.py
+        env:
+          AMUL_OAN_API_PATH: amul-oan-api
