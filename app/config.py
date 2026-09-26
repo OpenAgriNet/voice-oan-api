@@ -273,7 +273,7 @@ class Settings(BaseSettings):
     loan_db_pool_size: int = int(os.getenv("LOAN_DB_POOL_SIZE", "5"))
 
     # ── Partner heat-alert webhook ───────────────────────────────────────────
-    # Shared secret sent by the partner in the X-Webhook-Token header. When
+    # Shared secret sent by the partner as Authorization: Bearer. When
     # unset/empty the webhook endpoint rejects all requests (fail closed).
     webhook_shared_token: Optional[str] = os.getenv("WEBHOOK_SHARED_TOKEN")
     # Dedicated Postgres for partner webhook payloads (hosted on vm2).
