@@ -148,7 +148,24 @@ def test_heat_alert_auth_and_persist(monkeypatch):
         client.post(
             "/api/webhooks/alerts",
             json=PARTNER_PAYLOAD,
-            headers={"X-Webhook-Token": "wrong"},
+            headers={"Authorization": "Bearer wrong"},
+        ).status_code
+        == 401
+    )
+    # Retired custom header and non-bearer schemes are not accepted.
+    assert (
+        client.post(
+            "/api/webhooks/alerts",
+            json=PARTNER_PAYLOAD,
+            headers={"X-Webhook-Token": "test-webhook-token"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/webhooks/alerts",
+            json=PARTNER_PAYLOAD,
+            headers={"Authorization": "Basic dGVzdA=="},
         ).status_code
         == 401
     )
@@ -159,7 +176,7 @@ def test_heat_alert_auth_and_persist(monkeypatch):
         client.post(
             "/api/webhooks/alerts",
             json=oversized,
-            headers={"X-Webhook-Token": "test-webhook-token"},
+            headers={"Authorization": "Bearer test-webhook-token"},
         ).status_code
         == 422
     )
@@ -167,7 +184,7 @@ def test_heat_alert_auth_and_persist(monkeypatch):
     resp = client.post(
         "/api/webhooks/alerts",
         json=PARTNER_PAYLOAD,
-        headers={"X-Webhook-Token": "test-webhook-token"},
+        headers={"Authorization": "Bearer test-webhook-token"},
     )
     assert resp.status_code == 202
     body = resp.json()
@@ -184,7 +201,7 @@ def test_heat_alert_auth_and_persist(monkeypatch):
     resp2 = client.post(
         "/api/webhooks/alerts",
         json=PARTNER_PAYLOAD,
-        headers={"X-Webhook-Token": "test-webhook-token"},
+        headers={"Authorization": "Bearer test-webhook-token"},
     )
     assert resp2.status_code == 202
     assert resp2.json()["id"] == body["id"]
@@ -195,7 +212,7 @@ def test_heat_alert_auth_and_persist(monkeypatch):
         client.post(
             "/api/webhooks/alerts",
             json=missing_type,
-            headers={"X-Webhook-Token": "test-webhook-token"},
+            headers={"Authorization": "Bearer test-webhook-token"},
         ).status_code
         == 422
     )
@@ -206,7 +223,7 @@ def test_heat_alert_auth_and_persist(monkeypatch):
         client.post(
             "/api/webhooks/alerts",
             json=unknown_type,
-            headers={"X-Webhook-Token": "test-webhook-token"},
+            headers={"Authorization": "Bearer test-webhook-token"},
         ).status_code
         == 422
     )

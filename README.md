@@ -101,7 +101,7 @@ Today the only value is `heat`. Input is case-insensitive and stored as lowercas
 A missing or unknown value returns `422`.
 
 Auth:
-- shared secret header `X-Webhook-Token` (not JWT)
+- `Authorization: Bearer <token>` (a static shared secret, not a JWT)
 - token value must match `WEBHOOK_SHARED_TOKEN`
 - missing/invalid token → `401`
 - token unset in env → `503` (fail closed)
@@ -145,7 +145,7 @@ Env reference: `example.webhook.env`
    ```bash
    curl -sS -X POST "$BASE_URL/api/webhooks/alerts" \
      -H "Content-Type: application/json" \
-     -H "X-Webhook-Token: $WEBHOOK_SHARED_TOKEN" \
+     -H "Authorization: Bearer $WEBHOOK_SHARED_TOKEN" \
      -d '{"alertID":"111","deviceid":"S1IAD1869","notification_type":"heat"}'
    ```
 6. Verify a row exists in `heat_alert_webhook_events`, then confirm old rows disappear after retention.
