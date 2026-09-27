@@ -1784,13 +1784,18 @@ async def stream_voice_message(
             non_meaningful_recent_turns = _collect_recent_user_turns_for_non_meaningful(history, query, limit=5)
             mobile = normalize_phone_to_mobile(user_id)
             signed_in = _is_signed_in_session(user_info, user_id)
-            # Fails closed: a turn whose farmer lookup never ran (no resolvable
-            # mobile) or threw stays "unresolved", so the identity-taking tools
-            # stay hidden. The context lines are seeded here too — otherwise the
-            # model would find the tools simply absent, with nothing to tell the
-            # caller, which is how a small model ends up claiming a booking it
-            # never made. Both are replaced below once the lookup resolves.
-            farmer_identity = "unresolved"
+            # Fails closed: a turn whose farmer lookup threw, or never resolved,
+            # keeps a negative state, so the identity-taking tools stay hidden.
+            # The context lines are seeded here too — otherwise the model would
+            # find the tools simply absent, with nothing to tell the caller,
+            # which is how a small model ends up claiming a booking it never
+            # made. Both are replaced below once the lookup resolves.
+            # "anonymous" when there is no mobile to look anything up with, so no
+            # lookup is even attempted; "unresolved" when one will be attempted and
+            # may still fail. Both withhold the identity-taking tools, but they give
+            # the caller different next actions, and telling someone with no number
+            # on file to "try again shortly" is advice that cannot work.
+            farmer_identity = "unresolved" if mobile else "anonymous"
             farmer_info = "\n".join(unavailable_capability_lines(farmer_identity))
             farmer_unions: list[str] = []
             farmer_accounts: list[FarmerAccount] = []
