@@ -43,11 +43,54 @@ logger = get_logger(__name__)
 #              held the lock, or the read failed. Recoverable: a later turn may
 #              well resolve it, so the caller is told to retry, never that the
 #              service does not exist.
-FarmerIdentityState = Literal["found", "not_found", "unresolved"]
+# anonymous  — there is no usable mobile number for this turn, so no lookup was
+#              even attempted. Also terminal, but for a different reason than
+#              not_found and with a different next action: call from the
+#              registered number. Previously folded into "unresolved", which told
+#              a caller with no number on file to "try again shortly" — advice
+#              that cannot work, because nothing about the next turn differs.
+FarmerIdentityState = Literal["found", "not_found", "unresolved", "anonymous"]
 
 FOUND: FarmerIdentityState = "found"
 NOT_FOUND: FarmerIdentityState = "not_found"
 UNRESOLVED: FarmerIdentityState = "unresolved"
+ANONYMOUS: FarmerIdentityState = "anonymous"
+
+# The exact sentence to speak when a caller asks for a gated service and we have
+# no profile. One per state, because the three cases give the caller three
+# different next actions and getting that wrong is its own harm: telling a
+# registered farmer whose fetch timed out that they are "not registered" is the
+# bug this file exists to prevent, in reverse.
+#
+# Measured on voice-production 2026-09-26: of 173 turns that carried the
+# not_found context lines, only 12 (7%) relayed anything about registration to
+# the caller. Two of those callers were given textbook advice from
+# search_documents instead and hung up believing the booking had been placed.
+# Naming what is unavailable is not enough — the model needs a sentence it can
+# say. Shape follows the micro-loan line already in the prompt ("I don't have X,
+# so I can't Y; please Z") and stays short because it is spoken aloud through
+# Gujarati output translation.
+NO_PROFILE_SPOKEN_LINES: dict = {
+    NOT_FOUND: (
+        "Your mobile number is not registered with us, so I cannot book a visit "
+        "or look up your records; please contact your milk society to get registered."
+    ),
+    UNRESOLVED: (
+        "I cannot fetch your details right now, so I cannot book a visit or look "
+        "up your records; please try again shortly."
+    ),
+    ANONYMOUS: (
+        "I do not have your registered mobile number, so I cannot book a visit or "
+        "look up your records; please call from the number registered with your "
+        "milk society."
+    ),
+}
+
+
+def no_profile_spoken_line(state: FarmerIdentityState) -> Optional[str]:
+    """The sentence to say for this state, or None when a profile was resolved."""
+    return NO_PROFILE_SPOKEN_LINES.get(state)
+
 
 # Named in the context block so the model can tell the caller what it cannot do
 # this turn. Kept in sync with IDENTITY_GATED_TOOLS below by
@@ -99,7 +142,7 @@ def identity_state_for_deps(deps: Optional[FarmerContext]) -> FarmerIdentityStat
     if deps is None:
         return UNRESOLVED
     state = getattr(deps, "farmer_identity", None)
-    if state in (FOUND, NOT_FOUND, UNRESOLVED):
+    if state in (FOUND, NOT_FOUND, UNRESOLVED, ANONYMOUS):
         return state
     return UNRESOLVED
 
@@ -145,33 +188,48 @@ async def prepare_requires_farmer_identity(
 
 
 def unavailable_capability_lines(state: FarmerIdentityState) -> list[str]:
-    """Context lines naming what is off this turn and what to tell the caller.
+    """Context lines naming what is off this turn and the exact line to speak.
 
     Phrased as availability status rather than prohibition. "Do not book" implies
     the model still could, which invites it to try or to apologise oddly for a
     tool it cannot see; "unavailable this turn" just hands it a fact to relay.
 
-    The two negative states give the caller DIFFERENT next actions — register vs.
-    retry — which is the reason the state is tri-valued rather than a boolean.
+    The negative states give the caller DIFFERENT next actions — register, retry,
+    or call from the registered number — which is why the state is four-valued
+    rather than a boolean.
+
+    The quoted sentence is the part that changes behaviour. Withholding the tools
+    stopped the invented codes, but it left the model with a capability it could
+    not name: it fell back on general advice from `search_documents` and the
+    caller rang off with no idea why nothing had been booked. A status line is
+    something to reason about; a quoted sentence is something to say.
     """
     if state == FOUND:
         return []
     capabilities = ", ".join(_GATED_CAPABILITY_NAMES)
     if state == NOT_FOUND:
-        return [
-            "- Farmer identity: no farmer record is registered for this mobile number.",
-            f"- Unavailable for this turn: {capabilities}.",
-            "- Tell the caller their number is not registered and ask them to "
-            "contact their milk society.",
-            "- Do not guess or construct union, society, farmer or technician codes.",
-        ]
-    return [
-        "- Farmer identity: could not be loaded for this turn.",
+        reason = "no farmer record is registered for this mobile number."
+    elif state == ANONYMOUS:
+        reason = "no registered mobile number is available for this call."
+    else:
+        reason = "could not be loaded for this turn."
+    lines = [
+        f"- Farmer identity: {reason}",
         f"- Unavailable for this turn: {capabilities}.",
-        "- Tell the caller you cannot fetch their details right now and ask them "
-        "to try again shortly. Do not say the service does not exist.",
-        "- Do not guess or construct union, society, farmer or technician codes.",
+        "- If the caller asks for any of those — an AI / beech daan visit, a vet "
+        "visit, their milk records — say this and nothing more about it: "
+        f'"{NO_PROFILE_SPOKEN_LINES[state]}"',
+        "- Do not answer a booking request with general advice instead, and do "
+        "not end the turn without saying that line.",
+        "- Do not ask the caller for union, society, farmer or technician codes, "
+        "and do not guess or construct them.",
     ]
+    if state == UNRESOLVED:
+        lines.append(
+            "- Do not tell the caller they are unregistered. Do not say the "
+            "service does not exist."
+        )
+    return lines
 
 
 def identity_tool_groups(deps: Optional[FarmerContext]) -> list[str]:
