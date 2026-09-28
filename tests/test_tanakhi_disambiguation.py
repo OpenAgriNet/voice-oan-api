@@ -19,9 +19,15 @@ TANAKHI = [
 ]
 
 LOOKALIKES = [
-    "ચૂલામાંથી તણખા ઉડે છે",     # sparks
+    "ચૂલામાંથી તણખા ઉડે છે",     # sparks, in a sentence
+    "તણખા ઉડે છે",               # sparks, short query — scored 85 before the window fix
     "તનખા ક્યારે મળશે",          # salary
-    "paani ni tanki saaf karvi",  # water tank
+    "paani ni tanki saaf karvi",  # water tank, in a sentence
+    "tanki",                      # water tank, bare — scored 80 before the window fix
+    "tanki cleaning",
+    "tank",
+    "tank cleaning",
+    "thanki",
     "ટાંકી સાફ કરવી",
 ]
 
@@ -46,3 +52,21 @@ def test_answer_translates_back_to_the_farmers_word():
         threshold=0.90, max_terms=40,
     )
     assert "Upward Fixation of Patella -> તણખી" in mini
+
+
+def test_every_ambiguity_term_still_triggers_its_own_rule():
+    """Guard for the whole file, not just તણખી: window matching must never stop a
+    term from pulling the rule it belongs to."""
+    import json
+    from pathlib import Path
+
+    entries = json.loads(
+        (Path(__file__).resolve().parents[1] / "assets" / "ambiguity_terms.json").read_text(encoding="utf-8")
+    )
+    missed = [
+        (term, entry["rule"][:40])
+        for entry in entries
+        for term in entry["gu_terms"]
+        if entry["rule"] not in get_ambiguity_hints_for_query(term)
+    ]
+    assert missed == []
