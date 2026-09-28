@@ -1,7 +1,12 @@
 import pytest
 
 from app.services import telemetry_stamps, voice_trace
-from app.services.telemetry_stamps import forward_voice_telemetry_metadata, read_git_head, running_release
+from app.services.telemetry_stamps import (
+    VOICE_TELEMETRY_SCHEMA_VERSION,
+    forward_voice_telemetry_metadata,
+    read_git_head,
+    running_release,
+)
 from app.services.voice_trace import VoiceTrace
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -9,7 +14,7 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 
 def test_forward_telemetry_metadata_stamps_schema_service_and_release():
     assert forward_voice_telemetry_metadata("test-release-sha") == {
-        "amul.schema_version": "voice.turn.v1",
+        "amul.schema_version": VOICE_TELEMETRY_SCHEMA_VERSION,
         "service": "voice-oan-api",
         "release": "test-release-sha",
     }
@@ -31,7 +36,7 @@ def test_every_voice_trace_carries_the_stamp(monkeypatch):
         enabled=False,
     )
 
-    assert trace.metadata["amul.schema_version"] == "voice.turn.v1"
+    assert trace.metadata["amul.schema_version"] == VOICE_TELEMETRY_SCHEMA_VERSION
     assert trace.metadata["service"] == "voice-oan-api"
     assert trace.metadata["release"] == "test-release-sha"
     assert "user_id_hash" in trace.metadata and "query" in trace.metadata

@@ -6,14 +6,27 @@ root name, the trace fields, the metadata keys, the keys inside metadata blocks
 in `app/services/telemetry_stamps.py`, and `tests/test_voice_telemetry_contract.py`
 checks the code against it.
 
-- Added a metadata key: list it in the contract. No version change.
-- Added a key inside a block (e.g. `agent`): nothing to do.
-- Added an outcome: list it in the contract, and add it to `voice_outcome_vocabulary`
-  in `telemetry/eras.yaml` in amul-oan-api.
-- Renamed or removed any of the above, renamed the root, or changed what a key
-  means: bump the version, add a contract file for it, and add the version to
-  `telemetry/mappings/voice.yaml` in amul-oan-api. It can extend the old version
-  and list only what moved.
+A released contract never changes, because traces already in Langfuse follow it.
+Any change to what a turn sends is a new schema version: a key or an outcome added,
+renamed or removed (inside a block like `agent` too), the root renamed, or a key
+that now means something else. For each one:
+
+1. Bump `VOICE_TELEMETRY_SCHEMA_VERSION`, e.g. to `voice.turn.v2`.
+2. Copy the contract to `contracts/voice.turn.v2.json` and make the change there.
+   Leave the old file as it is.
+3. Add the version to `telemetry/mappings/voice.yaml` in amul-oan-api. It extends
+   the old one and lists only what moved; for an added key, two lines are enough.
+4. A new outcome also needs a bucket in `voice_outcome_vocabulary` in
+   `telemetry/eras.yaml` there.
+5. Once it ships, add the new version's fingerprint to `RELEASED_CONTRACTS` in
+   `tests/test_voice_telemetry_contract.py`:
+
+   ```bash
+   python -c "import json,hashlib; c=json.load(open('telemetry/contracts/voice.turn.v2.json')); c.pop('note',None); print(hashlib.sha256(json.dumps(c,sort_keys=True,separators=(',',':')).encode()).hexdigest())"
+   ```
+
+Names say what the value is: lowercase snake_case, never `data`, `id`, `result`,
+`status`, `time`, `type` or `value` on their own.
 
 The amul-oan-api side has to be merged first: `tests/test_voice_telemetry_readers.py`
 checks its main branch for the outcome buckets and the mapping.

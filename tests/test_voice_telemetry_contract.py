@@ -1,12 +1,15 @@
 """Voice traces must match telemetry/contracts/<schema version>.json.
 
-Adding a key or an outcome only needs the contract file updated. Renaming or
-removing a key, a key inside a metadata block, a trace field or the root name
-needs a new schema version, because readers of older traces depend on it.
+A released contract never changes. Any change to what a turn sends (a key or an
+outcome added, renamed or removed, a key inside a metadata block, a trace field,
+the root name, or what a key means) goes out as a new schema version with its
+own contract file, because traces already in Langfuse follow the old one.
 """
 
 import ast
+import hashlib
 import json
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -17,18 +20,38 @@ from app.services.telemetry_stamps import VOICE_TELEMETRY_SCHEMA_VERSION
 from app.services.voice_trace import VoiceTrace
 
 REPO = Path(__file__).resolve().parents[1]
-CONTRACT = REPO / "telemetry" / "contracts" / f"{VOICE_TELEMETRY_SCHEMA_VERSION}.json"
+CONTRACTS = REPO / "telemetry" / "contracts"
+CONTRACT = CONTRACTS / f"{VOICE_TELEMETRY_SCHEMA_VERSION}.json"
 CONTRACT_NAME = f"telemetry/contracts/{VOICE_TELEMETRY_SCHEMA_VERSION}.json"
-BUMP_THE_VERSION = (
-    f"Readers of {VOICE_TELEMETRY_SCHEMA_VERSION} traces depend on it: bump VOICE_TELEMETRY_SCHEMA_VERSION in "
-    "app/services/telemetry_stamps.py, add a contract file for the new version, and add it to "
-    "telemetry/mappings/voice.yaml in amul-oan-api."
+NEW_VERSION = (
+    f"{VOICE_TELEMETRY_SCHEMA_VERSION} can't change once released, so this needs a new schema version: "
+    "bump VOICE_TELEMETRY_SCHEMA_VERSION in app/services/telemetry_stamps.py, copy "
+    f"{CONTRACT_NAME} to the new version's file and make the change there, and add the new version to "
+    f"telemetry/mappings/voice.yaml in amul-oan-api (it can extend {VOICE_TELEMETRY_SCHEMA_VERSION})."
 )
+
+# What each released contract holds, as a fingerprint of its content. Key order,
+# spacing and the "note" text don't count. Add a version here when it ships.
+RELEASED_CONTRACTS = {
+    "voice.turn.v1": "a64e7ea4707a172a2efc90cc06e2c66962f6009109fff6cb2e9e6f300f89db85",
+}
+
+# Same rule as the chat contracts in amul-oan-api: names say what they are.
+# error.type predates the rule and stays as it is in voice.turn.v1.
+_GENERIC_NAMES = {"data", "id", "result", "status", "time", "type", "value"}
+_GRANDFATHERED_NAMES = {"error.type"}
+_SNAKE_CASE = re.compile(r"[a-z][a-z0-9_]*")
 
 
 def _contract():
     assert CONTRACT.exists(), f"No contract for {VOICE_TELEMETRY_SCHEMA_VERSION}. Add {CONTRACT_NAME}."
     return json.loads(CONTRACT.read_text(encoding="utf-8"))
+
+
+def _fingerprint(path):
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    contract.pop("note", None)
+    return hashlib.sha256(json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def _app_nodes():
@@ -141,10 +164,44 @@ def test_contract_matches_the_stamped_schema_version():
     assert _contract()["schema_version"] == VOICE_TELEMETRY_SCHEMA_VERSION
 
 
+def test_released_contracts_never_change():
+    for version, fingerprint in RELEASED_CONTRACTS.items():
+        path = CONTRACTS / f"{version}.json"
+        assert path.exists(), f"{version} is released: keep telemetry/contracts/{version}.json, old traces follow it."
+        assert _fingerprint(path) == fingerprint, (
+            f"telemetry/contracts/{version}.json is released and can't change: traces already in Langfuse "
+            f"follow it. Undo the edit and put the change in a new version. {NEW_VERSION}"
+        )
+
+
+def test_names_are_specific_snake_case():
+    contract = _contract()
+    names = (
+        contract["trace_fields"]
+        + contract["metadata_keys"]
+        + [f"{block}.{key}" for block, keys in contract["nested_keys"].items() for key in keys]
+    )
+    unclear = [
+        name
+        for name in names
+        if name not in _GRANDFATHERED_NAMES
+        and name != "amul.schema_version"
+        and (
+            not all(_SNAKE_CASE.fullmatch(part) for part in name.split("."))
+            or name.split(".")[-1] in _GENERIC_NAMES
+        )
+    ]
+
+    assert not unclear, (
+        f"Unclear key names {unclear}. Use lowercase snake_case that says what the value is, "
+        f"e.g. error_type rather than type, and never {sorted(_GENERIC_NAMES)} on their own."
+    )
+
+
 def test_no_contract_key_was_renamed_or_removed(monkeypatch):
     missing = set(_contract()["metadata_keys"]) - _emitted_keys(monkeypatch)
 
-    assert not missing, f"Voice traces no longer send {sorted(missing)}. {BUMP_THE_VERSION}"
+    assert not missing, f"Voice traces no longer send {sorted(missing)}. {NEW_VERSION}"
 
 
 def test_turns_are_still_sent_on_the_contract_root(monkeypatch):
@@ -154,7 +211,7 @@ def test_turns_are_still_sent_on_the_contract_root(monkeypatch):
 
     assert names == {root}, (
         f"Voice turns are now sent as {sorted(names)}, not {root!r}. Readers find turns by this name. "
-        f"{BUMP_THE_VERSION} Set the new root there too."
+        f"{NEW_VERSION} Set the new root there too."
     )
 
 
@@ -168,7 +225,7 @@ def test_no_trace_field_was_dropped(monkeypatch):
     }
     missing = [field for field in _contract()["trace_fields"] if not fields.get(field)]
 
-    assert not missing, f"Voice traces no longer send the trace fields {missing}. {BUMP_THE_VERSION}"
+    assert not missing, f"Voice traces no longer send the trace fields {missing}. {NEW_VERSION}"
 
 
 def test_no_key_inside_a_block_was_renamed_or_removed(monkeypatch):
@@ -179,15 +236,24 @@ def test_no_key_inside_a_block_was_renamed_or_removed(monkeypatch):
         if missing := set(keys) - sent:
             changed[block] = sorted(missing)
 
-    assert not changed, f"Voice traces no longer send these keys inside metadata blocks: {changed}. {BUMP_THE_VERSION}"
+    assert not changed, f"Voice traces no longer send these keys inside metadata blocks: {changed}. {NEW_VERSION}"
+
+
+def test_no_new_key_inside_a_block(monkeypatch):
+    metadata = _send_a_turn(monkeypatch)["update"]["metadata"]
+    added = {}
+    for block, keys in _contract()["nested_keys"].items():
+        sent = set(metadata[block]) if isinstance(metadata.get(block), dict) else set()
+        if extra := sent - set(keys):
+            added[block] = sorted(extra)
+
+    assert not added, f"New keys inside metadata blocks: {added}. {NEW_VERSION}"
 
 
 def test_new_keys_are_listed_in_the_contract(monkeypatch):
     extra = _emitted_keys(monkeypatch) - set(_contract()["metadata_keys"])
 
-    assert not extra, (
-        f"New metadata keys {sorted(extra)}. Adding keys keeps the schema version; list them in {CONTRACT_NAME}."
-    )
+    assert not extra, f"New metadata keys {sorted(extra)}. {NEW_VERSION}"
 
 
 def test_outcomes_match_the_contract():
@@ -195,13 +261,10 @@ def test_outcomes_match_the_contract():
     found = _outcomes_in_app()
 
     assert found <= listed, (
-        f"New outcomes {sorted(found - listed)}. Add them to {CONTRACT_NAME} and to voice_outcome_vocabulary "
-        "in telemetry/eras.yaml (amul-oan-api), or the adapters will count them as unclassified."
+        f"New outcomes {sorted(found - listed)}. {NEW_VERSION} Also give each one a bucket in "
+        "voice_outcome_vocabulary in telemetry/eras.yaml (amul-oan-api), or the adapters count it as unclassified."
     )
-    assert listed <= found, (
-        f"Outcomes no longer emitted: {sorted(listed - found)}. Remove them from {CONTRACT_NAME} and note "
-        "the change in telemetry/eras.yaml once it ships."
-    )
+    assert listed <= found, f"Outcomes no longer emitted: {sorted(listed - found)}. {NEW_VERSION}"
 
 
 def test_outcomes_are_found_however_they_are_passed():
