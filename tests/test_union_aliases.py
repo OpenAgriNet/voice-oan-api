@@ -201,6 +201,22 @@ def test_prepare_and_runtime_agree_for_sumul(monkeypatch):
     assert "Sumul Test Scheme" in out
 
 
+def test_prepare_and_runtime_agree_for_sabar(monkeypatch):
+    sentinel = object()
+
+    async def fake_records(union_name):
+        assert union_name == UnionName.SABAR.value
+        return [{"scheme_title": "Sabar Test Scheme"}]
+
+    monkeypatch.setattr(us, "get_cached_scheme_records_for_union", fake_records)
+
+    prepared = asyncio.run(us.prepare_get_union_scheme_data(_ctx(["sabar"]), sentinel))
+    assert prepared is sentinel
+
+    out = asyncio.run(us.get_union_scheme_data(_ctx(["sabar"]), None))
+    assert "Sabar Test Scheme" in out
+
+
 def test_scheme_cache_keys_match_chat_ingestion_sources():
     """Voice reads the same Redis keys that amul-oan-api scheme ingestion writes."""
     from app.services.scheme_ingestion import (
@@ -220,6 +236,9 @@ def test_scheme_cache_keys_match_chat_ingestion_sources():
     assert get_source_keys_for_union(UnionName.SURENDRANAGAR.value) == (
         "sursagardairy.com/farmer/milkproducers",
     )
+    assert get_source_keys_for_union(UnionName.SABAR.value) == (
+        "sabardairy.org/for-our-milk-producers",
+    )
     assert us.SUPPORTED_SCHEME_UNIONS == frozenset(SUPPORTED_UNION_SOURCE_KEYS)
     assert SUPPORTED_SCHEME_UNIONS == frozenset(
         {
@@ -227,5 +246,6 @@ def test_scheme_cache_keys_match_chat_ingestion_sources():
             UnionName.KUTCH.value,
             UnionName.SUMUL.value,
             UnionName.SURENDRANAGAR.value,
+            UnionName.SABAR.value,
         }
     )
