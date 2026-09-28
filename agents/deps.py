@@ -51,7 +51,7 @@ class FarmerContext(BaseModel):
     # gates and the context lines that name what is unavailable — see
     # agents.services.farmer_identity, which owns the vocabulary. Defaults to
     # "unresolved" so a caller that never set it fails closed.
-    farmer_identity: Literal["found", "not_found", "unresolved"] = Field(
+    farmer_identity: Literal["found", "not_found", "unresolved", "anonymous"] = Field(
         default="unresolved",
         description="Farmer identity resolution state for this turn.",
     )

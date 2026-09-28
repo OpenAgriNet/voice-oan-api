@@ -1290,39 +1290,60 @@ def _apply_exact_glossary_transliteration_replacements(source_text: str, transla
     return cleaned
 
 
-# The species carve-out below is scoped to the turn that actually asked which
-# species, so the conservative rules stay fully in force everywhere else.
+# ગેસ is a real veterinary term (bloat), so the species corruption table below
+# is the one thing that stays conditional — applied on a turn that did not ask
+# the species, it would turn "my cow has gas" into "cow".
 _SPECIES_QUESTION_RE = re.compile(r"cow\s+or\s+(a\s+)?buffalo|buffalo\s+or\s+(a\s+)?cow", re.IGNORECASE)
 
 
-def _species_answer_context(prev_assistant_turn: Optional[str]) -> str:
-    """Extra prompt block for the turn that answers 'cow or buffalo?'.
+def _answer_context(prev_assistant_turn: Optional[str]) -> str:
+    """Give the translator the assistant's previous turn, on every turn.
 
-    ASR reliably mangles the one-word species answer: ગાય comes back as ગેસ/ગસ/
-    ગ્યાસ/કેસ and ભેંસ as બસ/બેસ/મેસ/પસ/દેસ. In isolation those are genuinely
-    ambiguous, which is why the blanket "do not infer animal species" rule exists.
-    Immediately after the assistant asked which species, they are not ambiguous,
-    and translating them literally ("for gas", "for mess", "for the bus") strands
-    the caller in a re-ask loop. Measured on 525 real answer turns: 46.1% -> 79.6%
-    yielded a usable species, 0 regressions. See issue #306.
+    This used to fire only when the previous turn matched the cow-or-buffalo
+    question, which is what stranded the technician-name answers: measured on
+    2026-09-26, of 34 sessions where a farmer made a plain AI booking request
+    that never reached ``create_ai_call``, 11 had a working farmer profile and
+    most died on the technician name, not on identity. One caller spent seven
+    turns trying to say one name while the agent oscillated between two
+    candidates. The assistant's turn lists the candidates verbatim, so quoting
+    it hands the translator the answer set with no table to maintain.
+
+    One turn, read straight off the in-memory history already passed in — no
+    session or Redis read, because pretranslation is on the latency path.
+    Passed whole: across 10,268 prod assistant turns the longest was 589
+    characters (p50 140, p99 425), so a cap would only clip the question.
     """
-    if not prev_assistant_turn or not _SPECIES_QUESTION_RE.search(prev_assistant_turn):
+    prev = (prev_assistant_turn or "").strip()
+    if not prev:
         return ""
-    # Passed whole, not truncated. Voice replies are bounded by TTS: across 10,268
-    # prod assistant turns the longest was 589 characters (p50 140, p99 425), so a
-    # cap would only ever have clipped the question the rule below refers to.
-    prev = prev_assistant_turn.strip()
-    return (
+    block = (
         "\nConversation context — the assistant's previous turn was:\n"
         f'"{prev}"\n'
         "The message you are translating is the farmer's ANSWER to that question.\n"
-        "Context rule: because the assistant just asked which species, a garbled token in "
-        "the answer slot that plausibly sounds like ગાય (cow) or ભેંસ (buffalo) should be "
-        "translated as that species, even though it would be ambiguous in isolation. "
-        "Common ASR corruptions: ગેસ/ગસ/ગ્યાસ/કેસ/ગાડી -> cow; બસ/બેસ/મેસ/બેંસ/પસ/દેસ -> buffalo. "
-        "This narrows the general 'do not infer animal species' rule for THIS turn only; "
-        "if the answer plausibly matches neither, still say 'unclear animal'.\n"
+        "Context rule: if that turn offered a specific set of NAMED options — two species, a "
+        "list of technician names — and this message is a garbled token in the answer "
+        "slot, translate it as the option it clearly corresponds to, "
+        "spelled EXACTLY as that option appears above. Gujarati proper nouns survive ASR "
+        "badly: syllables split, double, or drop (BAHECHARBHAI -> 'be be char bhai'), and "
+        "callers say the parts out of order or give only one. If the token fits TWO of the "
+        "options, or none, do NOT choose — transliterate it and leave it ambiguous, because "
+        "acting on the wrong option is worse than re-asking. If the turn offered no options, "
+        "this rule adds nothing: translate conservatively as the rules above require.\n"
+        "Agreement is never inferred. If the previous turn asked for a yes/no confirmation, "
+        "render an affirmation or a refusal ONLY when the utterance actually carries one "
+        "(હા -> yes, ના -> no). Never supply a 'yes' the farmer did not say, never drop a "
+        "'ના'/'no' that they did, and if they answered with something else entirely — a "
+        "question, a symptom, a name — translate THAT and leave the confirmation unanswered.\n"
     )
+    if _SPECIES_QUESTION_RE.search(prev):
+        # Issue #306: 525 real answer turns, 46.1% -> 79.6% usable species, 0 regressions.
+        block += (
+            "Species hint: a token that plausibly sounds like ગાય (cow) or ભેંસ (buffalo) is "
+            "that species. Common ASR corruptions: ગેસ/ગસ/ગ્યાસ/કેસ/ગાડી -> cow; "
+            "બસ/બેસ/મેસ/બેંસ/પસ/દેસ -> buffalo. This narrows the general 'do not infer animal "
+            "species' rule for THIS turn only; if it matches neither, still say 'unclear animal'.\n"
+        )
+    return block
 
 
 def _build_openai_pretranslation_messages(
@@ -1346,7 +1367,7 @@ def _build_openai_pretranslation_messages(
         "- Do not infer animal species. If cow/buffalo/sheep/goat is unclear, write 'unclear animal' or keep the uncertain token.\n"
     )
 
-    domain_preamble += _species_answer_context(prev_assistant_turn)
+    domain_preamble += _answer_context(prev_assistant_turn)
 
     # -- Ambiguity hints from ambiguity_terms.json ---------------------
     # include_ask=False so "ask" type entries (clarifying-question rules
