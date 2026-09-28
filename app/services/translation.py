@@ -13,7 +13,7 @@ import aiohttp
 import asyncio
 import anyio
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, Sequence
 from openai import AsyncOpenAI
 from helpers.utils import get_logger, normalize_voice_output
 from dotenv import load_dotenv
@@ -1296,46 +1296,60 @@ def _apply_exact_glossary_transliteration_replacements(source_text: str, transla
 _SPECIES_QUESTION_RE = re.compile(r"cow\s+or\s+(a\s+)?buffalo|buffalo\s+or\s+(a\s+)?cow", re.IGNORECASE)
 
 
-def _answer_context(prev_assistant_turn: Optional[str]) -> str:
-    """Give the translator the assistant's previous turn, on every turn.
+def _conversation_context(conversation: Optional[Sequence[tuple[str, str]]]) -> str:
+    """Give the translator the recent, understood conversation.
 
-    This used to fire only when the previous turn matched the cow-or-buffalo
-    question, which is what stranded the technician-name answers: measured on
-    2026-09-26, of 34 sessions where a farmer made a plain AI booking request
-    that never reached ``create_ai_call``, 11 had a working farmer profile and
-    most died on the technician name, not on identity. One caller spent seven
-    turns trying to say one name while the agent oscillated between two
-    candidates. The assistant's turn lists the candidates verbatim, so quoting
-    it hands the translator the answer set with no table to maintain.
+    Built by ``voice._pretranslation_context``: garbled exchanges and "please
+    repeat" turns are already gone, so the last assistant turn here is the
+    question the farmer is still answering even when a repeat request came in
+    between. That gap is what sank session 601f1db4: "cow or buffalo?", a
+    garbled answer, "please repeat", "I could not understand" — and the one-turn
+    context quoted the last of those, so પસ (buffalo) became "pus" and the agent
+    searched for pus treatment.
 
-    One turn, read straight off the in-memory history already passed in — no
-    session or Redis read, because pretranslation is on the latency path.
-    Passed whole: across 10,268 prod assistant turns the longest was 589
-    characters (p50 140, p99 425), so a cap would only clip the question.
+    The earlier turns resolve what one turn cannot: an animal named three turns
+    back, the service the farmer already asked for, a technician list the agent
+    read out before a confirmation. The answer-slot rule still points at the
+    last assistant turn only — that is where the named options live.
     """
-    prev = (prev_assistant_turn or "").strip()
-    if not prev:
+    turns = [
+        (speaker, (text or "").strip())
+        for speaker, text in (conversation or [])
+        if (text or "").strip()
+    ]
+    if not turns:
         return ""
-    block = (
-        "\nConversation context — the assistant's previous turn was:\n"
-        f'"{prev}"\n'
-        "The message you are translating is the farmer's ANSWER to that question.\n"
-        "Context rule: if that turn offered a specific set of NAMED options — two species, a "
-        "list of technician names — and this message is a garbled token in the answer "
-        "slot, translate it as the option it clearly corresponds to, "
-        "spelled EXACTLY as that option appears above. Gujarati proper nouns survive ASR "
-        "badly: syllables split, double, or drop (BAHECHARBHAI -> 'be be char bhai'), and "
-        "callers say the parts out of order or give only one. If the token fits TWO of the "
-        "options, or none, do NOT choose — transliterate it and leave it ambiguous, because "
-        "acting on the wrong option is worse than re-asking. If the turn offered no options, "
-        "this rule adds nothing: translate conservatively as the rules above require.\n"
-        "Agreement is never inferred. If the previous turn asked for a yes/no confirmation, "
-        "render an affirmation or a refusal ONLY when the utterance actually carries one "
-        "(હા -> yes, ના -> no). Never supply a 'yes' the farmer did not say, never drop a "
-        "'ના'/'no' that they did, and if they answered with something else entirely — a "
-        "question, a symptom, a name — translate THAT and leave the confirmation unanswered.\n"
+    last_assistant = next(
+        (text for speaker, text in reversed(turns) if speaker == "Assistant"), None
     )
-    if _SPECIES_QUESTION_RE.search(prev):
+    transcript = "\n".join(f"{speaker}: {text}" for speaker, text in turns)
+    block = (
+        "\nConversation so far (English; turns that were not understood are omitted):\n"
+        f"{transcript}\n"
+        "Use it to resolve what the farmer is referring to — an animal, a service, a name "
+        "already mentioned — but translate ONLY the new message; never copy earlier turns "
+        "into it, and never add a meaning the new message does not carry.\n"
+    )
+    if last_assistant:
+        block += (
+            f'The assistant\'s last question was: "{last_assistant}"\n'
+            "The message you are translating is most likely the farmer's ANSWER to it.\n"
+            "Context rule: if that turn offered a specific set of NAMED options — two species, a "
+            "list of technician names — and this message is a garbled token in the answer "
+            "slot, translate it as the option it clearly corresponds to, "
+            "spelled EXACTLY as that option appears above. Gujarati proper nouns survive ASR "
+            "badly: syllables split, double, or drop (BAHECHARBHAI -> 'be be char bhai'), and "
+            "callers say the parts out of order or give only one. If the token fits TWO of the "
+            "options, or none, do NOT choose — transliterate it and leave it ambiguous, because "
+            "acting on the wrong option is worse than re-asking. If the turn offered no options, "
+            "this rule adds nothing: translate conservatively as the rules above require.\n"
+            "Agreement is never inferred. If that question asked for a yes/no confirmation, "
+            "render an affirmation or a refusal ONLY when the utterance actually carries one "
+            "(હા -> yes, ના -> no). Never supply a 'yes' the farmer did not say, never drop a "
+            "'ના'/'no' that they did, and if they answered with something else entirely — a "
+            "question, a symptom, a name — translate THAT and leave the confirmation unanswered.\n"
+        )
+    if last_assistant and _SPECIES_QUESTION_RE.search(last_assistant):
         # Issue #306: 525 real answer turns, 46.1% -> 79.6% usable species, 0 regressions.
         block += (
             "Species hint: a token that plausibly sounds like ગાય (cow) or ભેંસ (buffalo) is "
@@ -1350,7 +1364,7 @@ def _build_openai_pretranslation_messages(
     source_name: str,
     source_code: str,
     text: str,
-    prev_assistant_turn: Optional[str] = None,
+    conversation: Optional[Sequence[tuple[str, str]]] = None,
 ) -> list[dict[str, str]]:
     # -- Domain context ------------------------------------------------
     domain_preamble = (
@@ -1367,7 +1381,7 @@ def _build_openai_pretranslation_messages(
         "- Do not infer animal species. If cow/buffalo/sheep/goat is unclear, write 'unclear animal' or keep the uncertain token.\n"
     )
 
-    domain_preamble += _answer_context(prev_assistant_turn)
+    domain_preamble += _conversation_context(conversation)
 
     # -- Ambiguity hints from ambiguity_terms.json ---------------------
     # include_ask=False so "ask" type entries (clarifying-question rules
@@ -1407,11 +1421,11 @@ def _build_structured_pretranslation_prompt(
     source_name: str,
     source_code: str,
     text: str,
-    prev_assistant_turn: Optional[str] = None,
+    conversation: Optional[Sequence[tuple[str, str]]] = None,
 ) -> str:
     """Build the structured translation prompt for non-OpenAI fallback models."""
     messages = _build_openai_pretranslation_messages(
-        source_name, source_code, text, prev_assistant_turn
+        source_name, source_code, text, conversation
     )
     system_content = messages[0]["content"]
     user_content = messages[1]["content"]
@@ -1432,7 +1446,7 @@ async def _create_pretranslation_response(
     source_code: str,
     text: str,
     max_tokens: int,
-    prev_assistant_turn: Optional[str] = None,
+    conversation: Optional[Sequence[tuple[str, str]]] = None,
 ):
     """Single OpenAI-compatible pretranslation call, parametrized by (client, model).
 
@@ -1442,7 +1456,7 @@ async def _create_pretranslation_response(
         client.chat.completions.create(
             model=model,
             messages=_build_openai_pretranslation_messages(
-                source_name, source_code, text, prev_assistant_turn
+                source_name, source_code, text, conversation
             ),
             max_completion_tokens=max_tokens,
             response_format={"type": "json_object"},
@@ -1508,7 +1522,7 @@ async def translate_to_english_with_structured_fallback(
     source_lang: str,
     *,
     max_tokens: int = 1024,
-    prev_assistant_turn: Optional[str] = None,
+    conversation: Optional[Sequence[tuple[str, str]]] = None,
 ) -> str:
     """Fallback pretranslation with the same structured contract as the OpenAI path.
 
@@ -1523,7 +1537,7 @@ async def translate_to_english_with_structured_fallback(
     source_name = LANG_NAMES.get(source_lang.lower(), source_lang.capitalize())
     source_code = LANG_CODES.get(source_lang.lower(), source_lang.lower())
     prompt = _build_structured_pretranslation_prompt(
-        source_name, source_code, text, prev_assistant_turn
+        source_name, source_code, text, conversation
     )
     # Voice pretranslation structured fallback still speaks TranslateGemma
     # /completions directly (not the post-translation chain). Uses the SINGULAR
@@ -1572,7 +1586,7 @@ async def _translate_to_english_pretranslation(
     translation_provider_label: str,
     extra_metadata: Optional[dict] = None,
     max_tokens: int = 1024,
-    prev_assistant_turn: Optional[str] = None,
+    conversation: Optional[Sequence[tuple[str, str]]] = None,
 ) -> str:
     """Single parametrized pretranslation body — the collapse of the former
     ``translate_to_english_with_gpt5_mini`` / ``translate_to_english_with_oss_vllm``
@@ -1601,7 +1615,7 @@ async def _translate_to_english_pretranslation(
                 source_code=source_code,
                 text=text,
                 max_tokens=max_tokens,
-                prev_assistant_turn=prev_assistant_turn,
+                conversation=conversation,
             )
             translated_text = _extract_translation_from_response(response)
             if not translated_text:
@@ -1634,7 +1648,7 @@ async def _translate_to_english_pretranslation(
                 source_code=source_code,
                 text=text,
                 max_tokens=max_tokens,
-                prev_assistant_turn=prev_assistant_turn,
+                conversation=conversation,
             )
             translated_text = _extract_translation_from_response(response)
             if not translated_text:
@@ -1669,7 +1683,7 @@ async def translate_to_english_with_gpt5_mini(
     user_id: str = "",
     process_id: str = "",
     pipeline_profile: str = "",
-    prev_assistant_turn: Optional[str] = None,
+    conversation: Optional[Sequence[tuple[str, str]]] = None,
 ) -> str:
     """Pretranslate to English via the managed OpenAI client (legacy sessions).
 
@@ -1685,7 +1699,7 @@ async def translate_to_english_with_gpt5_mini(
         label="OpenAI",
         translation_provider_label=PRETRANSLATION_PROVIDER,
         max_tokens=max_tokens,
-        prev_assistant_turn=prev_assistant_turn,
+        conversation=conversation,
     )
 
 
@@ -1698,7 +1712,7 @@ async def translate_to_english_with_oss_vllm(
     user_id: str = "",
     process_id: str = "",
     pipeline_profile: str = "",
-    prev_assistant_turn: Optional[str] = None,
+    conversation: Optional[Sequence[tuple[str, str]]] = None,
 ) -> str:
     """Pretranslate via the OSS vLLM endpoint (per-request, sticky 'oss' sessions).
 
@@ -1715,7 +1729,7 @@ async def translate_to_english_with_oss_vllm(
         translation_provider_label="vllm",
         extra_metadata={"pipeline_profile": pipeline_profile or "oss"},
         max_tokens=max_tokens,
-        prev_assistant_turn=prev_assistant_turn,
+        conversation=conversation,
     )
 
 
