@@ -1,6 +1,11 @@
-"""The answer-slot context block in pretranslation (issues #306, #320).
+"""The conversation context block in pretranslation (issues #306, #320).
 
-Pretranslation gets the assistant's previous turn on EVERY turn. It used to get
+Pretranslation gets the recent understood conversation on EVERY turn, and the
+answer-slot rule points at the last assistant question in it. Garbled exchanges
+and "please repeat" turns are dropped first, so a repeat request in between no
+longer hides the question the farmer is answering (session 601f1db4).
+
+History: pretranslation first got the assistant's previous turn on every turn. It used to get
 it only when that turn matched the cow-or-buffalo question, which fixed the
 species answers and left the next question in the same flow — "which technician
 should I book with?" — as broken as before: the farmer has to say a three-part
@@ -12,10 +17,12 @@ stays conditional because ગેસ is a real veterinary term (bloat).
 """
 import pytest
 
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+
 from app.services.translation import (
-    _answer_context,
     _build_openai_pretranslation_messages,
     _build_structured_pretranslation_prompt,
+    _conversation_context,
 )
 
 SPECIES_Q = "Is this for a cow or a buffalo?"
@@ -24,13 +31,20 @@ TECH_Q = (
     "Anilbhai Galjibhai Pandar, Narayanbhai Dhulabhai Patel, or "
     "Narendrakumar Narayandas Pandor."
 )
-CONTEXT = "the assistant's previous turn was"
+CONTEXT = "The assistant's last question was"
 RULE = "translate it as the option it clearly corresponds to"
 SPECIES_HINT = "Common ASR corruptions"
 
 
-def _system(text, prev=None):
-    return _build_openai_pretranslation_messages("Gujarati", "gu", text, prev)[0]["content"]
+def _conv(prev):
+    """A one-question conversation, or none."""
+    return [("Assistant", prev)] if prev is not None else None
+
+
+def _system(text, prev=None, conversation=None):
+    if conversation is None:
+        conversation = _conv(prev)
+    return _build_openai_pretranslation_messages("Gujarati", "gu", text, conversation)[0]["content"]
 
 
 # --- the gate is gone: any previous turn reaches the translator ------------
@@ -113,62 +127,93 @@ def test_quoted_turn_is_never_truncated():
     Prod assistant turns top out at 589 chars, so there is nothing to cap."""
     long_turn = ("The technician will visit tomorrow morning. " * 20) + TECH_Q
     assert len(long_turn) > 600
-    quoted = _answer_context(long_turn).split('"')[1]
-    assert quoted == long_turn
-    assert "Narendrakumar Narayandas Pandor" in quoted
+    assert f'last question was: "{long_turn}"' in _conversation_context(_conv(long_turn))
 
 
 def test_structured_fallback_gets_the_same_context():
     """The fallback tier must not silently lose the fix when the primary is down."""
-    assert RULE in _build_structured_pretranslation_prompt("Gujarati", "gu", "પંડોર", TECH_Q)
+    assert RULE in _build_structured_pretranslation_prompt("Gujarati", "gu", "પંડોર", _conv(TECH_Q))
     assert CONTEXT not in _build_structured_pretranslation_prompt("Gujarati", "gu", "પંડોર", None)
 
 
 def test_user_message_still_carries_only_the_utterance():
     """Context belongs in the system half — the user half stays the raw turn."""
-    messages = _build_openai_pretranslation_messages("Gujarati", "gu", " પંડોર ", TECH_Q)
+    messages = _build_openai_pretranslation_messages("Gujarati", "gu", " પંડોર ", _conv(TECH_Q))
     assert messages[1]["content"] == "પંડોર"
+
+
+# --- more than one turn ------------------------------------------------------
+
+
+def test_rule_targets_the_last_assistant_turn_not_an_earlier_one():
+    """The species table must not stay armed once the agent has moved on."""
+    conversation = [
+        ("Assistant", SPECIES_Q),
+        ("Farmer", "buffalo"),
+        ("Assistant", TECH_Q),
+    ]
+    system = _system("ગેસ માટે", conversation=conversation)
+    assert f'last question was: "{TECH_Q}"' in system
+    assert SPECIES_HINT not in system
 
 
 # --- the caller side: what voice.py hands to pretranslation -----------------
 
-class _Part:
-    def __init__(self, kind, content):
-        self.part_kind = kind
-        self.content = content
-
-
-class _Msg:
-    def __init__(self, *parts):
-        self.parts = list(parts)
-
-
-def test_last_assistant_turn_picks_the_most_recent_text():
-    from app.services.voice import _last_assistant_turn
-
-    history = [
-        _Msg(_Part("user-prompt", "I want AI")),
-        _Msg(_Part("text", SPECIES_Q)),
-        _Msg(_Part("user-prompt", "cow")),
-        _Msg(_Part("text", TECH_Q)),
+def _exchange(user, *assistant_parts):
+    return [
+        ModelRequest(parts=[UserPromptPart(content=user)]),
+        ModelResponse(parts=list(assistant_parts)),
     ]
-    assert _last_assistant_turn(history) == TECH_Q
 
 
-def test_last_assistant_turn_skips_tool_calls_and_blanks():
-    from app.services.voice import _last_assistant_turn
+def _q(text):
+    """How the agent path stores the farmer's translated turn."""
+    return '**User:** "' + text + '"'
 
+
+def _ctx(history):
+    from app.services.voice import _pretranslation_context
+
+    return _pretranslation_context(history)
+
+
+def test_session_601f1db4_repeat_requests_no_longer_hide_the_species_question():
+    """Prod, 26 Sep: the farmer's પસ (buffalo) became "pus" because the one
+    quoted turn was a no-audio reply, not the species question."""
     history = [
-        _Msg(_Part("text", TECH_Q)),
-        _Msg(_Part("tool-call", "get_ai_technicians")),
-        _Msg(_Part("tool-return", "[...]")),
-        _Msg(_Part("text", "   ")),
+        *_exchange("hello", TextPart(content="Hello, I am Sarlaben.")),
+        *_exchange(_q("I want to do AI booking"), TextPart(content=SPECIES_Q)),
+        *_exchange(_q("[unclear token] [unclear token]"),
+                   TextPart(content="Please repeat that once. I did not understand you clearly.")),
+        *_exchange("[stt:no-audio]",
+                   TextPart(content="I could not understand your question. Please ask your question again.")),
     ]
-    assert _last_assistant_turn(history) == TECH_Q
+    context = _ctx(history)
+    assert context == [
+        ("Assistant", "Hello, I am Sarlaben."),
+        ("Farmer", "I want to do AI booking"),
+        ("Assistant", SPECIES_Q),
+    ]
+    assert SPECIES_HINT in _system("પસ માટે", conversation=context)
 
 
-@pytest.mark.parametrize("history", [None, [], [_Msg(_Part("user-prompt", "hello"))]])
-def test_last_assistant_turn_empty_history(history):
-    from app.services.voice import _last_assistant_turn
+def test_runtime_context_never_reaches_the_translator():
+    history = [
+        ModelRequest(parts=[UserPromptPart(content="Runtime context for this turn:\n- Union code: 2021")]),
+        *_exchange(_q("hi"), TextPart(content="How can I help?")),
+    ]
+    assert all("Union code" not in text for _, text in _ctx(history))
 
-    assert _last_assistant_turn(history) is None
+
+def test_unclear_farmer_turn_drops_only_the_farmer_side():
+    """The agent's follow-up to a half-garbled turn is the open question.
+
+    Replay of 26-Sep prod turns: dropping the whole exchange lost "how many months
+    ago did the animal last come in heat?" — the question the next turn answered.
+    """
+    heat_q = "Dhanabhai, how many months ago did the animal last come in heat?"
+    history = [
+        *_exchange(_q("I want AI"), TextPart(content=SPECIES_Q)),
+        *_exchange(_q("that heifer [unclear token]"), TextPart(content=heat_q)),
+    ]
+    assert _ctx(history)[-1] == ("Assistant", heat_q)

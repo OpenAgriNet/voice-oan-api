@@ -349,23 +349,115 @@ TRANSLATION_TROUBLE_MESSAGE = {
 }
 
 
-def _last_assistant_turn(history: list) -> Optional[str]:
-    """The most recent assistant text in history, or None.
+# Pretranslation sees the recent conversation, minus the turns that carry no
+# meaning. Generous on purpose: prod assistant turns are p50 140 / max 589 chars,
+# so 8 exchanges fit comfortably and the prefill cost is a few hundred tokens.
+PRETRANSLATION_CONTEXT_MAX_EXCHANGES = 8
+PRETRANSLATION_CONTEXT_MAX_CHARS = 3000
 
-    Deliberately narrow: one turn, read straight off the in-memory ``history``
-    already passed to this function. No session or Redis read — pretranslation
-    is on the latency path that produces the 4s cold-fetch cancels, and the only
-    consumer (the cow-or-buffalo carve-out in ``_species_answer_context``) needs
-    just the question the caller is answering. The turn is passed whole; voice
-    replies are short enough that a length cap would only clip that question.
+# User-side history markers for a turn nobody understood. The exchange they open
+# — marker plus the agent's "please repeat" — is dropped whole.
+_GARBLED_USER_MARKERS = frozenset(
+    {
+        _HISTORY_MARKERS["fragment"],
+        _HISTORY_MARKERS["low_confidence"],
+        _HISTORY_MARKERS["pretranslation_failed"],
+        _HISTORY_MARKERS["stt_no_audio"],
+        _HISTORY_MARKERS["stt_unclear"],
+        _HISTORY_MARKERS["moderation_reject"],
+    }
+)
+# Bookkeeping markers: the user side says nothing, the agent's turn is real.
+_SILENT_USER_MARKERS = frozenset(
+    {_HISTORY_MARKERS["greeting"], _HISTORY_MARKERS["outbound_intro"]}
+)
+# The agent asking the farmer to say it again. Those exchanges are noise, and
+# keeping them hides the question the farmer is still answering: session
+# 601f1db4 asked "cow or buffalo?", then "please repeat", then "I could not
+# understand" — and the farmer's પસ (buffalo) became "pus".
+_REPEAT_REQUEST_RE = re.compile(
+    r"\b(please (repeat|say (that|it) again|ask your question again)|"
+    r"(did not|didn't|could not|couldn't|can't|cannot|wasn't able to) "
+    r"(quite )?(understand|hear|catch)|"
+    r"(was not|wasn't) clear|"
+    r"having (some )?trouble (processing|answering))",
+    re.IGNORECASE,
+)
+_USER_QUERY_WRAPPER_RE = re.compile(r'^\*\*User:\*\*\s*"(.*)"$', re.DOTALL)
+
+
+def _history_exchanges(history: list) -> list[tuple[Optional[str], str]]:
+    """Group history into (user text, assistant text) exchanges, oldest first.
+
+    An exchange starts at a user prompt and collects every assistant text part
+    until the next one (a hold line and the answer after a tool call both
+    belong to it). Tool calls and returns are skipped.
     """
-    for message in reversed(history or []):
+    exchanges: list[list] = []
+    for message in history or []:
         for part in getattr(message, "parts", []) or []:
-            if getattr(part, "part_kind", "") == "text":
-                text = (getattr(part, "content", "") or "").strip()
-                if text:
-                    return text
-    return None
+            kind = getattr(part, "part_kind", "")
+            content = getattr(part, "content", "")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            if kind == "user-prompt":
+                exchanges.append([content.strip(), []])
+            elif kind == "text":
+                if not exchanges:
+                    exchanges.append([None, []])
+                exchanges[-1][1].append(content.strip())
+    return [(user, " ".join(texts)) for user, texts in exchanges]
+
+
+def _pretranslation_context(history: list) -> list[tuple[str, str]]:
+    """The recent conversation for pretranslation, as (speaker, English text).
+
+    Keeps what was understood and drops what was not: an exchange goes when the
+    farmer's side was an STT/garble marker or the agent's side was a request to
+    repeat (or an error line). A farmer turn translated with an ``[unclear ...]``
+    token loses only its own side — the agent's reply to it can be the very
+    question the farmer is answering now.
+    What remains is bounded by exchange count and characters, newest kept.
+
+    Read straight off the in-memory ``history`` already passed in — no session
+    or Redis read, because pretranslation is on the latency path.
+    """
+    kept: list[list[tuple[str, str]]] = []
+    for user, assistant in _history_exchanges(history):
+        if user is not None:
+            if user.startswith("Runtime context for this turn"):
+                user = None
+            elif user in _GARBLED_USER_MARKERS or detect_stt_signal(user) is not None:
+                continue
+            elif user in _SILENT_USER_MARKERS:
+                user = None
+        if user is not None:
+            match = _USER_QUERY_WRAPPER_RE.match(user)
+            if match:
+                user = match.group(1).strip()
+            if "[unclear" in user.lower():
+                # Only the farmer's side is unreliable. The agent's reply may be
+                # the real follow-up question they are answering now.
+                user = None
+        if assistant and _REPEAT_REQUEST_RE.search(assistant):
+            continue
+        turns = []
+        if user:
+            turns.append(("Farmer", user))
+        if assistant:
+            turns.append(("Assistant", assistant))
+        if turns:
+            kept.append(turns)
+
+    window: list[list[tuple[str, str]]] = []
+    used = 0
+    for turns in reversed(kept[-PRETRANSLATION_CONTEXT_MAX_EXCHANGES:]):
+        size = sum(len(text) for _, text in turns)
+        if window and used + size > PRETRANSLATION_CONTEXT_MAX_CHARS:
+            break
+        window.append(turns)
+        used += size
+    return [turn for turns in reversed(window) for turn in turns]
 
 
 def _has_meaningful_history(history: list) -> bool:
@@ -1879,8 +1971,8 @@ async def stream_voice_message(
                     _pretrans_model,
                     pipeline_profile,
                 )
-                # One turn of context for pretranslation — see _last_assistant_turn.
-                _prev_assistant_turn = _last_assistant_turn(history)
+                # Recent understood conversation — see _pretranslation_context.
+                _pretranslation_conversation = _pretranslation_context(history)
                 if await _request_is_stale("before_query_pretranslation"):
                     moderation_task.cancel()
                     non_meaningful_task.cancel()
@@ -1910,7 +2002,7 @@ async def stream_voice_message(
                                         user_id=user_id,
                                         process_id=process_id or "",
                                         pipeline_profile=pipeline_profile,
-                                        prev_assistant_turn=_prev_assistant_turn,
+                                        conversation=_pretranslation_conversation,
                                     )
                                 else:
                                     translated = await translate_to_english_with_gpt5_mini(
@@ -1920,7 +2012,7 @@ async def stream_voice_message(
                                         user_id=user_id,
                                         process_id=process_id or "",
                                         pipeline_profile=pipeline_profile,
-                                        prev_assistant_turn=_prev_assistant_turn,
+                                        conversation=_pretranslation_conversation,
                                     )
                             except Exception as _attempt_exc:
                                 attempt_info["status"] = "error"
@@ -2023,7 +2115,7 @@ async def stream_voice_message(
                                     user_id=user_id,
                                     process_id=process_id or "",
                                     pipeline_profile=pipeline_profile,
-                                    prev_assistant_turn=_prev_assistant_turn,
+                                    conversation=_pretranslation_conversation,
                                 )
                             else:
                                 processing_query = await translate_to_english_with_gpt5_mini(
@@ -2033,7 +2125,7 @@ async def stream_voice_message(
                                     user_id=user_id,
                                     process_id=process_id or "",
                                     pipeline_profile=pipeline_profile,
-                                    prev_assistant_turn=_prev_assistant_turn,
+                                    conversation=_pretranslation_conversation,
                                 )
                         _legacy_primary_attempt["status"] = "ok"
                         _pretranslation_actual_tier = _pretrans_requested_tier
@@ -2081,7 +2173,7 @@ async def stream_voice_message(
                                 processing_query = await translate_to_english_with_structured_fallback(
                                     text=query,
                                     source_lang=requested_source_lang,
-                                    prev_assistant_turn=_prev_assistant_turn,
+                                    conversation=_pretranslation_conversation,
                                 )
                             _legacy_fallback_attempt["status"] = "ok"
                             _pretranslation_actual_tier = "translategemma"
