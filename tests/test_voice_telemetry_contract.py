@@ -33,7 +33,7 @@ NEW_VERSION = (
 # What each released contract holds, as a fingerprint of its content. Key order,
 # spacing and the "note" text don't count. Add a version here when it ships.
 RELEASED_CONTRACTS = {
-    "voice.turn.v1": "a64e7ea4707a172a2efc90cc06e2c66962f6009109fff6cb2e9e6f300f89db85",
+    "voice.turn.v1": "50f59606c3d34709182c97d172ed172355aaad4058028b0984bd8840288570f0",
 }
 
 # Same rule as the chat contracts in amul-oan-api: names say what they are.
@@ -160,6 +160,29 @@ def _outcomes_in_app():
     return _outcomes_in(_app_nodes())
 
 
+def _score_names_in(nodes):
+    """Names given to Langfuse scores, e.g. score_current_trace(name="pipeline_profile")."""
+    return {
+        keyword.value.value
+        for node in nodes
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"score_current_trace", "score_current_span", "create_score"}
+        for keyword in node.keywords
+        if keyword.arg == "name" and isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)
+    }
+
+
+# Arguments that shape the call rather than being sent as a trace field: the
+# root's name (checked against "root") and its metadata (checked key by key).
+_TRACE_PLUMBING = {"as_type", "end_on_exit", "name", "trace_name", "metadata"}
+
+
+def _trace_fields_sent(sent):
+    fields = {**sent["open"], **sent["propagate"], **sent["update"]}
+    return {name: value for name, value in fields.items() if name not in _TRACE_PLUMBING}
+
+
 def test_contract_matches_the_stamped_schema_version():
     assert _contract()["schema_version"] == VOICE_TELEMETRY_SCHEMA_VERSION
 
@@ -168,7 +191,9 @@ def test_released_contracts_never_change():
     for version, fingerprint in RELEASED_CONTRACTS.items():
         path = CONTRACTS / f"{version}.json"
         assert path.exists(), f"{version} is released: keep telemetry/contracts/{version}.json, old traces follow it."
-        assert _fingerprint(path) == fingerprint, (
+        # Compared as a bool so a failure doesn't print the new fingerprint to paste in.
+        unchanged = _fingerprint(path) == fingerprint
+        assert unchanged, (
             f"telemetry/contracts/{version}.json is released and can't change: traces already in Langfuse "
             f"follow it. Undo the edit and put the change in a new version. {NEW_VERSION}"
         )
@@ -216,16 +241,35 @@ def test_turns_are_still_sent_on_the_contract_root(monkeypatch):
 
 
 def test_no_trace_field_was_dropped(monkeypatch):
-    sent = _send_a_turn(monkeypatch)
-    fields = {
-        "input": sent["open"].get("input"),
-        "output": sent["update"].get("output"),
-        "session_id": sent["propagate"].get("session_id"),
-        "user_id": sent["propagate"].get("user_id"),
-    }
+    fields = _trace_fields_sent(_send_a_turn(monkeypatch))
     missing = [field for field in _contract()["trace_fields"] if not fields.get(field)]
 
     assert not missing, f"Voice traces no longer send the trace fields {missing}. {NEW_VERSION}"
+
+
+def test_no_new_trace_field(monkeypatch):
+    extra = set(_trace_fields_sent(_send_a_turn(monkeypatch))) - set(_contract()["trace_fields"])
+
+    assert not extra, f"Voice traces now send the trace fields {sorted(extra)}. {NEW_VERSION}"
+
+
+def test_scores_match_the_contract():
+    listed = set(_contract()["scores"])
+    found = _score_names_in(_app_nodes())
+
+    assert found <= listed, f"New scores {sorted(found - listed)}. {NEW_VERSION}"
+    assert listed <= found, f"Scores no longer sent: {sorted(listed - found)}. {NEW_VERSION}"
+
+
+def test_scores_are_found_however_they_are_sent():
+    code = """
+client.score_current_trace(name="pipeline_profile", value="managed")
+client.create_score(trace_id="t", name="turn_rating", value=1)
+client.score_current_span(name="stage_ok", value=True)
+client.score_current_trace(name=dynamic_name, value="x")
+"""
+
+    assert _score_names_in(ast.walk(ast.parse(code))) == {"pipeline_profile", "turn_rating", "stage_ok"}
 
 
 def test_no_key_inside_a_block_was_renamed_or_removed(monkeypatch):

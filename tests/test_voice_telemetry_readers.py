@@ -50,11 +50,14 @@ def _mapping(version, payload):
             "Add it there first, or the adapters reject these traces."
         )
     contract = payload[version]
-    parent = _mapping(contract["extends"], payload) if contract.get("extends") else {"root": None, "fields": {}}
-    fields = dict(parent["fields"])
-    for field, paths in (contract.get("fields") or {}).items():
-        fields[field] = [paths] if isinstance(paths, str) else paths
-    return {"root": contract.get("root") or parent["root"], "fields": fields}
+    empty = {"root": None, "fields": {}, "attributes": {}}
+    parent = _mapping(contract["extends"], payload) if contract.get("extends") else empty
+    resolved = {"root": contract.get("root") or parent["root"]}
+    for part in ("fields", "attributes"):
+        resolved[part] = dict(parent[part])
+        for name, paths in (contract.get(part) or {}).items():
+            resolved[part][name] = [paths] if isinstance(paths, str) else paths
+    return resolved
 
 
 def _sent(path):
@@ -96,7 +99,8 @@ def test_amul_oan_api_reads_this_schema_version():
 
 def test_every_mapped_field_is_still_sent():
     mapping = _mapping(VOICE_TELEMETRY_SCHEMA_VERSION, _load(MAPPINGS))
-    unreadable = {field: paths for field, paths in mapping["fields"].items() if not any(_sent(path) for path in paths)}
+    read = {**mapping["fields"], **{f"attributes.{name}": paths for name, paths in mapping["attributes"].items()}}
+    unreadable = {field: paths for field, paths in read.items() if not any(_sent(path) for path in paths)}
 
     assert not unreadable, (
         f"amul-oan-api reads {unreadable} from {VOICE_TELEMETRY_SCHEMA_VERSION} traces, but none of those paths "

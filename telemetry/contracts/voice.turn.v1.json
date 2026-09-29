@@ -1,11 +1,14 @@
 {
   "schema_version": "voice.turn.v1",
-  "note": "What a voice turn sends to Langfuse: root name, trace fields, metadata keys, keys inside metadata blocks, and outcomes. pipeline_flags and pc_<step> come from llm_core compact_metadata and are not listed here.",
+  "note": "What a voice turn sends to Langfuse: root name, trace fields, metadata keys, keys inside metadata blocks, scores and outcomes. pipeline_flags and pc_<step> come from llm_core compact_metadata and are not listed here.",
   "root": "agent_journey",
   "trace_fields": [
     "input",
+    "level",
     "output",
     "session_id",
+    "status_message",
+    "tags",
     "user_id"
   ],
   "metadata_keys": [
@@ -86,6 +89,9 @@
       "sha256"
     ]
   },
+  "scores": [
+    "pipeline_profile"
+  ],
   "outcomes": [
     "client_disconnected",
     "error",

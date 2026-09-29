@@ -1,15 +1,16 @@
 # Voice telemetry contract
 
 `contracts/<schema version>.json` lists what a voice turn sends to Langfuse: the
-root name, the trace fields, the metadata keys, the keys inside metadata blocks
-(`nested_keys`) and the outcomes. The version is `VOICE_TELEMETRY_SCHEMA_VERSION`
+root name, the trace fields (`input`, `output`, `tags`, `level`, ...), the metadata
+keys, the keys inside metadata blocks (`nested_keys`), the score names and the
+outcomes. The version is `VOICE_TELEMETRY_SCHEMA_VERSION`
 in `app/services/telemetry_stamps.py`, and `tests/test_voice_telemetry_contract.py`
 checks the code against it.
 
 A released contract never changes, because traces already in Langfuse follow it.
-Any change to what a turn sends is a new schema version: a key or an outcome added,
-renamed or removed (inside a block like `agent` too), the root renamed, or a key
-that now means something else. For each one:
+Any change to what a turn sends is a new schema version: a key, a trace field, a
+score or an outcome added, renamed or removed (inside a block like `agent` too),
+the root renamed, or a key that now means something else. For each one:
 
 1. Bump `VOICE_TELEMETRY_SCHEMA_VERSION`, e.g. to `voice.turn.v2`.
 2. Copy the contract to `contracts/voice.turn.v2.json` and make the change there.
