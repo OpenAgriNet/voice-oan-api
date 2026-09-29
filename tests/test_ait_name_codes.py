@@ -32,3 +32,19 @@ def test_booking_response_keeps_phone_and_cleans_name():
         {"aitName": "919876543210(918 MITULKUMAR-RAMESHBHAI)", "ticketNumber": "T1"}
     )
     assert model.ait_name == "9876543210(Mitulkumar Rameshbhai)"
+
+
+def test_summary_cleans_names_written_raw_by_chat_into_the_shared_cache():
+    from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
+    from app.services.voice import _build_ai_technician_summary
+
+    envelope = FarmerDataEnvelope(
+        farmers=[FarmerRecord(farmerName="Rameshbhai", societyName="Anand", farmerCode="F1")],
+        aiTechnicians=[{
+            "farmerName": "Rameshbhai", "farmerCode": "F1", "societyName": "Anand",
+            "societyCode": "1066", "unionCode": "2021",
+            "technicians": [{"fullName": "1712 ULPESHPURI-KODARPURI-GOSHVAMI", "userId": "t1"}],
+        }],
+        source="cache",
+    )
+    assert "full_name=Ulpeshpuri Kodarpuri Goshvami" in _build_ai_technician_summary(envelope)
