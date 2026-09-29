@@ -27,7 +27,8 @@ the root renamed, or a key that now means something else. For each one:
    ```
 
 Names say what the value is: lowercase snake_case, never `data`, `id`, `result`,
-`status`, `time`, `type` or `value` on their own.
+`score`, `status`, `time`, `type` or `value` on their own. That covers score names
+too: `turn_rating`, not `score`.
 
 The amul-oan-api side has to be merged first: `tests/test_voice_telemetry_readers.py`
 checks its main branch for the outcome buckets and the mapping.

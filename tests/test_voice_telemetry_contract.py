@@ -38,7 +38,7 @@ RELEASED_CONTRACTS = {
 
 # Same rule as the chat contracts in amul-oan-api: names say what they are.
 # error.type predates the rule and stays as it is in voice.turn.v1.
-_GENERIC_NAMES = {"data", "id", "result", "status", "time", "type", "value"}
+_GENERIC_NAMES = {"data", "id", "result", "score", "status", "time", "type", "value"}
 _GRANDFATHERED_NAMES = {"error.type"}
 _SNAKE_CASE = re.compile(r"[a-z][a-z0-9_]*")
 
@@ -204,6 +204,7 @@ def test_names_are_specific_snake_case():
     names = (
         contract["trace_fields"]
         + contract["metadata_keys"]
+        + contract["scores"]
         + [f"{block}.{key}" for block, keys in contract["nested_keys"].items() for key in keys]
     )
     unclear = [
@@ -218,8 +219,8 @@ def test_names_are_specific_snake_case():
     ]
 
     assert not unclear, (
-        f"Unclear key names {unclear}. Use lowercase snake_case that says what the value is, "
-        f"e.g. error_type rather than type, and never {sorted(_GENERIC_NAMES)} on their own."
+        f"Unclear names {unclear}. Use lowercase snake_case that says what the value is, e.g. error_type "
+        f"rather than type, or turn_rating rather than score, and never {sorted(_GENERIC_NAMES)} on their own."
     )
 
 
