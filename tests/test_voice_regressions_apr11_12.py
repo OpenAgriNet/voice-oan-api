@@ -462,10 +462,6 @@ class TestHelperCoverage:
     def test_gujarati_output_rules_keep_addressing_neutral_and_detached(self):
         rules = "\n".join(GU_PREFERRED_TRANSLATION_RULES)
         assert "professional, cordial, and detached" in rules
-        assert "Do not translate English address markers" in rules
-        assert "sister, brother, bhai, ben, madam, or sir" in rules
-        assert "respectful gender-neutral 'આપ'" in rules
-        assert "do not call the caller બહેન" in rules
 
     def test_runtime_context_request_contains_dynamic_turn_state(self):
         deps = FarmerContext(

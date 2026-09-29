@@ -14,10 +14,10 @@ from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agents.models.farmer import FarmerRecord, AnimalRecord
-from agents.models.ai_call import AICallRequestModel, AICallResponseModel
+from agents.models.ai_call import AICallRequestModel, AICallResponseModel, strip_ait_name_codes
 from agents.models.health_call import HealthCallRequestModel, HealthCallResponseModel
 from app.models.bonus import (
     FarmerBonusAmountRecordModel,
@@ -181,7 +181,13 @@ class AITechnicianBySocietyRecord(BaseModel):
 
     userId: Optional[str] = None
     fullName: Optional[str] = None
+    gujratiFullName: Optional[str] = None
     mobileNumber: Optional[str] = None
+
+    @field_validator("fullName", "gujratiFullName", mode="before")
+    @classmethod
+    def _speakable_name(cls, value: Optional[str]) -> Optional[str]:
+        return strip_ait_name_codes(value)
 
 
 def normalize_phone(mobile: str) -> str:
