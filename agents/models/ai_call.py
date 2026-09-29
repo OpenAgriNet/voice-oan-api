@@ -5,35 +5,15 @@ from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 
 
-# Partner records prefix the technician's name with an internal society/route
-# number — "1712 NARENDRAKUMAR-NARAYANDAS-PANDOR". The caller has no use for it
-# and TTS reads it aloud, sometimes as a time of day ("seventeen thirty
-# Sanjaykumar..."), so every digit is dropped before a name reaches the model or
-# the caller.
-#
-# Dropping all digits rather than only a leading run is deliberate. Across 5,263
-# distinct technician names seen on prod over 30 days, 433 carry a leading code
-# and exactly one holds a digit anywhere else — "S0MJIBHAI-HEMTABHAI-CHAUDHARY",
-# which is SOMJIBHAI with the letter O mistyped as a zero. There is no such thing
-# as a legitimate digit in these names, so nothing here can be lost, and the rule
-# survives a code that arrives in a position we have not seen.
-_AIT_NAME_DIGITS_RE = re.compile(r"\d+")
-_AIT_NAME_EDGE_SEPARATORS_RE = re.compile(r"^[\s\-]+|[\s\-]+$")
-_AIT_NAME_INNER_SPACE_RE = re.compile(r"\s{2,}")
-
-
 def strip_ait_name_codes(value: str | None) -> str | None:
-    """Drop internal numbers from a technician name and tidy what they leave.
-
-    Returns the original when stripping would leave nothing, so a record that is
-    somehow all digits still identifies someone rather than becoming blank.
-    """
     if not value:
         return value
-    cleaned = _AIT_NAME_DIGITS_RE.sub("", value)
-    cleaned = _AIT_NAME_EDGE_SEPARATORS_RE.sub("", cleaned)
-    cleaned = _AIT_NAME_INNER_SPACE_RE.sub(" ", cleaned).strip()
-    return cleaned or value
+    words = re.sub(r"[-_]", " ", re.sub(r"\d+", "", value)).split()
+    if not words:
+        return value
+    if not any(ch.islower() for word in words for ch in word):
+        words = [word.capitalize() for word in words]
+    return " ".join(words)
 
 
 class AISpecies(str, Enum):
