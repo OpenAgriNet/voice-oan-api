@@ -8,6 +8,11 @@ ARG JWT_PUBLIC_KEY_PATH
 ARG JWT_PRIVATE_KEY
 ARG JWT_PRIVATE_KEY_PATH
 
+# Commit being built, for the release stamp on voice traces:
+# --build-arg GIT_SHA=$(git rev-parse HEAD). A mounted checkout's .git wins over it.
+ARG GIT_SHA
+ENV GIT_SHA=${GIT_SHA}
+
 # Set work directory
 WORKDIR /app
 ENV PYTHONPATH=/app
