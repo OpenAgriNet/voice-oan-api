@@ -538,12 +538,13 @@ class TestSarlabenFeminineSelfReference:
         assert "શકું નથી" in result
         assert "શકતી નથી" not in result
 
-    def test_caller_address_stripping_and_feminine_guard_compose(self):
-        text = "મેડમ, હું મદદ કરી શકું નથી."
-        result = normalize_gu(text)
-        assert "મેડમ" not in result
-        assert "શકતી નથી" in result
-        assert "શકું નથી" not in result
+    def test_names_keep_their_honorific_in_every_streamed_chunk(self):
+        chunks = ["મયુર", "ભાઈ નરન", "ભાઈ પટેલ, કલ્પના ", "બેન, આપ"]
+        out = "".join(
+            _post_normalize_gu_translation(c, target_lang="gu", strip_outer=False)
+            for c in chunks
+        )
+        assert out == "".join(chunks)
 
     @pytest.mark.parametrize(
         "text",

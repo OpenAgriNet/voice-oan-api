@@ -113,8 +113,6 @@ GU_PREFERRED_TRANSLATION_RULES = [
     "Address the caller respectfully with gender-neutral 'આપ' forms; never infer the caller's gender.",
     "Sarlaben must always use feminine self-reference in Gujarati (e.g. શકતી છું, કરૂં, આપી શકતી છું — never શકું, કરું, આવું).",
     "Keep the tone professional, cordial, and detached; do not become overly familiar or chatty.",
-    "Do not translate English address markers such as sister, brother, bhai, ben, madam, or sir into caller labels like બહેન, ભાઈ, મેડમ, or સાહેબ. Use respectful gender-neutral 'આપ' wording instead.",
-    "If the English source mentions 'sister' because the caller addressed Sarlaben, do not call the caller બહેન. Omit the address marker or render it as a neutral reference to સરલાબેન only when necessary.",
     "Never use slang body terms like 'બૈડા/બૈડું/બરડા/બરડું'. Prefer 'પીઠ' for back/flank context and 'શરીર' for general body context.",
     "Prefer 'બાવલું' over 'પાહો' for udder context.",
     "Prefer 'ધાર' over 'ટીપાં' for milk streams.",
@@ -310,26 +308,6 @@ async def _buffered_protected_stream(stream, triggers):
     if buf:
         yield buf
 
-# ── Gender-neutral caller-address guard ─────────────────────────────────────
-# Replace gendered address terms directed at the *caller* with neutral forms.
-# Patterns are boundary-aware (e.g. "ભૂખ ભાઈ" is a common animal-behaviour
-# phrase, but "ભાઈ," at the start of a greeting is a caller address).
-# Each tuple: (compiled pattern, replacement).
-GU_GENDER_NEUTRAL_POST: list[tuple[re.Pattern, str]] = [
-    # "ભાઈ" or "ભૈ" as caller address (preceded by start-of-string, comma, space, or period)
-    (re.compile(r"(?<![^\s,।.!?])ભ(?:ાઈ|ૈ)(?=\s*[,।!?]|\s|$)"), ""),
-    # "બહેન" / "બેન" as caller address
-    (re.compile(r"(?<![^\s,।.!?])બ(?:હેન|ેન)(?=\s*[,।!?]|\s|$)"), ""),
-    # "સાહેબ" as caller address
-    (re.compile(r"(?<![^\s,।.!?])સ(?:ા)?હ(?:ે)?બ(?=\s*[,।!?]|\s|$)"), ""),
-    # NOTE: do NOT add a bare "સર" strip here. TranslateGemma transliterates
-    # Sarlaben with a space ("સર લાબેન"), so any standalone-સર pattern clobbers
-    # her name and TTS speaks only "લાબેન" (removed in #127, regressed in #154).
-    # The translation prompt rules already discourage 'સર' as a caller label.
-    # "મેડમ" / "મૅડમ" / "મૅડ" as caller address
-    (re.compile(r"(?<![^\s,।.!?])મ(?:ે|ૅ|ૅ)ડ(?:મ|)(?=\s*[,।!?]|\s|$)"), ""),
-]
-
 # Enforce feminine first-person self-reference in Gujarati assistant output.
 # This runs on every Gujarati assistant response, so keep it narrow:
 # explicit sentence-level "હું ... " forms only, no blanket token rewrites.
@@ -435,12 +413,6 @@ def _post_normalize_gu_translation(
         out = re.sub(pat, repl, out)
     # Remove placeholder dashes without inventing a quantity.
     out = re.sub(rf"([:：]\s*){_GU_PLACEHOLDER_RE}(?=\s|$)", r"\1", out)
-
-    # -- Gender-neutral caller-address guard --------------------------------
-    # Strip gendered address terms (ભાઈ, બહેન, સાહેબ, મેડમ) directed at
-    # the caller before the text reaches TTS.
-    for pat, repl in GU_GENDER_NEUTRAL_POST:
-        out = pat.sub(repl, out)
 
     # -- Feminine self-reference guard --------------------------------------
     # Runs on all Gujarati assistant output; patterns must remain
