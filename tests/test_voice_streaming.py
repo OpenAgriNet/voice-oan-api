@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-from agents.voice import voice_agent, VoiceOutput
+from agents.voice import voice_agent
 from agents.deps import FarmerContext
 
 
@@ -104,10 +104,9 @@ async def run_streaming_test(question: str, language: str, session_id: str) -> d
                 prev_audio = ""
 
             elif kind == 'agent_run_result':
-                output = event.result.output
                 result["final_output"] = {
-                    "audio": output.audio,
-                    "end_interaction": output.end_interaction,
+                    "audio": event.result.output,
+                    "end_interaction": deps.end_interaction,
                 }
                 result["status"] = "success"
 

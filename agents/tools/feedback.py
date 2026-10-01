@@ -32,8 +32,9 @@ def submit_feedback(ctx: RunContext[FarmerContext], feedback: FeedbackInput) -> 
     (1) The farmer has indicated they want to end the call, and
     (2) You have asked for a feedback type and the farmer has given a feedback type, and
     (3) You have asked what went wrong or how to improve (the farmer may skip or say nothing).
-    Call this tool with the feedback type and any improvement text the user provided, then  thank them for the feedback and give your closing response and set end_interaction to true.
+    Call this tool with the feedback type and any improvement text the user provided, then thank them for the feedback and give your closing response.
     """
+    ctx.deps.end_interaction = True
     session_id = ctx.deps.session_id
     user_id = ctx.deps.user_id or "guest"
     logger.info(

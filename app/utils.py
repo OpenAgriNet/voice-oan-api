@@ -67,15 +67,12 @@ async def set_cache(key: str, value, ttl: int = DEFAULT_CACHE_TTL):
 def _create_welcome_messages(user_message: str, assistant_message: str, language: str = "hi") -> List[ModelMessage]:
     """Create default welcome message pair for new sessions.
 
-    The assistant message is wrapped in VoiceOutput JSON format so the model
-    sees the expected output pattern and continues producing JSON (not plain text).
     Language is omitted from the welcome message; the user has not yet chosen.
     System prompt is not included here; the agent applies it via instructions.
     """
     messages = []
     user_msg = ModelRequest(parts=[UserPromptPart(content=user_message)])
-    voice_output_json = json.dumps({"audio": assistant_message, "end_interaction": False}, ensure_ascii=False)
-    assistant_msg = ModelResponse(parts=[TextPart(content=voice_output_json)])
+    assistant_msg = ModelResponse(parts=[TextPart(content=assistant_message)])
     messages.extend([user_msg, assistant_msg])
     return messages
 
