@@ -91,3 +91,5 @@ rapidfuzz  # Fuzzy string matching
 # Cloud Services
 boto3  # AWS SDK
 google-cloud-translate  #
+
+PyYAML  # model registry configuration

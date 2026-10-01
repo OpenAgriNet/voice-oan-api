@@ -4,8 +4,9 @@ import json
 import os
 from agents.voice import voice_agent
 from agents.deps import FarmerContext
-from agents.models import LLM_AGRINET_MODEL
-from agents.routing import select_model_for_session
+from agents.model_registry import get_registry
+from agents.models import VOICE_USE_CASE, get_voice_model
+from agents.routing import resolve_voice_route, set_session_voice_route
 from app.config import settings
 from app.core.languages import get_language, iso_language_code
 from helpers.telemetry import (
@@ -20,6 +21,23 @@ from app.observability.langfuse_client import safe_propagate_attributes, safe_st
 from app.observability.voice import safe_update_observation
 
 logger = get_logger(__name__)
+
+
+async def _run_events_with_timeout(**kwargs):
+    deadline = asyncio.get_running_loop().time() + get_registry().timeout(VOICE_USE_CASE)
+    events = voice_agent.run_stream_events(**kwargs)
+    try:
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError("Voice model attempt timed out")
+            try:
+                yield await asyncio.wait_for(events.__anext__(), timeout=remaining)
+            except StopAsyncIteration:
+                return
+    finally:
+        await events.aclose()
+
 
 def _user_message_count(history: list) -> int:
     """Count user messages in history (messages that have a user-prompt part)."""
@@ -104,6 +122,8 @@ async def stream_voice_message(
     user_id: str,
     history: list,
     language_code: str,
+    *,
+    emit_partial: bool = True,
 ) -> AsyncGenerator[str, None]:
     """Async generator for streaming voice messages using run_stream_events()."""
     response_language = iso_language_code(language_code)
@@ -138,17 +158,29 @@ async def stream_voice_message(
         yield json.dumps(
             _voice_output_dict(turn_prefix, False, response_language), ensure_ascii=False
         )
-    model, model_route = await select_model_for_session(session_id)
+    registry = get_registry()
+    decision = await resolve_voice_route(
+        session_id,
+        has_history=_user_message_count(history) > 1,
+    )
+    model_route = decision.route
+    model = get_voice_model(model_route)
     model_name = getattr(model, "model_name", "unknown")
-    logger.info(f"Routing session {session_id} to model_route={model_route} model={model_name}")
+    logger.info(
+        "Routing session %s to model_route=%s model=%s source=%s",
+        session_id,
+        model_route,
+        model_name,
+        decision.source,
+    )
 
-    # Runtime fallback: if the Gemma canary call errors/times out before any audio has
-    # been streamed to the client, retry once against the default (Azure/OpenAI) model.
-    # Once any output has been sent, a retry can't be done cleanly (the client already
-    # heard part of the response), so failures past that point just propagate.
+    # Retry the alias-level fallback only before output reaches a streaming client.
+    # Non-streaming calls suppress partial output, so they can safely retry through
+    # the end of the model attempt.
     candidates = [(model, model_route)]
-    if model_route == 'gemma':
-        candidates.append((LLM_AGRINET_MODEL, 'gemma_runtime_fallback'))
+    fallback_alias = registry.fallback(model_route)
+    if fallback_alias:
+        candidates.append((get_voice_model(fallback_alias), fallback_alias))
 
     final_output = None
     new_messages = None
@@ -175,13 +207,15 @@ async def stream_voice_message(
         },
     ) as agent_obs:
         for attempt_index, (attempt_model, attempt_route) in enumerate(candidates):
+            final_output = None
+            new_messages = None
             text_buffer = ""
             prev_audio = ""
             any_chunk_yielded = False
             is_last_attempt = attempt_index == len(candidates) - 1
             try:
                 async for event in _events_with_deadline(
-                    voice_agent.run_stream_events(
+                    _run_events_with_timeout(
                         user_prompt=user_message,
                         message_history=trimmed_history,
                         deps=deps,
@@ -210,7 +244,7 @@ async def stream_voice_message(
                         if getattr(delta, 'part_delta_kind', '') == 'text':
                             text_buffer += delta.content_delta
                             audio = text_buffer.strip()
-                            if audio and audio != prev_audio:
+                            if emit_partial and audio and audio != prev_audio:
                                 any_chunk_yielded = True
                                 prev_audio = audio
                                 output_dict = _voice_output_dict(
@@ -229,8 +263,11 @@ async def stream_voice_message(
                         agent_result = event.result
                         final_output = agent_result.output
                         new_messages = agent_result.new_messages()
+                if final_output is None:
+                    raise RuntimeError("Voice model returned no final output")
             except Exception as e:
-                if any_chunk_yielded or is_last_attempt:
+                fallback_errors = registry.fallback_errors(attempt_route)
+                if any_chunk_yielded or is_last_attempt or not isinstance(e, fallback_errors):
                     raise
                 logger.warning(
                     f"model_route={attempt_route} call failed before streaming any output "
@@ -239,6 +276,7 @@ async def stream_voice_message(
                 continue
 
             if attempt_route != model_route:
+                await set_session_voice_route(session_id, attempt_route)
                 model_route = attempt_route
                 model_name = getattr(attempt_model, "model_name", "unknown")
                 # Tag the active agent span so the trace is filterable by the route
