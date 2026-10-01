@@ -4,20 +4,29 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import yaml
 from dotenv import load_dotenv
-from openai import AsyncAzureOpenAI
-from pydantic_ai.exceptions import ModelHTTPError
+from openai import APIConnectionError, AsyncAzureOpenAI
+from httpx import TransportError
+from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
+from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "models.yaml"
 _ENV_RE = re.compile(r"\$\{([^}]+)\}")
-_ERROR_TYPES = {"ModelHTTPError": ModelHTTPError, "TimeoutError": TimeoutError}
+_ERROR_TYPES = {
+    "ModelHTTPError": ModelHTTPError,
+    "TimeoutError": TimeoutError,
+    "APIConnectionError": APIConnectionError,
+    "TransportError": TransportError,
+    "UnexpectedModelBehavior": UnexpectedModelBehavior,
+}
 
 
-def _resolve(value):
+def _resolve(value: Any) -> Any:
     if isinstance(value, str):
         return _ENV_RE.sub(lambda match: os.getenv(match[1], ""), value)
     if isinstance(value, dict):
@@ -34,20 +43,71 @@ def _require(alias: str, config: dict, key: str) -> str:
     return value
 
 
+def _build_openai_compatible(alias: str, config: dict, api_key: str) -> Model:
+    model_name = _require(alias, config, "model_name")
+    provider_args = {"api_key": api_key}
+    if base_url := str(config.get("base_url") or "").strip():
+        provider_args["base_url"] = base_url.rstrip("/") + "/"
+    api = config.get("api", "chat")
+    if api == "chat":
+        model_class = OpenAIChatModel
+    elif api == "responses":
+        model_class = OpenAIResponsesModel
+    else:
+        raise ValueError(f"Model alias '{alias}': unsupported API '{api}'")
+    return model_class(model_name, provider=OpenAIProvider(**provider_args), settings=config.get("settings"))
+
+
+def _build_openai(alias: str, config: dict) -> Model:
+    return _build_openai_compatible(alias, config, _require(alias, config, "api_key"))
+
+
+def _build_vllm(alias: str, config: dict) -> Model:
+    return OpenAIChatModel(
+        _require(alias, config, "model_name"),
+        settings=config.get("settings"),
+        provider=OpenAIProvider(
+            base_url=_require(alias, config, "base_url"),
+            api_key=str(config.get("api_key") or "not-required"),
+        ),
+    )
+
+
+def _build_azure(alias: str, config: dict) -> Model:
+    if config.get("base_url"):
+        return _build_openai_compatible(alias, config, _require(alias, config, "api_key"))
+    client = AsyncAzureOpenAI(
+        azure_endpoint=_require(alias, config, "endpoint").rstrip("/"),
+        api_key=_require(alias, config, "api_key"),
+        api_version=_require(alias, config, "api_version"),
+    )
+    return OpenAIChatModel(
+        _require(alias, config, "deployment_name"),
+        settings=config.get("settings"),
+        provider=OpenAIProvider(openai_client=client),
+    )
+
+
+_BUILDERS = {
+    "azure-openai": _build_azure,
+    "openai": _build_openai,
+    "vllm": _build_vllm,
+}
+
+
 class ModelRegistry:
     def __init__(self, path: Path = _CONFIG_PATH):
         load_dotenv()
         config = _resolve(yaml.safe_load(path.read_text()) or {})
-        self.models = config.get("models", {})
-        self.use_cases = config.get("use_cases", {})
-        self._cache = {}
+        self.models: dict[str, dict] = config.get("models", {})
+        self.use_cases: dict[str, dict] = config.get("use_cases", {})
+        self._cache: dict[str, Model] = {}
 
     def aliases(self, use_case: str) -> list[str]:
         return list(self.use_cases.get(use_case, {}).get("aliases", []))
 
     def proportions(self, use_case: str) -> list[int]:
-        values = self.use_cases.get(use_case, {}).get("proportions", [])
-        return [int(value) for value in values]
+        return [int(value) for value in self.use_cases.get(use_case, {}).get("proportions", [])]
 
     def default_alias(self, use_case: str) -> str:
         return str(self.use_cases.get(use_case, {}).get("default_alias", ""))
@@ -80,28 +140,16 @@ class ModelRegistry:
 
     def model_name(self, alias: str) -> str:
         config = self.models[alias]
-        return config["deployment_name"] if config["kind"] == "azure-openai" else config["model_name"]
+        return config.get("deployment_name") or config.get("model_name", alias)
 
-    def get_model(self, alias: str):
-        if alias in self._cache:
-            return self._cache[alias]
-        config = self.models[alias]
-        kind = config["kind"]
-        if kind == "azure-openai":
-            client = AsyncAzureOpenAI(
-                azure_endpoint=_require(alias, config, "endpoint").rstrip("/"),
-                api_key=_require(alias, config, "api_key"),
-                api_version=_require(alias, config, "api_version"),
-            )
-            provider = OpenAIProvider(openai_client=client)
-            model_class = OpenAIChatModel
-        else:
-            provider_args = {"api_key": config.get("api_key") or "not-required"}
-            if config.get("base_url"):
-                provider_args["base_url"] = str(config["base_url"]).rstrip("/") + "/"
-            provider = OpenAIProvider(**provider_args)
-            model_class = OpenAIResponsesModel if config.get("api") == "responses" else OpenAIChatModel
-        self._cache[alias] = model_class(self.model_name(alias), provider=provider)
+    def get_model(self, alias: str) -> Model:
+        if alias not in self._cache:
+            config = self.models[alias]
+            kind = config.get("kind", "")
+            builder = _BUILDERS.get(kind)
+            if not builder:
+                raise ValueError(f"Model alias '{alias}': unsupported kind '{kind}'")
+            self._cache[alias] = builder(alias, config)
         return self._cache[alias]
 
     def validate(self, use_case: str) -> None:
@@ -119,25 +167,13 @@ class ModelRegistry:
             config = self.models.get(alias)
             if not config:
                 raise ValueError(f"Use case '{use_case}' references unknown alias '{alias}'")
-            kind = config.get("kind")
-            if kind not in {"openai", "vllm", "azure-openai", "bharat_ai_grid"}:
-                raise ValueError(f"Model alias '{alias}': unsupported kind '{kind}'")
-            if kind == "azure-openai":
-                for key in ("endpoint", "api_key", "api_version", "deployment_name"):
-                    _require(alias, config, key)
-            else:
-                _require(alias, config, "model_name")
-                if kind in {"vllm", "bharat_ai_grid"}:
-                    _require(alias, config, "base_url")
-                if kind == "openai":
-                    _require(alias, config, "api_key")
             fallback = self.fallback(alias)
             if fallback and (fallback not in self.models or fallback == alias):
                 raise ValueError(f"Model alias '{alias}': invalid fallback")
             error_names = config.get("fallback", {}).get("on_error", [])
             if any(name not in _ERROR_TYPES for name in error_names):
                 raise ValueError(f"Model alias '{alias}': unsupported fallback error")
-            if self.concurrency_limit(alias) is not None and kind != "vllm":
+            if self.concurrency_limit(alias) is not None and config.get("kind") != "vllm":
                 raise ValueError(f"Model alias '{alias}': concurrency fallback requires vllm")
             if self.concurrency_limit(alias) is not None and not fallback:
                 raise ValueError(f"Model alias '{alias}': concurrency fallback requires a target")
