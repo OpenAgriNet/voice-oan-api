@@ -62,12 +62,14 @@ use_cases:
 def test_voice_config_routes_70_30_with_mini_fallback(monkeypatch):
     monkeypatch.setenv("VOICE_PROPORTION_GEMMA_VLLM", "70")
     monkeypatch.setenv("VOICE_PROPORTION_AZURE_GPT54_MINI", "30")
+    monkeypatch.setenv("AGRINET_GEMMA_MAX_CONCURRENCY", "7")
     registry = ModelRegistry()
 
     assert registry.aliases("voice") == ["gemma_vllm", "azure_gpt54_mini"]
     assert registry.proportions("voice") == [70, 30]
     assert registry.default_alias("voice") == "azure_gpt54_mini"
     assert registry.fallback("gemma_vllm") == "azure_gpt54_mini"
+    assert registry.concurrency_limit("gemma_vllm") == 7
 
 
 def test_gemma_fallback_covers_transport_and_model_failures():

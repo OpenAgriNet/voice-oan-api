@@ -7,7 +7,7 @@ models:
     fallback:
       to: azure_gpt54_mini
       on_error: [ModelHTTPError, APIConnectionError, TransportError, TimeoutError, UnexpectedModelBehavior]
-      on_concurrency_above: 10
+      on_concurrency_above: ${AGRINET_GEMMA_MAX_CONCURRENCY}
       metrics_cache_ttl: 2
 
   azure_gpt54_mini:
