@@ -5,7 +5,9 @@ root name, the trace fields (`input`, `output`, `tags`, `level`, ...), the metad
 keys, the keys inside metadata blocks (`nested_keys`), the score names and the
 outcomes. The version is `VOICE_TELEMETRY_SCHEMA_VERSION`
 in `app/services/telemetry_stamps.py`, and `tests/test_voice_telemetry_contract.py`
-checks the code against it.
+checks the code against it. A block lists every key it can carry, including the
+ones only some turns send, so the test sends a turn with every optional argument
+given, in each text mode.
 
 A released contract never changes, because traces already in Langfuse follow it.
 Any change to what a turn sends is a new schema version: a key, a trace field, a
