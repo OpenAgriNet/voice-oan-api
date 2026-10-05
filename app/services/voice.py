@@ -1226,6 +1226,31 @@ def _dedupe_technicians(technicians: list[dict]) -> list[dict]:
     return list(unique.values())
 
 
+def _build_technician_name_replacements(
+    envelope: Optional[FarmerDataEnvelope],
+    target_lang: str,
+) -> list[tuple[str, str]]:
+    """English source name -> authoritative spoken name for output translation."""
+    if envelope is None:
+        return []
+    use_gujarati = target_lang.lower() in ("gu", "gujarati")
+    replacements: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for group in envelope.aiTechnicians or []:
+        for technician in _dedupe_technicians(group.get("technicians") or []):
+            english_name = strip_ait_name_codes(technician.get("fullName"))
+            gujarati_name = strip_ait_name_codes(technician.get("gujratiFullName"))
+            if not english_name:
+                continue
+            key = english_name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            authoritative = gujarati_name if use_gujarati and gujarati_name else english_name
+            replacements.append((english_name, authoritative))
+    return replacements
+
+
 def _farmer_record_union_name(record: FarmerRecord) -> str | None:
     data = record.model_dump()
     union_name = data.get("unionName") or data.get("union_name")
@@ -1321,7 +1346,7 @@ def _build_ai_technician_summary(envelope: Optional[FarmerDataEnvelope]) -> str:
         lines.append("- The caller does not know which AI technicians are available unless you tell them by technician name.")
         lines.append("- AI technician options for booking are grouped by farmer and society.")
         lines.append("- Each technician option only has these fields: id, full_name, mobile_number.")
-        lines.append("- When asking the farmer to choose a technician, use the technician full name in natural spoken form.")
+        lines.append("- When speaking a technician name, copy the full_name exactly; never shorten, rewrite, or correct it.")
         lines.append("- Do not ask by technician position, number, option index, or ordinal words such as first, second, or third.")
         lines.append("- Mention phone only if a disambiguating mobile number is needed.")
         # Every group and every technician is listed. A cap here is silent: the
@@ -1894,6 +1919,7 @@ async def stream_voice_message(
             farmer_village: Optional[str] = None
             farmer_district: Optional[str] = None
             ai_technician_info = ""
+            technician_name_replacements: list[tuple[str, str]] = []
             farmer_cache_task = (
                 asyncio.create_task(get_or_fetch_farmer_data(mobile))
                 if mobile
@@ -2625,6 +2651,10 @@ async def stream_voice_message(
                     if scheme_summary:
                         farmer_info = f"{farmer_info}\n{scheme_summary}" if farmer_info else scheme_summary
                     ai_technician_info = _build_ai_technician_summary(envelope)
+                    technician_name_replacements = _build_technician_name_replacements(
+                        envelope,
+                        requested_target_lang,
+                    )
                     trace.set_farmer_context(
                         source=getattr(envelope, "source", None) if envelope else None,
                         stale=getattr(envelope, "stale", None) if envelope else None,
@@ -2848,6 +2878,7 @@ async def stream_voice_message(
                                 text=text_to_translate,
                                 source_lang="english",
                                 target_lang=requested_target_lang,
+                                protected_terms=technician_name_replacements,
                             ):
                                 if await _request_is_stale("during_output_translation"):
                                     return

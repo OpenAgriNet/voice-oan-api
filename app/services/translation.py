@@ -308,6 +308,110 @@ async def _buffered_protected_stream(stream, triggers):
     if buf:
         yield buf
 
+
+_DYNAMIC_PROTECTED_TOKEN_PREFIX = "ZXQAITNAME"
+
+
+def _mask_dynamic_protected_terms(
+    text: str,
+    protected_terms: Optional[Sequence[tuple[str, str]]],
+) -> tuple[str, list[tuple[str, str, int]]]:
+    """Replace exact source names with opaque tokens before model translation."""
+    if not text or not protected_terms:
+        return text, []
+
+    masked = text
+    tokens: list[tuple[str, str, int]] = []
+    seen: set[str] = set()
+    ordered = sorted(protected_terms, key=lambda item: len(item[0] or ""), reverse=True)
+    for source, authoritative in ordered:
+        source = (source or "").strip()
+        authoritative = (authoritative or source).strip()
+        key = source.casefold()
+        if not source or not authoritative or key in seen:
+            continue
+        seen.add(key)
+        pattern = re.compile(
+            rf"(?<![\w]){re.escape(source)}(?![\w])",
+            flags=re.IGNORECASE,
+        )
+        if not pattern.search(masked):
+            continue
+        token = f"{_DYNAMIC_PROTECTED_TOKEN_PREFIX}{len(tokens)}QXZ"
+        masked, count = pattern.subn(token, masked)
+        tokens.append((token, authoritative, count))
+    return masked, tokens
+
+
+def _restore_dynamic_protected_terms(
+    translated: str,
+    tokens: Sequence[tuple[str, str, int]],
+) -> Optional[str]:
+    """Restore authoritative names, or fail closed if a token was changed/lost."""
+    restored = translated
+    for token, authoritative, expected_count in tokens:
+        if restored.count(token) != expected_count:
+            return None
+        restored = restored.replace(token, authoritative)
+    return restored
+
+
+def _dynamic_term_pattern(
+    protected_terms: Sequence[tuple[str, str]],
+) -> tuple[Optional[re.Pattern], dict[str, str]]:
+    replacements: dict[str, str] = {}
+    for source, authoritative in protected_terms:
+        source = (source or "").strip()
+        authoritative = (authoritative or source).strip()
+        if source and authoritative:
+            replacements.setdefault(source.casefold(), authoritative)
+    if not replacements:
+        return None, {}
+    alternatives = "|".join(
+        re.escape(source)
+        for source in sorted(replacements, key=len, reverse=True)
+    )
+    return re.compile(rf"(?<![\w])(?:{alternatives})(?![\w])", re.IGNORECASE), replacements
+
+
+async def _translate_around_dynamic_protected_terms(
+    text: str,
+    source_lang: str,
+    target_lang: str,
+    protected_terms: Sequence[tuple[str, str]],
+    *,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    """Last-resort path: translate surrounding text, never protected names."""
+    pattern, replacements = _dynamic_term_pattern(protected_terms)
+    if pattern is None:
+        return await translate_text(
+            text, source_lang, target_lang,
+            temperature=temperature, max_tokens=max_tokens,
+        )
+
+    async def _translate_fragment(fragment: str) -> str:
+        leading = fragment[: len(fragment) - len(fragment.lstrip())]
+        trailing = fragment[len(fragment.rstrip()):]
+        core = fragment.strip()
+        if not core:
+            return fragment
+        translated = await translate_text(
+            core, source_lang, target_lang,
+            temperature=temperature, max_tokens=max_tokens,
+        )
+        return f"{leading}{translated}{trailing}"
+
+    parts: list[str] = []
+    cursor = 0
+    for match in pattern.finditer(text):
+        parts.append(await _translate_fragment(text[cursor:match.start()]))
+        parts.append(replacements[match.group(0).casefold()])
+        cursor = match.end()
+    parts.append(await _translate_fragment(text[cursor:]))
+    return "".join(parts)
+
 # Enforce feminine first-person self-reference in Gujarati assistant output.
 # This runs on every Gujarati assistant response, so keep it narrow:
 # explicit sentence-level "હું ... " forms only, no blanket token rewrites.
@@ -485,6 +589,7 @@ def _build_translation_instruction(
     source_lang: str,
     target_lang: str,
     mini_glossary: Optional[str] = None,
+    copy_tokens: Optional[Sequence[str]] = None,
 ) -> str:
     """Build the translation INSTRUCTION text (voice spoken-language preamble +
     glossary Rules + voice GU style rules) — the same wording used for BOTH tiers:
@@ -519,6 +624,13 @@ def _build_translation_instruction(
             "\n\n**Gujarati Livestock Style Rules (mandatory):**\n- "
             + "\n- ".join(GU_PREFERRED_TRANSLATION_RULES)
             + "\n"
+        )
+    if copy_tokens:
+        instruction += (
+            "\n\n**Opaque Tokens (mandatory):**\n"
+            "Copy each token exactly and unchanged into the translation: "
+            + ", ".join(copy_tokens)
+            + ". Never translate, transliterate, split, remove, or add characters to them."
         )
     instruction += f"\n\nPlease translate the following {source_name} text into {target_name}:\n\n\n{text.strip()}"
     return instruction
@@ -591,7 +703,7 @@ def _is_untranslatable_fragment(text: str) -> bool:
 _POST_TRANSLATION_PIPELINE = "posttranslation"
 
 
-def _prepare_translation_inputs(text, source_lang, target_lang):
+def _prepare_translation_inputs(text, source_lang, target_lang, protected_tokens=None):
     """Mini-glossary fetch + build the translation instruction ONCE (shared by both
     tiers) + the Gemma-wrapped TranslateGemma prompt. Verbatim to the prior inline
     logic (mini glossary for gu at threshold 0.90 / max 40). Voice has no
@@ -603,6 +715,7 @@ def _prepare_translation_inputs(text, source_lang, target_lang):
             logger.info(f"Translation prompt: injected mini glossary ({len(mini_glossary.splitlines())} terms)")
     instruction = _build_translation_instruction(
         text, source_lang, target_lang, mini_glossary=mini_glossary,
+        copy_tokens=protected_tokens,
     )
     tg_prompt = _wrap_translategemma_prompt(instruction)
     return instruction, tg_prompt
@@ -1112,7 +1225,8 @@ async def translate_text(
     target_lang: str,
     model_size: Optional[Literal["4b", "12b", "27b", "27b-base"]] = None,
     temperature: float = 0.0,
-    max_tokens: int = 2048
+    max_tokens: int = 2048,
+    protected_terms: Optional[Sequence[tuple[str, str]]] = None,
 ) -> str:
     """Translate text via the post-translation tier chain.
 
@@ -1132,9 +1246,16 @@ async def translate_text(
         logger.info("Source and target languages are the same, skipping translation")
         return text
 
-    _prot = _protected_output_triggers(text, target_lang)
+    source_text = text
+    text, dynamic_tokens = _mask_dynamic_protected_terms(text, protected_terms)
+    _prot = _protected_output_triggers(source_text, target_lang)
 
-    instruction, tg_prompt = _prepare_translation_inputs(text, source_lang, target_lang)
+    instruction, tg_prompt = _prepare_translation_inputs(
+        text,
+        source_lang,
+        target_lang,
+        protected_tokens=[token for token, _value, _count in dynamic_tokens],
+    )
     logger.info(f"Translating {source_lang} -> {target_lang} via post-translation chain")
 
     chain = _post_translation_chain()
@@ -1149,7 +1270,24 @@ async def translate_text(
         )
 
     result = await _run_post_translation_chain(chain, _run)
-    return _apply_protected_output(result, _prot)
+    result = _apply_protected_output(result, _prot)
+    if not dynamic_tokens:
+        return result
+    restored = _restore_dynamic_protected_terms(result, dynamic_tokens)
+    if restored is not None:
+        return restored
+    logger.warning(
+        "Translation changed or dropped a protected technician-name token; "
+        "using segmented fallback"
+    )
+    return await _translate_around_dynamic_protected_terms(
+        source_text,
+        source_lang,
+        target_lang,
+        protected_terms or (),
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
 
 
 def _get_openai_client() -> AsyncOpenAI:
@@ -1711,7 +1849,8 @@ async def translate_text_stream_fast(
     target_lang: str,
     model_size: Optional[Literal["4b", "12b", "27b", "27b-base"]] = None,
     temperature: float = 0.0,
-    max_tokens: int = 2048
+    max_tokens: int = 2048,
+    protected_terms: Optional[Sequence[tuple[str, str]]] = None,
 ):
     """Stream translated text token by token (no artificial delay) via the
     post-translation tier chain [TranslateGemma(LB), managed-LLM overflow].
@@ -1733,9 +1872,16 @@ async def translate_text_stream_fast(
         yield text
         return
 
-    _prot = _protected_output_triggers(text, target_lang)
+    source_text = text
+    text, dynamic_tokens = _mask_dynamic_protected_terms(text, protected_terms)
+    _prot = _protected_output_triggers(source_text, target_lang)
 
-    instruction, tg_prompt = _prepare_translation_inputs(text, source_lang, target_lang)
+    instruction, tg_prompt = _prepare_translation_inputs(
+        text,
+        source_lang,
+        target_lang,
+        protected_tokens=[token for token, _value, _count in dynamic_tokens],
+    )
     logger.info(f"Fast streaming translation {source_lang} -> {target_lang} via post-translation chain")
 
     chain = _post_translation_chain()
@@ -1754,8 +1900,41 @@ async def translate_text_stream_fast(
             chain, _make_stream, source_lang=source_lang, target_lang=target_lang
         )
         stream = _buffered_protected_stream(base_stream, _prot) if _prot else base_stream
+        if dynamic_tokens:
+            translated = "".join([chunk async for chunk in stream])
+            restored = _restore_dynamic_protected_terms(translated, dynamic_tokens)
+            if restored is None:
+                logger.warning(
+                    "Streaming translation changed or dropped a protected "
+                    "technician-name token; using segmented fallback"
+                )
+                restored = await _translate_around_dynamic_protected_terms(
+                    source_text,
+                    source_lang,
+                    target_lang,
+                    protected_terms or (),
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            if restored:
+                yield restored
+            return
         async for chunk in stream:
             yield chunk
     except Exception as e:
+        if dynamic_tokens:
+            logger.warning(
+                "Protected streaming translation failed; using segmented fallback: %s",
+                e,
+            )
+            yield await _translate_around_dynamic_protected_terms(
+                source_text,
+                source_lang,
+                target_lang,
+                protected_terms or (),
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return
         logger.error(f"Translation streaming error: {str(e)}")
         raise
