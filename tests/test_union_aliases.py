@@ -255,6 +255,12 @@ def test_scheme_cache_keys_match_chat_ingestion_sources():
     assert get_source_keys_for_union(UnionName.SABAR.value) == (
         "sabardairy.org/for-our-milk-producers",
     )
+    assert get_source_keys_for_union(UnionName.GANDHINAGAR.value) == (
+        "madhurdairy.org/forourmilkproducers",
+    )
+    assert get_source_keys_for_union("madhur dairy") == (
+        "madhurdairy.org/forourmilkproducers",
+    )
     assert us.SUPPORTED_SCHEME_UNIONS == frozenset(SUPPORTED_UNION_SOURCE_KEYS)
     assert SUPPORTED_SCHEME_UNIONS == frozenset(
         {
@@ -264,5 +270,6 @@ def test_scheme_cache_keys_match_chat_ingestion_sources():
             UnionName.SURENDRANAGAR.value,
             UnionName.BHARUCH.value,
             UnionName.SABAR.value,
+            UnionName.GANDHINAGAR.value,
         }
     )
