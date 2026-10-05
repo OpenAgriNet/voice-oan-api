@@ -1193,23 +1193,31 @@ def _get_glossary_hints_for_gu_query(text: str, max_results: int = 7) -> str:
     scored: list[tuple[str, str, float]] = []
 
     for tp in TERM_PAIRS:
-        scores: list[float] = []
-        gu_lower = (tp.gu or "").lower().strip()
-        translit_lower = (tp.transliteration or "").lower().strip()
+        scores: list[tuple[str, float]] = []
+        gu_candidates = [tp.gu, *tp.gu_input_aliases]
+        transliteration_candidates = [
+            tp.transliteration,
+            *tp.transliteration_input_aliases,
+        ]
 
         # Check substring containment first (fast path), ignoring empty fields.
-        if gu_lower:
-            scores.append(100.0 if gu_lower in text_lower else _fuzz.partial_ratio(gu_lower, text_lower))
-        if translit_lower:
-            scores.append(
-                100.0 if translit_lower in text_lower else _fuzz.partial_ratio(translit_lower, text_lower)
-            )
+        for candidate in [*gu_candidates, *transliteration_candidates]:
+            candidate_lower = (candidate or "").lower().strip()
+            if candidate_lower:
+                scores.append(
+                    (
+                        candidate,
+                        100.0
+                        if candidate_lower in text_lower
+                        else _fuzz.partial_ratio(candidate_lower, text_lower),
+                    )
+                )
         if not scores:
             continue
-        best = max(scores)
+        matched_input, best = max(scores, key=lambda item: item[1])
 
         if best >= 75:
-            scored.append((tp.gu, tp.en, best))
+            scored.append((matched_input, tp.en, best))
 
     if not scored:
         return ""
@@ -1232,7 +1240,7 @@ def _whole_ascii_token_pattern(term: str) -> str:
 
 
 def _apply_exact_glossary_transliteration_replacements(source_text: str, translation: str) -> str:
-    """Replace model transliterations with glossary labels for exact Gujarati term hits."""
+    """Replace known transliterations when the source contains a matching input form."""
     if not source_text or not translation:
         return translation
 
@@ -1240,24 +1248,34 @@ def _apply_exact_glossary_transliteration_replacements(source_text: str, transla
     cleaned = translation
 
     for tp in TERM_PAIRS:
-        gu_term = (tp.gu or "").strip()
-        transliteration = (tp.transliteration or "").strip()
         english_label = (tp.en or "").strip()
-        if not gu_term or not transliteration or not english_label:
+        source_forms = [
+            tp.gu,
+            *tp.gu_input_aliases,
+            tp.transliteration,
+            *tp.transliteration_input_aliases,
+        ]
+        transliterations = [tp.transliteration, *tp.transliteration_input_aliases]
+        if not english_label:
             continue
-        if len(transliteration) < 3 or transliteration.lower() == english_label.lower():
-            continue
-        if gu_term.lower() not in source_lower:
+        if not any(
+            form and form.strip().lower() in source_lower
+            for form in source_forms
+        ):
             continue
         if re.search(_whole_ascii_token_pattern(english_label), cleaned, flags=re.IGNORECASE):
             continue
 
-        cleaned = re.sub(
-            _whole_ascii_token_pattern(transliteration),
-            english_label,
-            cleaned,
-            flags=re.IGNORECASE,
-        )
+        for transliteration in sorted(set(transliterations), key=len, reverse=True):
+            transliteration = (transliteration or "").strip()
+            if len(transliteration) < 3 or transliteration.lower() == english_label.lower():
+                continue
+            cleaned = re.sub(
+                _whole_ascii_token_pattern(transliteration),
+                english_label,
+                cleaned,
+                flags=re.IGNORECASE,
+            )
 
     return cleaned
 
