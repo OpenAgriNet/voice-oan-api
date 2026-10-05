@@ -343,74 +343,67 @@ def _mask_dynamic_protected_terms(
     return masked, tokens
 
 
-def _restore_dynamic_protected_terms(
-    translated: str,
+async def _restore_dynamic_protected_stream(
+    stream,
     tokens: Sequence[tuple[str, str, int]],
-) -> Optional[str]:
-    """Restore authoritative names, or fail closed if a token was changed/lost."""
-    restored = translated
+):
+    """Restore protected tokens without waiting for the complete translation."""
+    pending = ""
+    seen = {token: 0 for token, _authoritative, _count in tokens}
+    emitted = False
+
+    async for chunk in stream:
+        pending += chunk
+        while pending:
+            matches = [
+                (index, -len(token), token, authoritative, expected_count)
+                for token, authoritative, expected_count in tokens
+                if (index := pending.find(token)) >= 0
+            ]
+            if matches:
+                index, _neg_length, token, authoritative, expected_count = min(matches)
+                if index:
+                    yield pending[:index]
+                    emitted = True
+                seen[token] += 1
+                if seen[token] <= expected_count:
+                    yield authoritative
+                    emitted = True
+                else:
+                    logger.warning("Dropping unexpected extra protected token %s", token)
+                pending = pending[index + len(token):]
+                continue
+
+            holdback = 0
+            for token, _authoritative, _count in tokens:
+                max_prefix = min(len(token) - 1, len(pending))
+                for prefix_length in range(max_prefix, 0, -1):
+                    if pending.endswith(token[:prefix_length]):
+                        holdback = max(holdback, prefix_length)
+                        break
+
+            safe_text = pending[:-holdback] if holdback else pending
+            if safe_text:
+                yield safe_text
+                emitted = True
+            pending = pending[-holdback:] if holdback else ""
+            break
+
+    missing_names: list[str] = []
+    if pending:
+        logger.warning("Dropping incomplete protected token tail: %s", pending)
     for token, authoritative, expected_count in tokens:
-        if restored.count(token) != expected_count:
-            return None
-        restored = restored.replace(token, authoritative)
-    return restored
-
-
-def _dynamic_term_pattern(
-    protected_terms: Sequence[tuple[str, str]],
-) -> tuple[Optional[re.Pattern], dict[str, str]]:
-    replacements: dict[str, str] = {}
-    for source, authoritative in protected_terms:
-        source = (source or "").strip()
-        authoritative = (authoritative or source).strip()
-        if source and authoritative:
-            replacements.setdefault(source.casefold(), authoritative)
-    if not replacements:
-        return None, {}
-    alternatives = "|".join(
-        re.escape(source)
-        for source in sorted(replacements, key=len, reverse=True)
-    )
-    return re.compile(rf"(?<![\w])(?:{alternatives})(?![\w])", re.IGNORECASE), replacements
-
-
-async def _translate_around_dynamic_protected_terms(
-    text: str,
-    source_lang: str,
-    target_lang: str,
-    protected_terms: Sequence[tuple[str, str]],
-    *,
-    temperature: float,
-    max_tokens: int,
-) -> str:
-    """Last-resort path: translate surrounding text, never protected names."""
-    pattern, replacements = _dynamic_term_pattern(protected_terms)
-    if pattern is None:
-        return await translate_text(
-            text, source_lang, target_lang,
-            temperature=temperature, max_tokens=max_tokens,
-        )
-
-    async def _translate_fragment(fragment: str) -> str:
-        leading = fragment[: len(fragment) - len(fragment.lstrip())]
-        trailing = fragment[len(fragment.rstrip()):]
-        core = fragment.strip()
-        if not core:
-            return fragment
-        translated = await translate_text(
-            core, source_lang, target_lang,
-            temperature=temperature, max_tokens=max_tokens,
-        )
-        return f"{leading}{translated}{trailing}"
-
-    parts: list[str] = []
-    cursor = 0
-    for match in pattern.finditer(text):
-        parts.append(await _translate_fragment(text[cursor:match.start()]))
-        parts.append(replacements[match.group(0).casefold()])
-        cursor = match.end()
-    parts.append(await _translate_fragment(text[cursor:]))
-    return "".join(parts)
+        if seen[token] != expected_count:
+            logger.warning(
+                "Protected technician-name token count mismatch: token=%s expected=%s actual=%s",
+                token,
+                expected_count,
+                seen[token],
+            )
+        if seen[token] == 0 and authoritative not in missing_names:
+            missing_names.append(authoritative)
+    if missing_names:
+        yield (" " if emitted else "") + " ".join(missing_names)
 
 # Enforce feminine first-person self-reference in Gujarati assistant output.
 # This runs on every Gujarati assistant response, so keep it narrow:
@@ -1226,7 +1219,6 @@ async def translate_text(
     model_size: Optional[Literal["4b", "12b", "27b", "27b-base"]] = None,
     temperature: float = 0.0,
     max_tokens: int = 2048,
-    protected_terms: Optional[Sequence[tuple[str, str]]] = None,
 ) -> str:
     """Translate text via the post-translation tier chain.
 
@@ -1246,16 +1238,9 @@ async def translate_text(
         logger.info("Source and target languages are the same, skipping translation")
         return text
 
-    source_text = text
-    text, dynamic_tokens = _mask_dynamic_protected_terms(text, protected_terms)
-    _prot = _protected_output_triggers(source_text, target_lang)
+    _prot = _protected_output_triggers(text, target_lang)
 
-    instruction, tg_prompt = _prepare_translation_inputs(
-        text,
-        source_lang,
-        target_lang,
-        protected_tokens=[token for token, _value, _count in dynamic_tokens],
-    )
+    instruction, tg_prompt = _prepare_translation_inputs(text, source_lang, target_lang)
     logger.info(f"Translating {source_lang} -> {target_lang} via post-translation chain")
 
     chain = _post_translation_chain()
@@ -1270,24 +1255,7 @@ async def translate_text(
         )
 
     result = await _run_post_translation_chain(chain, _run)
-    result = _apply_protected_output(result, _prot)
-    if not dynamic_tokens:
-        return result
-    restored = _restore_dynamic_protected_terms(result, dynamic_tokens)
-    if restored is not None:
-        return restored
-    logger.warning(
-        "Translation changed or dropped a protected technician-name token; "
-        "using segmented fallback"
-    )
-    return await _translate_around_dynamic_protected_terms(
-        source_text,
-        source_lang,
-        target_lang,
-        protected_terms or (),
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    return _apply_protected_output(result, _prot)
 
 
 def _get_openai_client() -> AsyncOpenAI:
@@ -1872,9 +1840,8 @@ async def translate_text_stream_fast(
         yield text
         return
 
-    source_text = text
     text, dynamic_tokens = _mask_dynamic_protected_terms(text, protected_terms)
-    _prot = _protected_output_triggers(source_text, target_lang)
+    _prot = _protected_output_triggers(text, target_lang)
 
     instruction, tg_prompt = _prepare_translation_inputs(
         text,
@@ -1901,40 +1868,11 @@ async def translate_text_stream_fast(
         )
         stream = _buffered_protected_stream(base_stream, _prot) if _prot else base_stream
         if dynamic_tokens:
-            translated = "".join([chunk async for chunk in stream])
-            restored = _restore_dynamic_protected_terms(translated, dynamic_tokens)
-            if restored is None:
-                logger.warning(
-                    "Streaming translation changed or dropped a protected "
-                    "technician-name token; using segmented fallback"
-                )
-                restored = await _translate_around_dynamic_protected_terms(
-                    source_text,
-                    source_lang,
-                    target_lang,
-                    protected_terms or (),
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-            if restored:
-                yield restored
+            async for chunk in _restore_dynamic_protected_stream(stream, dynamic_tokens):
+                yield chunk
             return
         async for chunk in stream:
             yield chunk
     except Exception as e:
-        if dynamic_tokens:
-            logger.warning(
-                "Protected streaming translation failed; using segmented fallback: %s",
-                e,
-            )
-            yield await _translate_around_dynamic_protected_terms(
-                source_text,
-                source_lang,
-                target_lang,
-                protected_terms or (),
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return
         logger.error(f"Translation streaming error: {str(e)}")
         raise
