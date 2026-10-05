@@ -112,7 +112,7 @@ class Settings(BaseSettings):
         os.getenv("VOICE_OUTBOUND_CONSENT_TIMEOUT_SECONDS", "0.60")
     )
     enable_voice_tracing: bool = _get_bool_env("ENABLE_VOICE_TRACING", default=True)
-    voice_trace_text_mode: str = os.getenv("VOICE_TRACE_TEXT_MODE", "preview_hash")
+    voice_trace_text_mode: str = os.getenv("VOICE_TRACE_TEXT_MODE", "none")
     voice_trace_preview_chars: int = int(os.getenv("VOICE_TRACE_PREVIEW_CHARS", "120"))
     voice_trace_log_summary: bool = _get_bool_env("VOICE_TRACE_LOG_SUMMARY", default=True)
     # Shared voice profile prompt fields (rendered once at startup).

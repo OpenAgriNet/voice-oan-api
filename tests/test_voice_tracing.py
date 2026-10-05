@@ -1,7 +1,13 @@
 import asyncio
+import json
 import logging
+from contextlib import contextmanager
 
-from app.services.voice_trace import create_voice_trace, sanitize_text
+import langfuse
+import pytest
+
+from app.config import Settings
+from app.services.voice_trace import _VALID_TEXT_MODES, VoiceTrace, create_voice_trace, sanitize_text
 
 
 def test_sanitize_text_preview_hash(monkeypatch):
@@ -34,6 +40,76 @@ def test_sanitize_text_none(monkeypatch):
     assert payload["sha256"]
     assert "preview" not in payload
     assert "text" not in payload
+
+
+class _Langfuse:
+    """Records everything the trace hands Langfuse."""
+
+    def __init__(self):
+        self.sent = []
+
+    @contextmanager
+    def start_as_current_observation(self, **kwargs):
+        self.sent.append(kwargs)
+        yield self
+
+    @contextmanager
+    def propagate_attributes(self, **kwargs):
+        self.sent.append(kwargs)
+        yield
+
+    def update(self, **kwargs):
+        self.sent.append(kwargs)
+
+    def end(self):
+        pass
+
+
+_PRIVATE = ("9876543210", "fever", "water")
+
+
+def _send_a_turn(monkeypatch, mode):
+    client = _Langfuse()
+    monkeypatch.setattr(langfuse, "propagate_attributes", client.propagate_attributes)
+    monkeypatch.setattr("app.services.voice_trace.settings.voice_trace_text_mode", mode, raising=False)
+    monkeypatch.setattr("app.services.voice_trace.settings.voice_trace_log_summary", True, raising=False)
+    trace = VoiceTrace(
+        session_id="trace-test",
+        user_id="+91 9876543210",
+        source_lang="en",
+        target_lang="en",
+        query="my cow has fever",
+        enabled=False,
+    )
+    trace.enabled, trace.langfuse_client = True, client
+    with trace.request_context():
+        trace.set_pretranslation(text="my cow has fever", provider="none", fallback_used=False)
+        trace.record_emit("give her water")
+        trace.finish("success")
+    return trace, client
+
+
+def test_by_default_langfuse_gets_no_phone_and_no_words(monkeypatch):
+    trace, client = _send_a_turn(monkeypatch, Settings.model_fields["voice_trace_text_mode"].default)
+
+    sent = json.dumps(client.sent, ensure_ascii=False, default=str)
+    for private in _PRIVATE:
+        assert private not in sent
+    (propagated,) = [kwargs for kwargs in client.sent if "user_id" in kwargs]
+    assert propagated["user_id"] == trace.metadata["user_id_hash"]
+    assert trace.metadata["query"].keys() == {"chars", "sha256"}
+
+
+@pytest.mark.parametrize("mode", sorted(_VALID_TEXT_MODES))
+def test_the_summary_log_holds_no_words_whatever_the_text_mode(monkeypatch, caplog, mode):
+    caplog.set_level(logging.INFO, logger="app.services.voice_trace")
+
+    _send_a_turn(monkeypatch, mode)
+
+    (logged,) = [r.getMessage() for r in caplog.records if r.getMessage().startswith("VOICE_TRACE_SUMMARY")]
+    for private in _PRIVATE:
+        assert private not in logged
+    assert json.loads(logged.split(" ", 1)[1])["query"].keys() == {"chars", "sha256"}
 
 
 def test_stage_and_finish_emit_summary(caplog, monkeypatch):
