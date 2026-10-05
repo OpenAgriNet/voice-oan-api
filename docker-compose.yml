@@ -1,7 +1,13 @@
 services:
   app:
     container_name: amul_voice_app
-    build: .
+    build:
+      context: .
+      # For the release stamp: GIT_SHA=$(git rev-parse HEAD) docker compose build.
+      # The checkout mounted below is read first, so a running container still
+      # reports the code it runs.
+      args:
+        GIT_SHA: ${GIT_SHA:-}
     ports:
       - "8003:8003"
     expose:

@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pytest
+import yaml
 
 from app.services import telemetry_stamps, voice_trace
 from app.services.telemetry_stamps import (
@@ -10,6 +13,7 @@ from app.services.telemetry_stamps import (
 from app.services.voice_trace import VoiceTrace
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
+REPO = Path(__file__).resolve().parents[1]
 
 
 def test_forward_telemetry_metadata_stamps_schema_service_and_release():
@@ -98,3 +102,19 @@ def test_an_empty_build_arg_is_no_release(monkeypatch, fresh_release):
     monkeypatch.setenv("GIT_SHA", "")
 
     assert running_release() is None
+
+
+# .dockerignore leaves .git out of every image, so an image only knows its
+# commit from the GIT_SHA build arg.
+@pytest.mark.parametrize("dockerfile", sorted(path.name for path in REPO.glob("*Dockerfile")))
+def test_every_image_takes_the_commit_it_is_built_from(dockerfile):
+    text = (REPO / dockerfile).read_text(encoding="utf-8")
+
+    assert "ARG GIT_SHA" in text and "ENV GIT_SHA=${GIT_SHA}" in text
+
+
+def test_docker_compose_passes_the_commit_and_mounts_the_checkout():
+    app = yaml.safe_load((REPO / "docker-compose.yml").read_text(encoding="utf-8"))["services"]["app"]
+
+    assert app["build"]["args"]["GIT_SHA"] == "${GIT_SHA:-}"
+    assert ".:/app" in app["volumes"], "the mounted checkout's .git is what a running container reports"

@@ -37,8 +37,10 @@ checks its main branch for the outcome buckets and the mapping.
 
 Every turn is also stamped with `service` and `release`. `release` is the git
 commit of the running code: the checkout's HEAD when the repo is mounted, or
-`GIT_SHA` passed to `docker build` (`--build-arg GIT_SHA=$(git rev-parse HEAD)`).
-With neither, it reads `unknown`.
+`GIT_SHA` given to the image build, with either Dockerfile
+(`--build-arg GIT_SHA=$(git rev-parse HEAD)`) or docker-compose
+(`GIT_SHA=$(git rev-parse HEAD) docker compose build`). With neither, it reads
+`unknown`.
 
 Step by step, with every file to edit: `docs/TELEMETRY_CHANGES.md` in amul-oan-api.
 Full rules: `docs/TELEMETRY_STANDARD.md` there too.
