@@ -90,6 +90,66 @@ Authentication contract:
 - bearer JWT required outside development
 - JWT subject and claims are treated as caller identity context
 
+## Partner Heat-Alert Webhook
+
+Inbound partner alerts are accepted at:
+
+`POST /api/webhooks/alerts`
+
+The alert kind is not in the URL. `notification_type` in the body is required.
+Today the only value is `heat`. Input is case-insensitive and stored as lowercase.
+A missing or unknown value returns `422`.
+
+Auth:
+- `Authorization: Bearer <token>` (a static shared secret, not a JWT)
+- token value must match `WEBHOOK_SHARED_TOKEN`
+- missing/invalid token → `401`
+- token unset in env → `503` (fail closed)
+
+Request body uses the partner's wire keys (including spaces/casing), for example:
+`alertID`, `deviceid`, `tag no`, `Pashuaadhar No`, `AI Window start_time`.
+
+Successful response (`202 Accepted`):
+```json
+{
+  "accepted": true,
+  "id": "<uuid>",
+  "received_at": "<iso8601-utc>"
+}
+```
+
+Persistence:
+- rows are stored in a dedicated Postgres database (`WEBHOOK_DB_URL`)
+- table: `heat_alert_webhook_events` (see `migrations/webhook/001_init.sql`)
+- full payload is kept in `payload_raw` (JSONB) plus selected searchable columns
+- DB missing/unconfigured → `503`
+
+Retention:
+- background worker hard-deletes rows older than `WEBHOOK_RETENTION_HOURS` (default `24`)
+- cadence: `WEBHOOK_CLEANUP_INTERVAL_SECONDS` (default `900`)
+- worker is a no-op when `WEBHOOK_DB_URL` is unset
+
+Env reference: `example.webhook.env`
+
+### vm2 deploy checklist
+
+1. Create a dedicated Postgres DB/user on vm2 for webhook storage.
+2. Apply migration:
+   `psql "$WEBHOOK_DSN" -f migrations/webhook/001_init.sql`
+3. Set runtime env on this service:
+   - `WEBHOOK_SHARED_TOKEN=<shared-secret>`
+   - `WEBHOOK_DB_URL=postgresql+asyncpg://USER:PASS@VM2_HOST:5432/DB`
+   - optional: `WEBHOOK_DB_POOL_SIZE`, `WEBHOOK_RETENTION_HOURS`, `WEBHOOK_CLEANUP_INTERVAL_SECONDS`
+4. Restart the API process and confirm startup log includes webhook cleanup worker start (or the "not started: WEBHOOK_DB_URL not configured" skip line).
+5. Smoke test:
+   ```bash
+   curl -sS -X POST "$BASE_URL/api/webhooks/alerts" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $WEBHOOK_SHARED_TOKEN" \
+     -d '{"alertID":"111","deviceid":"S1IAD1869","notification_type":"heat"}'
+   ```
+6. Verify a row exists in `heat_alert_webhook_events`, then confirm old rows disappear after retention.
+
 ## FE / Telephony Contract
 
 This service is built for an interruptible phone flow where the frontend/provider may reconnect repeatedly during one logical call.

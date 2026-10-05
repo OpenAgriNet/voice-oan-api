@@ -529,6 +529,16 @@
   },
   {
     "gu_terms": [
+      "બાપોટી",
+      "વાપોટી",
+      "bapoti",
+      "vapoti"
+    ],
+    "type": "hardcode",
+    "rule": "'બાપોટી' / 'વાપોટી' (including STT/roman variants bapoti/vapoti) in dairy reproductive context refers to heat mucus / estrus discharge and related heat signs. Treat બ/વ swapping as an ASR spelling variation of the same concept. Translate this family as heat-mucus / estrus-sign context, NOT teat/udder anatomy (not આંચળ, not બાવલું). Do not identity-pin 'vapoti' back into Gujarati if meaning is unclear; preserve the reproductive/heat interpretation."
+  },
+  {
+    "gu_terms": [
       "બિદાન",
       "બિદદાન",
       "બિદન",
