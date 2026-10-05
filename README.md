@@ -193,10 +193,16 @@ When Langfuse is configured, each streamed voice request opens one root
 spans below it. The service also emits one structured `VOICE_TRACE_SUMMARY`
 log line per request when `VOICE_TRACE_LOG_SUMMARY=true`.
 
+Langfuse gets the caller's hash as `user_id`, never their phone. By default the
+caller's words are sent only as their length and hash. `VOICE_TRACE_TEXT_MODE`
+`preview_hash` or `full` puts them in Langfuse, so set it only where Langfuse is
+approved to hold them and its retention and access policy is documented. The
+summary log line never carries them.
+
 Tracing env vars:
 - `ENABLE_VOICE_TRACING` default: `true`
 - `VOICE_TRACE_LOG_SUMMARY` default: `true`
-- `VOICE_TRACE_TEXT_MODE` default: `preview_hash`; supported values are `preview_hash`, `full`, and `none`
+- `VOICE_TRACE_TEXT_MODE` default: `none` (length and hash only); supported values are `none`, `preview_hash` and `full`
 - `VOICE_TRACE_PREVIEW_CHARS` default: `120`
 
 Latency definitions:
