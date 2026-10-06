@@ -176,20 +176,138 @@ def _build_gu_policy_replacements(policy: dict) -> list[tuple[str, str]]:
     return out
 
 
+def _build_gu_policy_term_rules(policy: dict) -> list[tuple[str, str, bool, bool]]:
+    forbidden = policy.get("forbidden", {}) if isinstance(policy, dict) else {}
+    if not isinstance(forbidden, dict):
+        return []
+    return [
+        (str(source).strip(), str(replacement).strip(), False, False)
+        for source, replacement in forbidden.items()
+        if str(source).strip() and str(replacement).strip()
+    ]
+
+
 GU_POST_REPLACEMENTS_BASE = [
     (r"(?i)red\s*colour\s*-?\s*delete", ""),
     (r"(?i)red\s*colour", ""),
-    # Keep only script/format cleanup and a couple of safe transliteration fixes here.
-    # Terminology ownership should live in the glossary/policy layers.
-    (r"(?i)\bpaho\b", "બાવલું"),
-    (r"ગર્ભવતી", "ગાભણ"),
+    # Keep only script/format cleanup here. Terminology ownership lives in the
+    # ordered term rules below so streaming can recognize it across chunks.
     # Fix TranslateGemma ૫↔પ confusion: letter પ adjacent to Gujarati digits → ૫
     (r"(?<=[૦-૯])પ", "૫"),
     (r"પ(?=[૦-૯])", "૫"),
 ]
 GU_TERM_POLICY = _load_gu_term_policy()
 GU_POLICY_REPLACEMENTS = _build_gu_policy_replacements(GU_TERM_POLICY)
-GU_POST_REPLACEMENTS = GU_POST_REPLACEMENTS_BASE + GU_POLICY_REPLACEMENTS
+
+# source, replacement, case-insensitive, whole-ASCII-token
+_GU_FIXED_TERM_REPLACEMENTS: list[tuple[str, str, bool, bool]] = [
+    ("paho", "બાવલું", True, True),
+    ("ગર્ભવતી", "ગાભણ", False, False),
+]
+GU_TERM_REPLACEMENTS: list[tuple[str, str, bool, bool]] = sorted(
+    [*_GU_FIXED_TERM_REPLACEMENTS, *_build_gu_policy_term_rules(GU_TERM_POLICY)],
+    key=lambda item: len(item[0]),
+    reverse=True,
+)
+
+
+def _term_rule_pattern(source: str, case_insensitive: bool, whole_ascii_token: bool) -> str:
+    pattern = re.escape(source)
+    if whole_ascii_token:
+        pattern = rf"\b{pattern}\b"
+    if case_insensitive:
+        pattern = rf"(?i){pattern}"
+    return pattern
+
+
+GU_TERM_REPLACEMENT_PATTERNS = [
+    (_term_rule_pattern(source, case_insensitive, whole_ascii_token), replacement)
+    for source, replacement, case_insensitive, whole_ascii_token in GU_TERM_REPLACEMENTS
+]
+# Kept as the complete public/internal inspection list used by existing tests.
+GU_POST_REPLACEMENTS = GU_POST_REPLACEMENTS_BASE + GU_TERM_REPLACEMENT_PATTERNS
+
+
+def _apply_gu_term_replacements(text: str) -> str:
+    out = text
+    for pattern, replacement in GU_TERM_REPLACEMENT_PATTERNS:
+        out = re.sub(pattern, replacement, out)
+    return out
+
+
+def _is_word_char(char: str) -> bool:
+    return bool(char and re.match(r"\w", char, flags=re.UNICODE))
+
+
+class _StreamingGujaratiTermNormalizer:
+    """Incrementally apply ordered literal term rules with minimal buffering."""
+
+    def __init__(self, target_lang: str):
+        self._enabled = target_lang.lower() in ("gujarati", "gu")
+        self._pending = ""
+        self._previous_input_char = ""
+
+    @staticmethod
+    def _comparable(value: str, case_insensitive: bool) -> str:
+        return value.casefold() if case_insensitive else value
+
+    def feed(self, chunk: str) -> str:
+        if not self._enabled:
+            return chunk
+        self._pending += chunk
+        return self._drain(final=False)
+
+    def flush(self) -> str:
+        if not self._enabled:
+            return ""
+        return self._drain(final=True)
+
+    def _drain(self, *, final: bool) -> str:
+        emitted: list[str] = []
+        while self._pending:
+            matches: list[tuple[str, str, bool, bool]] = []
+            needs_more = False
+
+            for rule in GU_TERM_REPLACEMENTS:
+                source, replacement, case_insensitive, whole_ascii_token = rule
+                pending_cmp = self._comparable(self._pending, case_insensitive)
+                source_cmp = self._comparable(source, case_insensitive)
+
+                if len(self._pending) < len(source) and source_cmp.startswith(pending_cmp):
+                    if not whole_ascii_token or not _is_word_char(self._previous_input_char):
+                        needs_more = True
+                    continue
+
+                if not pending_cmp.startswith(source_cmp):
+                    continue
+                if whole_ascii_token and _is_word_char(self._previous_input_char):
+                    continue
+                if whole_ascii_token and len(self._pending) == len(source) and not final:
+                    needs_more = True
+                    continue
+                if (
+                    whole_ascii_token
+                    and len(self._pending) > len(source)
+                    and _is_word_char(self._pending[len(source)])
+                ):
+                    continue
+                matches.append(rule)
+
+            if needs_more and not final:
+                break
+
+            if matches:
+                source, replacement, _, _ = matches[0]
+                emitted.append(replacement)
+                self._previous_input_char = source[-1]
+                self._pending = self._pending[len(source) :]
+                continue
+
+            emitted.append(self._pending[0])
+            self._previous_input_char = self._pending[0]
+            self._pending = self._pending[1:]
+
+        return "".join(emitted)
 
 
 # ── Protected proper nouns: pin a fixed Gujarati rendering ──────────────────────
@@ -404,13 +522,16 @@ def _post_normalize_gu_translation(
     target_lang: str,
     *,
     strip_outer: bool = False,
+    apply_term_replacements: bool = True,
 ) -> str:
     if target_lang.lower() not in ("gujarati", "gu"):
         return text
     out = text
     out = _normalize_gu_body_terms(out)
-    for pat, repl in GU_POST_REPLACEMENTS:
+    for pat, repl in GU_POST_REPLACEMENTS_BASE:
         out = re.sub(pat, repl, out)
+    if apply_term_replacements:
+        out = _apply_gu_term_replacements(out)
     # Remove placeholder dashes without inventing a quantity.
     out = re.sub(rf"([:：]\s*){_GU_PLACEHOLDER_RE}(?=\s|$)", r"\1", out)
 
@@ -439,6 +560,34 @@ def _post_normalize_gu_translation(
     out = re.sub(r"\n{3,}", "\n\n", out)
     out = normalize_voice_output(out, target_lang, replace_slash=False)
     return out.strip() if strip_outer else out
+
+
+def _finish_streaming_translation_chunk(text: str, target_lang: str) -> str:
+    if not text:
+        return ""
+    text = _post_normalize_gu_translation(
+        text,
+        target_lang,
+        strip_outer=False,
+        apply_term_replacements=False,
+    )
+    return normalize_voice_output(text, target_lang, streaming=True)
+
+
+def _normalize_streaming_translation_chunk(
+    normalizer: _StreamingGujaratiTermNormalizer,
+    content: str,
+    target_lang: str,
+) -> str:
+    safe_text = normalizer.feed(_fix_dandas(content))
+    return _finish_streaming_translation_chunk(safe_text, target_lang)
+
+
+def _flush_streaming_translation(
+    normalizer: _StreamingGujaratiTermNormalizer,
+    target_lang: str,
+) -> str:
+    return _finish_streaming_translation_chunk(normalizer.flush(), target_lang)
 
 
 # Only the 27b-base TranslateGemma is deployed, BEHIND AN NGINX LB — the SINGULAR
@@ -577,9 +726,9 @@ def _is_untranslatable_fragment(text: str) -> bool:
 # POST_TRANSLATION chain: [TranslateGemma(LB), managed-LLM overflow]. Per tier the
 # handle is a TGDescriptor (aiohttp text-completion) or an AsyncOpenAI client
 # (chat.completions). The SAME instruction (voice spoken-language preamble + glossary
-# Rules + voice GU style rules, no length rule) and the SAME per-chunk transform
-# pipeline (``_fix_dandas -> _post_normalize_gu_translation(strip_outer=False) ->
-# normalize_voice_output(streaming=True)`` for streams;
+# Rules + voice GU style rules, no length rule) and the SAME stream-safe transform
+# pipeline (danda fix -> incremental term replacement -> remaining Gujarati cleanup ->
+# ``normalize_voice_output(streaming=True)`` for streams;
 # ``_fix_dandas -> _post_normalize_gu_translation -> normalize_voice_output`` for the
 # unary path) apply to BOTH tiers. First-token-commit + classify-based overflow mirror
 # ``stream_with_fallback``; the disconnect-safe TTFT primitive
@@ -708,10 +857,11 @@ def _post_translation_chain():
 async def _translategemma_stream(descriptor, prompt, source_lang, target_lang, text, temperature, max_tokens):
     """VERBATIM TranslateGemma streaming SSE decode (aiohttp), incl. the
     ``stream_translation`` Langfuse observation and its ``if not langfuse:`` branch.
-    Voice per-chunk pipeline: ``_fix_dandas -> _post_normalize_gu_translation ->
-    normalize_voice_output(streaming=True)``; line decode via ``.rstrip('\\r')``."""
+    Voice chunks share the incremental terminology pipeline used by the managed
+    fallback; line decode remains via ``.rstrip('\\r')``."""
     translated_parts: list[str] = []
     langfuse = _get_langfuse()
+    normalizer = _StreamingGujaratiTermNormalizer(target_lang)
 
     if not langfuse:
         async with aiohttp.ClientSession() as session:
@@ -745,17 +895,18 @@ async def _translategemma_stream(descriptor, prompt, source_lang, target_lang, t
                                 chunk_data = json.loads(data)
                                 content = chunk_data['choices'][0].get('text', '')
                                 if content:
-                                    content = _fix_dandas(content)
-                                    content = _post_normalize_gu_translation(
-                                        content, target_lang, strip_outer=False,
+                                    content = _normalize_streaming_translation_chunk(
+                                        normalizer, content, target_lang,
                                     )
-                                    content = normalize_voice_output(
-                                        content, target_lang, streaming=True,
-                                    )
-                                    translated_parts.append(content)
-                                    yield content
+                                    if content:
+                                        translated_parts.append(content)
+                                        yield content
                             except json.JSONDecodeError:
                                 continue
+        tail = _flush_streaming_translation(normalizer, target_lang)
+        if tail:
+            translated_parts.append(tail)
+            yield tail
         return
 
     with langfuse.start_as_current_observation(
@@ -805,26 +956,27 @@ async def _translategemma_stream(descriptor, prompt, source_lang, target_lang, t
                                 chunk_data = json.loads(data)
                                 content = chunk_data['choices'][0].get('text', '')
                                 if content:
-                                    content = _fix_dandas(content)
-                                    content = _post_normalize_gu_translation(
-                                        content, target_lang, strip_outer=False,
+                                    content = _normalize_streaming_translation_chunk(
+                                        normalizer, content, target_lang,
                                     )
-                                    content = normalize_voice_output(
-                                        content, target_lang, streaming=True,
-                                    )
-                                    translated_parts.append(content)
-                                    yield content
+                                    if content:
+                                        translated_parts.append(content)
+                                        yield content
                             except json.JSONDecodeError:
                                 continue
+        tail = _flush_streaming_translation(normalizer, target_lang)
+        if tail:
+            translated_parts.append(tail)
+            yield tail
         observation.update(output="".join(translated_parts))
 
 
 async def _llm_translation_stream(client, model_name, instruction, source_lang, target_lang, text, temperature, max_tokens):
     """Cross-provider overflow: a managed chat LLM does en->target translation with
-    the SAME instruction (glossary + rules), piping each ``delta.content`` through the
-    SAME voice per-chunk pipeline (``_fix_dandas -> _post_normalize_gu_translation ->
-    normalize_voice_output(streaming=True)``). Mirrors the TG observation for parity."""
+    the SAME instruction and incremental terminology pipeline as TranslateGemma.
+    Mirrors the TG observation for parity."""
     langfuse = _get_langfuse()
+    normalizer = _StreamingGujaratiTermNormalizer(target_lang)
 
     if not langfuse:
         stream = await client.chat.completions.create(
@@ -839,10 +991,14 @@ async def _llm_translation_stream(client, model_name, instruction, source_lang, 
                 continue
             content = getattr(chunk.choices[0].delta, "content", None) or ""
             if content:
-                content = _fix_dandas(content)
-                content = _post_normalize_gu_translation(content, target_lang, strip_outer=False)
-                content = normalize_voice_output(content, target_lang, streaming=True)
-                yield content
+                content = _normalize_streaming_translation_chunk(
+                    normalizer, content, target_lang,
+                )
+                if content:
+                    yield content
+        tail = _flush_streaming_translation(normalizer, target_lang)
+        if tail:
+            yield tail
         return
 
     translated_parts: list[str] = []
@@ -873,11 +1029,16 @@ async def _llm_translation_stream(client, model_name, instruction, source_lang, 
                 continue
             content = getattr(chunk.choices[0].delta, "content", None) or ""
             if content:
-                content = _fix_dandas(content)
-                content = _post_normalize_gu_translation(content, target_lang, strip_outer=False)
-                content = normalize_voice_output(content, target_lang, streaming=True)
-                translated_parts.append(content)
-                yield content
+                content = _normalize_streaming_translation_chunk(
+                    normalizer, content, target_lang,
+                )
+                if content:
+                    translated_parts.append(content)
+                    yield content
+        tail = _flush_streaming_translation(normalizer, target_lang)
+        if tail:
+            translated_parts.append(tail)
+            yield tail
         observation.update(output="".join(translated_parts))
 
 
@@ -1737,9 +1898,8 @@ async def translate_text_stream_fast(
     First-token-commit semantics: if TranslateGemma fails BEFORE the first chunk on a
     fallbackable reason, the managed-LLM overflow tier transparently serves; a failure
     AFTER the first chunk propagates (the caller-side degrade net yields the English
-    batch). Guards, prompt, and the voice per-chunk transform pipeline
-    (``_fix_dandas -> _post_normalize_gu_translation -> normalize_voice_output(
-    streaming=True)``) are unchanged."""
+    batch). Both tiers use the same incremental terminology normalizer before the
+    remaining per-chunk Gujarati and voice-output cleanup."""
     if not text or not text.strip():
         return
 
