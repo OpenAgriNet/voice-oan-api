@@ -3,7 +3,6 @@ Tools for the BharatVistaar AI Agent.
 """
 # from agents.tools.search_beckn import search_documents
 from pydantic_ai import Tool
-from agents.tools.scheme_info import get_scheme_info
 from agents.tools.maha_vistaar import call_maha_vistaar_network
 from agents.tools.amul_vistaar import call_amul_vistaar_network
 from agents.tools.smam_scheme_status import check_smam_scheme_status
@@ -43,11 +42,6 @@ from agents.tools.feedback import submit_feedback
 
 
 TOOLS = [
-    Tool(
-        get_scheme_info,
-        takes_ctx=False,
-        strict=False,
-    ),
     Tool(call_maha_vistaar_network, takes_ctx=True, strict=False),
     Tool(call_amul_vistaar_network, takes_ctx=True, strict=False),
     Tool(check_smam_scheme_status, takes_ctx=True, strict=False),

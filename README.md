@@ -56,4 +56,6 @@ The cross-network scheme, status, fertilizer, and seed tools use the following e
 - `SATHI_MASTER_BASE_URL` and `SATHI_MASTER_API_KEY` for SATHI crop group and crop lookup.
 - `AMUL_SCHEME_DOMAIN` and `AMUL_SEARCH_TTL` are optional AmulVistaar overrides.
 
+Scheme search reads the docs-pipeline catalog snapshot from the same Redis instance configured by `REDIS_HOST`, `REDIS_PORT`, and `REDIS_DB`. Development environments read `master-catalog:dev:snapshot`; other environments read `master-catalog:live:snapshot`. Set `MASTER_CATALOG_REDIS_KEY` only when the snapshot uses a custom key.
+
 Keep API keys and credentials in the deployment environment; do not commit them.
