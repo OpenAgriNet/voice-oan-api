@@ -142,6 +142,7 @@ async def generate_openai_response(
                     user_id=user_id,
                     history=existing_history,
                     language_code=language_code,
+                    emit_partial=False,
                 ):
                     if chunk:
                         last_chunk = chunk
