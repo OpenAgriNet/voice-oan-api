@@ -45,3 +45,15 @@ TODO:
 5. authentication
 
 finally get it up running
+
+## Voice Tool Integrations
+
+The cross-network scheme, status, fertilizer, and seed tools use the following environment settings:
+
+- `BAP_ENDPOINT`, `BAP_ID`, and `BAP_URI` for the Vistaar BAP.
+- `BPP_ID` and `BPP_URI` for status, GFR, and SATHI stock requests.
+- `MH_BPP_ID` for MahaVistaar's targeted NDKSP scheme requests.
+- `SATHI_MASTER_BASE_URL` and `SATHI_MASTER_API_KEY` for SATHI crop group and crop lookup.
+- `AMUL_SCHEME_DOMAIN` and `AMUL_SEARCH_TTL` are optional AmulVistaar overrides.
+
+Keep API keys and credentials in the deployment environment; do not commit them.

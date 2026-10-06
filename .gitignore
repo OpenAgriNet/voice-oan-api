@@ -212,4 +212,4 @@ jwt_private_key.pem
 *.key
 
 # Local prompt backups
-assets/prompts/backup_before_pmkisan_status/
+assets/prompts/backup_2026-10-06
