@@ -46,12 +46,12 @@ class SearchHit(BaseModel):
 @observe(name="tool:search_schemes", as_type="tool")
 async def search_schemes(query: str, top_k: int = 10) -> str:
     """
-    Semantic search for Bharat Vistaar scheme guideline PDFs stored in Qdrant.
+    Semantic search for government scheme information stored in Qdrant.
 
     PLACEHOLDER_SCHEME_CODES
 
-    Do NOT use for legacy integrated schemes handled by get_scheme_info
-    (pmkisan, pmfby, kcc, pmksy, shc, sathi, pmasha, aif, smam, pdmc, nfsm, rad, ffs, nbhm).
+    Use for every scheme routed through the live catalog. MahaVistaar and
+    AmulVistaar cross-network schemes use their dedicated tools instead.
 
     Args:
         query: Natural-language question in English (eligibility, benefits, application process)
@@ -88,6 +88,7 @@ async def search_schemes(query: str, top_k: int = 10) -> str:
             top_k,
             None,
             None,
+            scheme_list=scheme_list,
         )
 
         return format_search_results(results, query, scheme_list)

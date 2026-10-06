@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     qdrant_url: Optional[str] = os.getenv("QDRANT_URL")
     qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
     qdrant_collection_name: str = os.getenv("QDRANT_COLLECTION_NAME", "schemes-index")
+    master_catalog_redis_key: str = os.getenv("MASTER_CATALOG_REDIS_KEY", "")
 
     class Config:
         env_file = ".env"
