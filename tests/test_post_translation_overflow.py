@@ -264,6 +264,32 @@ async def test_llm_stream_applies_identical_per_chunk_transforms():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("chunks", "expected"),
+    [
+        (["પશુના બૈ", "ડા પર સોજો છે"], "પશુના પીઠ પર સોજો છે"),
+        (["ગાયના બરડા", "માં દુખાવો છે"], "ગાયના પીઠમાં દુખાવો છે"),
+    ],
+)
+async def test_stream_preserves_contextual_body_terms_across_chunk_boundaries(
+    monkeypatch, chunks, expected
+):
+    _patch_aiohttp(monkeypatch, _FakeResp(sse=_sse(*chunks)))
+    tg = [
+        c async for c in tr._translategemma_stream(
+            _FakeTGDescriptor(), "prompt", "english", "gujarati", "src", 0.0, 2048
+        )
+    ]
+    llm = [
+        c async for c in tr._llm_translation_stream(
+            _FakeOpenAIClient(stream_contents=chunks),
+            "gpt-4.1", "instruction", "english", "gujarati", "src", 0.0, 2048,
+        )
+    ]
+    assert "".join(tg) == "".join(llm) == expected
+
+
+@pytest.mark.asyncio
 async def test_stream_normalize_voice_output_applied_on_both_tiers(monkeypatch):
     # Voice divergence: normalize_voice_output(streaming=True) runs per chunk on BOTH
     # tiers. With an english target, _post_normalize_gu_translation is a no-op, so the

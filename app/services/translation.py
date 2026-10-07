@@ -200,12 +200,33 @@ GU_TERM_POLICY = _load_gu_term_policy()
 GU_POLICY_REPLACEMENTS = _build_gu_policy_replacements(GU_TERM_POLICY)
 
 # source, replacement, case-insensitive, whole-ASCII-token
+_GU_BODY_SLANG_TERMS = ("બૈડા", "બૈડું", "બૈડુ", "બરડા", "બરડું", "બરડુ")
+
+
+def _build_gu_body_context_term_rules() -> list[tuple[str, str, bool, bool]]:
+    """Keep contextual body mappings intact across streaming chunk boundaries."""
+    rules: list[tuple[str, str, bool, bool]] = []
+    for source in _GU_BODY_SLANG_TERMS:
+        for suffix in ("માં", "મા", "પર"):
+            rules.append((f"{source}{suffix}", f"પીઠ{suffix}", False, False))
+        for postposition in ("પર", "માં", "મા", "પાછળ"):
+            rules.append((f"{source} {postposition}", f"પીઠ {postposition}", False, False))
+        rules.append((f"{source} ની બાજુ", "પીઠની બાજુ", False, False))
+        for suffix in ("માં", "મા", "પર"):
+            rules.append((f"{source} ના ભાગ{suffix}", f"પીઠના ભાગ{suffix}", False, False))
+    return rules
+
+
 _GU_FIXED_TERM_REPLACEMENTS: list[tuple[str, str, bool, bool]] = [
     ("paho", "બાવલું", True, True),
     ("ગર્ભવતી", "ગાભણ", False, False),
 ]
 GU_TERM_REPLACEMENTS: list[tuple[str, str, bool, bool]] = sorted(
-    [*_GU_FIXED_TERM_REPLACEMENTS, *_build_gu_policy_term_rules(GU_TERM_POLICY)],
+    [
+        *_GU_FIXED_TERM_REPLACEMENTS,
+        *_build_gu_body_context_term_rules(),
+        *_build_gu_policy_term_rules(GU_TERM_POLICY),
+    ],
     key=lambda item: len(item[0]),
     reverse=True,
 )
@@ -458,7 +479,7 @@ GU_FEMININE_SELF_REFERENCE_REPLACEMENTS: list[tuple[re.Pattern, str]] = [
 
 GU_WORD_BOUNDARY_START = r"(?<![\u0A80-\u0AFF])"
 GU_WORD_BOUNDARY_END = r"(?![\u0A80-\u0AFF])"
-GU_BODY_SLANG_VARIANTS = r"(?:બૈડા|બૈડું|બૈડુ|બરડા|બરડું|બરડુ)"
+GU_BODY_SLANG_VARIANTS = rf"(?:{'|'.join(map(re.escape, _GU_BODY_SLANG_TERMS))})"
 GU_BODY_BACK_SUFFIXES = r"(?:માં|મા|પર)"
 GU_BODY_BACK_POSTPOSITIONS = r"(?:પર|માં|મા|પાછળ)"
 GU_BODY_AGREEMENT_FIXES = [
