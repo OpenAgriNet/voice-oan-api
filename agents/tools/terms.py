@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 from enum import Enum
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
 import re
+
+from helpers.glossary_validation import load_json_object, validate_glossary_assets
 
 # Load term pairs from JSON file with UTF-8 encoding
 term_pairs = json.load(open('assets/glossary_terms.json', 'r', encoding='utf-8'))
@@ -16,24 +18,16 @@ def _load_gu_term_policy() -> dict:
     ]
     for path in candidates:
         if path.exists():
-            try:
-                with path.open("r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
+            return load_json_object(path)
     return {}
 
 
 GU_TERM_POLICY = _load_gu_term_policy()
+validate_glossary_assets(term_pairs, GU_TERM_POLICY)
 PREFERRED_GU_BY_EN = {
     str(k).strip().lower(): str(v).strip()
     for k, v in (GU_TERM_POLICY.get("preferred", {}) if isinstance(GU_TERM_POLICY, dict) else {}).items()
     if str(k).strip() and str(v).strip()
-}
-ALLOWED_ALIASES_BY_EN = {
-    str(k).strip().lower(): [str(v).strip() for v in vals if str(v).strip()]
-    for k, vals in (GU_TERM_POLICY.get("allowed_aliases", {}) if isinstance(GU_TERM_POLICY, dict) else {}).items()
-    if str(k).strip() and isinstance(vals, list)
 }
 INPUT_ALIASES_BY_EN = {
     str(k).strip().lower(): [str(v).strip() for v in vals if str(v).strip()]
@@ -50,6 +44,11 @@ class TermPair(BaseModel):
     en: str = Field(description="English term")
     gu: str = Field(description="Gujarati term")
     transliteration: str = Field(description="Transliteration of Gujarati term to English")
+    gu_input_aliases: list[str] = Field(default_factory=list, description="Gujarati input variants")
+    transliteration_input_aliases: list[str] = Field(
+        default_factory=list,
+        description="Romanized input variants",
+    )
     mr: str = Field(default="", description="Marathi term (for backward compatibility)")
 
     def __str__(self):
@@ -99,15 +98,24 @@ async def search_terms(
             en_score = fuzz.ratio(term, term_pair.en.lower()) / 100.0
             max_score = max(max_score, en_score)
             
-        # Check Gujarati term if no language specified or language is Gujarati    
+        # Check canonical Gujarati plus farmer/STT Gujarati variants.
         if language in [None, Language.GUJARATI]:
-            gu_score = fuzz.ratio(term, term_pair.gu.lower()) / 100.0
-            max_score = max(max_score, gu_score)
+            gu_scores = [
+                fuzz.ratio(term, candidate.lower()) / 100.0
+                for candidate in [term_pair.gu, *term_pair.gu_input_aliases]
+            ]
+            max_score = max(max_score, *gu_scores)
             
-        # Check transliteration if no language specified or language is transliteration
+        # Check canonical transliteration plus historical ASR variants.
         if language in [None, Language.TRANSLITERATION]:
-            tr_score = fuzz.ratio(term, term_pair.transliteration.lower()) / 100.0
-            max_score = max(max_score, tr_score)
+            transliteration_scores = [
+                fuzz.ratio(term, candidate.lower()) / 100.0
+                for candidate in [
+                    term_pair.transliteration,
+                    *term_pair.transliteration_input_aliases,
+                ]
+            ]
+            max_score = max(max_score, *transliteration_scores)
             
         if max_score >= threshold:
             matches.append((term_pair, max_score))
@@ -140,34 +148,15 @@ def _normalize_lookup_key(text: str) -> str:
     return text.strip()
 
 
-def _strip_parenthetical_suffix(text: str) -> str:
-    return re.sub(r"\s*\([^)]*\)\s*$", "", _normalize_lookup_key(text)).strip()
-
-
-def _canonical_display_term(canonical_en: str) -> str:
-    for tp in TERM_PAIRS:
-        if _normalize_lookup_key(tp.en) == canonical_en:
-            return tp.en
-    return canonical_en.title()
-
-
 def _build_canonical_alias_map() -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
     canonical_terms: dict[str, tuple[str, str]] = {}
     alias_to_canonical: dict[str, str] = {}
 
-    for canonical_en, preferred_gu in PREFERRED_GU_BY_EN.items():
-        canonical_terms[canonical_en] = (_canonical_display_term(canonical_en), preferred_gu)
+    for tp in TERM_PAIRS:
+        canonical_en = _normalize_lookup_key(tp.en)
+        canonical_terms[canonical_en] = (tp.en, tp.gu)
         aliases = {canonical_en}
         aliases.update(_normalize_lookup_key(alias) for alias in INPUT_ALIASES_BY_EN.get(canonical_en, []))
-        aliases.update(_normalize_lookup_key(alias) for alias in ALLOWED_ALIASES_BY_EN.get(canonical_en, []))
-
-        for tp in TERM_PAIRS:
-            norm_en = _normalize_lookup_key(tp.en)
-            stripped_en = _strip_parenthetical_suffix(tp.en)
-            if not norm_en:
-                continue
-            if norm_en == canonical_en or stripped_en == canonical_en or tp.gu == preferred_gu:
-                aliases.add(norm_en)
 
         for alias in aliases:
             if alias:
@@ -272,6 +261,19 @@ def get_mini_glossary_for_text(
     # Dedupe by canonical English term (lowercase key)
     term_to_gu: dict[str, tuple[str, str]] = {}  # en_lower -> (en_display, gu)
     seen_phrases: set[str] = set()
+
+    # Preserve exact long concepts before checking 1-4 word fuzzy windows. This
+    # covers labels such as "TDN — Total Digestible Nutrients" without lowering
+    # the fuzzy threshold or truncating the canonical term.
+    normalized_text = _normalize_lookup_key(text)
+    for alias in sorted(CANONICAL_ALIAS_TERMS, key=len, reverse=True):
+        if not re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", normalized_text):
+            continue
+        canonical_en = ALIAS_TO_CANONICAL_EN[alias]
+        if canonical_en not in term_to_gu:
+            term_to_gu[canonical_en] = CANONICAL_TERMS[canonical_en]
+        if len(term_to_gu) >= max_terms:
+            break
 
     # Longer phrases first so we match "Milk Production" before "Milk"
     for n in range(min(4, len(words)), 0, -1):

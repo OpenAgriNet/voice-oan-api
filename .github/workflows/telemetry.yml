@@ -1,13 +1,22 @@
 name: telemetry
 
-# Runs the telemetry contract tests on every PR. The rest of the suite needs
-# model credentials, so it isn't run here yet.
+# Runs deterministic telemetry and glossary checks on every PR. Broader suites
+# that require service/model access remain outside this workflow.
 on:
   pull_request:
   push:
     branches: [amul-dev, amul-prod]
 
 jobs:
+  glossary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: python -m helpers.glossary_validation
+
   contract:
     runs-on: ubuntu-latest
     steps:
