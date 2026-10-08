@@ -21,11 +21,19 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from agents.tools.terms import GU_TERM_POLICY as LOADED_GU_TERM_POLICY
+from helpers.utils import normalize_voice_output
+
 from app.services.translation import (
     _post_normalize_gu_translation,
     GU_PREFERRED_TRANSLATION_RULES,
     GU_TERM_POLICY,
     GU_POST_REPLACEMENTS,
+)
+from app.services.translation_gujarati import (
+    _StreamingGujaratiTermNormalizer,
+    _flush_streaming_translation,
+    _normalize_streaming_translation_chunk,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -581,3 +589,26 @@ class TestCalfTerminologyDisambiguation:
         by_en = {entry["en"]: entry["gu"] for entry in glossary}
         assert by_en["Buffalo calf (generic)"] == "પાડુ/પાડું"
         assert by_en["Buffalo calf (female/male)"] == "પાડી/પાડો"
+
+
+class TestStreamingForbiddenTermEquivalence:
+    def test_uses_the_validated_terms_policy_singleton(self):
+        assert GU_TERM_POLICY is LOADED_GU_TERM_POLICY
+
+    def test_every_forbidden_term_matches_unary_at_every_chunk_split(self):
+        for source in GU_TERM_POLICY["forbidden"]:
+            expected = normalize_voice_output(normalize_gu(source), "gu")
+            for split_at in range(len(source) + 1):
+                normalizer = _StreamingGujaratiTermNormalizer("gu")
+                actual = "".join(
+                    (
+                        _normalize_streaming_translation_chunk(
+                            normalizer, source[:split_at], "gu"
+                        ),
+                        _normalize_streaming_translation_chunk(
+                            normalizer, source[split_at:], "gu"
+                        ),
+                        _flush_streaming_translation(normalizer, "gu"),
+                    )
+                )
+                assert actual == expected, (source, split_at, expected, actual)

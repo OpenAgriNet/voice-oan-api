@@ -34,6 +34,7 @@ _fake_terms = types.ModuleType("agents.tools.terms")
 _fake_terms.get_mini_glossary_for_text = lambda *a, **k: ""
 _fake_terms.get_ambiguity_hints_for_query = lambda *a, **k: ""
 _fake_terms.TERM_PAIRS = []
+_fake_terms.GU_TERM_POLICY = {"forbidden": {}}
 
 
 class TermPair:  # minimal stand-in
