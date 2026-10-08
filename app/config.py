@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     # Any turn: speak the delay message if no answer has started after this many seconds.
     voice_delay_message_enabled: bool = os.getenv("VOICE_DELAY_MESSAGE_ENABLED", "true").lower() in ("true", "1", "yes")
     voice_delay_message_after_seconds: float = float(os.getenv("VOICE_DELAY_MESSAGE_AFTER_SECONDS", "6.0"))
+    # A request arriving within this many seconds of the previous answer is Sarvam
+    # revising the same utterance, not a new turn. 0 disables.
+    voice_turn_revision_window_seconds: float = float(os.getenv("VOICE_TURN_REVISION_WINDOW_SECONDS", "3.0"))
     bhashini_api_url: str = ""
     ollama_endpoint_url: Optional[str] = None
     marqo_endpoint_url: Optional[str] = None
