@@ -50,11 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from agents.tools.terms import (
-    ALLOWED_ALIASES_BY_EN,
-    INPUT_ALIASES_BY_EN,
-    TERM_PAIRS,
-)
+from agents.tools.terms import TERM_PAIRS
 from app.services.translation import (
     _get_glossary_hints_for_gu_query,
     translate_to_english_with_gpt5_mini,
@@ -277,10 +273,15 @@ def _accepted_aliases_for_english_term(english_term: str) -> tuple[str, ...]:
             _add_alias(aliases, part)
 
     normalized_base = _normalize_english(stripped)
-    for alias in INPUT_ALIASES_BY_EN.get(normalized_base, []):
-        _add_alias(aliases, alias)
-    for alias in ALLOWED_ALIASES_BY_EN.get(normalized_base, []):
-        _add_alias(aliases, alias)
+    term_pair = next(
+        (pair for pair in TERM_PAIRS if _normalize_english(pair.en) == normalized_base),
+        None,
+    )
+    if term_pair is not None:
+        for alias in term_pair.en_input_aliases:
+            _add_alias(aliases, alias)
+        for alias in term_pair.gu_output_aliases:
+            _add_alias(aliases, alias)
     for alias in COMMON_EXPECTED_ALIASES.get(normalized_base, []):
         _add_alias_unchecked(aliases, alias)
 

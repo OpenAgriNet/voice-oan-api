@@ -367,11 +367,21 @@
     "en": "ARTIFICIAL INSEMINATION",
     "gu": "કૃત્રિમ બીજદાન",
     "transliteration": "Krutrim Bijdan",
+    "en_input_aliases": [
+      "ai",
+      "a.i.",
+      "ai service",
+      "ai receipt",
+      "track number"
+    ],
     "gu_input_aliases": [
       "બીજદાન કરાવવું, ડોજ મુકાવવો"
     ],
     "transliteration_input_aliases": [
       "bijdan karavvu , doj mukavvo"
+    ],
+    "gu_output_aliases": [
+      "બીજદાન કરાવવું, ડોજ મુકાવવો"
     ]
   },
   {
@@ -666,8 +676,14 @@
     "en": "Breeding",
     "gu": "પ્રજનન",
     "transliteration": "Prajanan",
+    "en_input_aliases": [
+      "breeder"
+    ],
     "gu_input_aliases": [],
-    "transliteration_input_aliases": []
+    "transliteration_input_aliases": [],
+    "gu_output_aliases": [
+      "બીજદાન"
+    ]
   },
   {
     "en": "Breeding Bull",
@@ -1409,6 +1425,10 @@
     "en": "Deworming",
     "gu": "કૃમિનાશક દવા",
     "transliteration": "krumi nivaran dava",
+    "en_input_aliases": [
+      "dewormer",
+      "deworm"
+    ],
     "gu_input_aliases": [
       "કીડાનાશક દવા",
       "કૃમિ નિવારણ દવા",
@@ -1416,6 +1436,10 @@
     ],
     "transliteration_input_aliases": [
       "kidanashak dava"
+    ],
+    "gu_output_aliases": [
+      "કૃમિનાશક",
+      "કૃમિ નિવારણ દવા"
     ]
   },
   {
@@ -2969,6 +2993,9 @@
     "transliteration_input_aliases": [
       "Aau no / Bavla no Sojo",
       "pathu, becteria suko ghadio , bavla no sojo"
+    ],
+    "gu_output_aliases": [
+      "માસ્ટિટિસ"
     ]
   },
   {
@@ -4882,6 +4909,11 @@
     "en": "Udder",
     "gu": "બાવલું",
     "transliteration": "Bavlu",
+    "en_input_aliases": [
+      "mammary gland",
+      "udder region",
+      "mammary area"
+    ],
     "gu_input_aliases": [
       "આઉ/બાવલું",
       "પાહો,"
@@ -4889,6 +4921,10 @@
     "transliteration_input_aliases": [
       "aau/bavlu",
       "paho"
+    ],
+    "gu_output_aliases": [
+      "આઉ",
+      "બાવલા"
     ]
   },
   {

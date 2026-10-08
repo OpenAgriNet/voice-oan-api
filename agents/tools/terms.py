@@ -24,16 +24,6 @@ def _load_gu_term_policy() -> dict:
 
 GU_TERM_POLICY = _load_gu_term_policy()
 validate_glossary_assets(term_pairs, GU_TERM_POLICY)
-PREFERRED_GU_BY_EN = {
-    str(k).strip().lower(): str(v).strip()
-    for k, v in (GU_TERM_POLICY.get("preferred", {}) if isinstance(GU_TERM_POLICY, dict) else {}).items()
-    if str(k).strip() and str(v).strip()
-}
-INPUT_ALIASES_BY_EN = {
-    str(k).strip().lower(): [str(v).strip() for v in vals if str(v).strip()]
-    for k, vals in (GU_TERM_POLICY.get("input_aliases", {}) if isinstance(GU_TERM_POLICY, dict) else {}).items()
-    if str(k).strip() and isinstance(vals, list)
-}
 
 class Language(str, Enum):
     ENGLISH = "en"
@@ -44,10 +34,15 @@ class TermPair(BaseModel):
     en: str = Field(description="English term")
     gu: str = Field(description="Gujarati term")
     transliteration: str = Field(description="Transliteration of Gujarati term to English")
+    en_input_aliases: list[str] = Field(default_factory=list, description="English input variants")
     gu_input_aliases: list[str] = Field(default_factory=list, description="Gujarati input variants")
     transliteration_input_aliases: list[str] = Field(
         default_factory=list,
         description="Romanized input variants",
+    )
+    gu_output_aliases: list[str] = Field(
+        default_factory=list,
+        description="Accepted Gujarati output variants",
     )
     mr: str = Field(default="", description="Marathi term (for backward compatibility)")
 
@@ -61,9 +56,6 @@ for pair in term_pairs:
     # If 'gu' is not present but 'mr' is, use 'mr' as 'gu'
     if 'gu' not in pair and 'mr' in pair:
         pair['gu'] = pair['mr']
-    en_key = str(pair.get("en", "")).strip().lower()
-    if en_key in PREFERRED_GU_BY_EN:
-        pair["gu"] = PREFERRED_GU_BY_EN[en_key]
     TERM_PAIRS.append(TermPair(**pair))
 
 
@@ -156,7 +148,7 @@ def _build_canonical_alias_map() -> tuple[dict[str, tuple[str, str]], dict[str, 
         canonical_en = _normalize_lookup_key(tp.en)
         canonical_terms[canonical_en] = (tp.en, tp.gu)
         aliases = {canonical_en}
-        aliases.update(_normalize_lookup_key(alias) for alias in INPUT_ALIASES_BY_EN.get(canonical_en, []))
+        aliases.update(_normalize_lookup_key(alias) for alias in tp.en_input_aliases)
 
         for alias in aliases:
             if alias:

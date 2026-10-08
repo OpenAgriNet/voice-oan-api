@@ -8,14 +8,26 @@ from pathlib import Path
 from typing import Any
 
 
-GLOSSARY_FIELDS = {
+REQUIRED_GLOSSARY_FIELDS = {
     "en",
     "gu",
     "transliteration",
     "gu_input_aliases",
     "transliteration_input_aliases",
 }
-POLICY_FIELDS = {"preferred", "allowed_aliases", "input_aliases", "forbidden"}
+OPTIONAL_GLOSSARY_FIELDS = {"en_input_aliases", "gu_output_aliases"}
+GLOSSARY_FIELDS = REQUIRED_GLOSSARY_FIELDS | OPTIONAL_GLOSSARY_FIELDS
+POLICY_FIELDS = {"forbidden"}
+
+# These pre-existing semantic conflicts need domain review. Keeping the list
+# explicit prevents this cleanup from changing farmer-facing terminology while
+# ensuring no new conflict can be introduced unnoticed.
+KNOWN_CANONICAL_FORBIDDEN_EXCEPTIONS = {
+    ("bullock", "બળદ"),
+    ("conception/pregnancy", "ગર્ભાધાન"),
+    ("stress", "તણાવ"),
+    ("udder infection", "આઉનો/બાવલાનો સોજો"),
+}
 
 
 class GlossaryValidationError(ValueError):
@@ -43,22 +55,23 @@ def _validate_alias_list(
     owner: str,
     owners: dict[str, set[str]],
     errors: list[str],
-) -> None:
+) -> set[str]:
+    normalized_aliases: set[str] = set()
     if not isinstance(value, list):
         errors.append(f"{location} must be a list")
-        return
+        return normalized_aliases
 
-    seen: set[str] = set()
     for alias_index, alias in enumerate(value):
         alias_location = f"{location}[{alias_index}]"
         _require_nonblank_string(alias, alias_location, errors)
         if not isinstance(alias, str) or not alias.strip():
             continue
         normalized = normalize_concept(alias)
-        if normalized in seen:
+        if normalized in normalized_aliases:
             errors.append(f"{location} contains duplicate alias {alias!r}")
-        seen.add(normalized)
+        normalized_aliases.add(normalized)
         owners[normalized].add(owner)
+    return normalized_aliases
 
 
 def _find_replacement_cycles(replacements: dict[str, str]) -> list[list[str]]:
@@ -105,7 +118,26 @@ def validate_glossary_assets(glossary: Any, policy: Any) -> None:
     if missing_policy_fields:
         errors.append(f"policy is missing fields: {sorted(missing_policy_fields)}")
 
+    forbidden = policy.get("forbidden")
+    if not isinstance(forbidden, dict):
+        errors.append("policy.forbidden must be an object")
+        forbidden = {}
+    else:
+        for source, replacement in forbidden.items():
+            _require_nonblank_string(source, "policy.forbidden key", errors)
+            _require_nonblank_string(
+                replacement, f"policy.forbidden[{source!r}]", errors
+            )
+
+    forbidden_sources = {
+        normalize_concept(source)
+        for source in forbidden
+        if isinstance(source, str) and source.strip()
+    }
+
     concepts: dict[str, int] = {}
+    canonical_gu_values: dict[str, str] = {}
+    en_alias_owners: dict[str, set[str]] = defaultdict(set)
     gu_alias_owners: dict[str, set[str]] = defaultdict(set)
     transliteration_alias_owners: dict[str, set[str]] = defaultdict(set)
 
@@ -114,8 +146,9 @@ def validate_glossary_assets(glossary: Any, policy: Any) -> None:
         if not isinstance(row, dict):
             errors.append(f"{location} must be an object")
             continue
+
         unknown_fields = set(row) - GLOSSARY_FIELDS
-        missing_fields = GLOSSARY_FIELDS - set(row)
+        missing_fields = REQUIRED_GLOSSARY_FIELDS - set(row)
         if unknown_fields:
             errors.append(f"{location} has unknown fields: {sorted(unknown_fields)}")
         if missing_fields:
@@ -125,6 +158,7 @@ def validate_glossary_assets(glossary: Any, policy: Any) -> None:
             _require_nonblank_string(row.get(field), f"{location}.{field}", errors)
 
         english = row.get("en")
+        gujarati = row.get("gu")
         if not isinstance(english, str) or not english.strip():
             continue
         concept = normalize_concept(english)
@@ -135,6 +169,16 @@ def validate_glossary_assets(glossary: Any, policy: Any) -> None:
         else:
             concepts[concept] = index
 
+        if isinstance(gujarati, str) and gujarati.strip():
+            canonical_gu_values[concept] = normalize_concept(gujarati)
+
+        _validate_alias_list(
+            row.get("en_input_aliases", []),
+            f"{location}.en_input_aliases",
+            concept,
+            en_alias_owners,
+            errors,
+        )
         _validate_alias_list(
             row.get("gu_input_aliases"),
             f"{location}.gu_input_aliases",
@@ -149,6 +193,38 @@ def validate_glossary_assets(glossary: Any, policy: Any) -> None:
             transliteration_alias_owners,
             errors,
         )
+        gu_output_aliases = _validate_alias_list(
+            row.get("gu_output_aliases", []),
+            f"{location}.gu_output_aliases",
+            concept,
+            defaultdict(set),
+            errors,
+        )
+        canonical_gu = (
+            normalize_concept(gujarati)
+            if isinstance(gujarati, str) and gujarati.strip()
+            else ""
+        )
+        for alias in gu_output_aliases:
+            if alias == canonical_gu:
+                errors.append(
+                    f"{location}.gu_output_aliases contains canonical Gujarati value {gujarati!r}"
+                )
+            if alias in forbidden_sources:
+                errors.append(
+                    f"{location}.gu_output_aliases contains forbidden output {alias!r}"
+                )
+
+    for alias, assigned_concepts in en_alias_owners.items():
+        if len(assigned_concepts) > 1:
+            errors.append(
+                f"English input alias {alias!r} belongs to multiple concepts: "
+                f"{sorted(assigned_concepts)}"
+            )
+        if alias in concepts and alias not in assigned_concepts:
+            errors.append(
+                f"English input alias {alias!r} shadows canonical concept {alias!r}"
+            )
 
     for label, owners in (
         ("Gujarati", gu_alias_owners),
@@ -161,75 +237,23 @@ def validate_glossary_assets(glossary: Any, policy: Any) -> None:
                     f"{sorted(assigned_concepts)}"
                 )
 
-    for field in POLICY_FIELDS:
-        section = policy.get(field)
-        if not isinstance(section, dict):
-            errors.append(f"policy.{field} must be an object")
+    actual_exceptions: set[tuple[str, str]] = set()
+    for concept, gujarati in canonical_gu_values.items():
+        if gujarati not in forbidden_sources:
             continue
-        for key, value in section.items():
-            _require_nonblank_string(key, f"policy.{field} key", errors)
-            if field in {"allowed_aliases", "input_aliases"}:
-                if not isinstance(value, list):
-                    errors.append(f"policy.{field}[{key!r}] must be a list")
-                    continue
-                seen: set[str] = set()
-                for index, alias in enumerate(value):
-                    _require_nonblank_string(alias, f"policy.{field}[{key!r}][{index}]", errors)
-                    if isinstance(alias, str) and alias.strip():
-                        normalized = normalize_concept(alias)
-                        if normalized in seen:
-                            errors.append(f"policy.{field}[{key!r}] contains duplicate {alias!r}")
-                        seen.add(normalized)
-            else:
-                _require_nonblank_string(value, f"policy.{field}[{key!r}]", errors)
+        conflict = (concept, gujarati)
+        if conflict in KNOWN_CANONICAL_FORBIDDEN_EXCEPTIONS:
+            actual_exceptions.add(conflict)
+        else:
+            errors.append(
+                f"canonical Gujarati value {gujarati!r} for {concept!r} is forbidden"
+            )
 
-            if (
-                field != "forbidden"
-                and isinstance(key, str)
-                and key.strip()
-                and normalize_concept(key) not in concepts
-            ):
-                errors.append(f"policy.{field} key {key!r} has no glossary concept")
+    for conflict in sorted(KNOWN_CANONICAL_FORBIDDEN_EXCEPTIONS - actual_exceptions):
+        errors.append(f"stale canonical/forbidden exception: {conflict!r}")
 
-    preferred = policy.get("preferred", {})
-    forbidden = policy.get("forbidden", {})
-    if isinstance(preferred, dict):
-        for english, gujarati in preferred.items():
-            concept = normalize_concept(english) if isinstance(english, str) else ""
-            if concept in concepts and isinstance(gujarati, str) and gujarati.strip():
-                glossary_value = glossary[concepts[concept]].get("gu")
-                if glossary_value != gujarati:
-                    errors.append(
-                        f"policy.preferred[{english!r}] is {gujarati!r}, but the glossary "
-                        f"uses {glossary_value!r}"
-                    )
-            if (
-                isinstance(gujarati, str)
-                and isinstance(forbidden, dict)
-                and normalize_concept(gujarati)
-                in {normalize_concept(key) for key in forbidden if isinstance(key, str)}
-            ):
-                errors.append(f"preferred Gujarati value {gujarati!r} is also forbidden")
-
-    if isinstance(forbidden, dict):
-        forbidden_sources = {
-            normalize_concept(key)
-            for key in forbidden
-            if isinstance(key, str) and key.strip()
-        }
-        allowed_aliases = policy.get("allowed_aliases", {})
-        if isinstance(allowed_aliases, dict):
-            for english, aliases in allowed_aliases.items():
-                if not isinstance(aliases, list):
-                    continue
-                for alias in aliases:
-                    if isinstance(alias, str) and normalize_concept(alias) in forbidden_sources:
-                        errors.append(
-                            f"policy.allowed_aliases[{english!r}] contains forbidden output {alias!r}"
-                        )
-
-        for cycle in _find_replacement_cycles(forbidden):
-            errors.append(f"forbidden replacement cycle: {' -> '.join(cycle)}")
+    for cycle in _find_replacement_cycles(forbidden):
+        errors.append(f"forbidden replacement cycle: {' -> '.join(cycle)}")
 
     if errors:
         raise GlossaryValidationError("Invalid glossary assets:\n- " + "\n- ".join(errors))
