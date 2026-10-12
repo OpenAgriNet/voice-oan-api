@@ -227,6 +227,18 @@ def test_heat_alert_auth_and_persist(monkeypatch):
         == PARTNER_PAYLOAD["booking_url"]
     )
 
+    without_booking_url = dict(PARTNER_PAYLOAD)
+    without_booking_url.pop("booking_url")
+    without_booking_url["alertID"] = "112"
+    resp_without_booking_url = client.post(
+        "/api/webhooks/alerts",
+        json=without_booking_url,
+        headers={"Authorization": "Bearer test-webhook-token"},
+    )
+    assert resp_without_booking_url.status_code == 202
+    assert session._extract_param(session.insert_params, "booking_url") is None
+    assert session._extract_param(session.insert_params, "payload_raw")["booking_url"] is None
+
     # Duplicate payload is idempotent: accepted, same record id.
     resp2 = client.post(
         "/api/webhooks/alerts",
