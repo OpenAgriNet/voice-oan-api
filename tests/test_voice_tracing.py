@@ -68,10 +68,11 @@ class _Langfuse:
 _PRIVATE = ("9876543210", "fever", "water")
 
 
-def _send_a_turn(monkeypatch, mode):
+def _send_a_turn(monkeypatch, mode, user_id_mode="hash"):
     client = _Langfuse()
     monkeypatch.setattr(langfuse, "propagate_attributes", client.propagate_attributes)
     monkeypatch.setattr("app.services.voice_trace.settings.voice_trace_text_mode", mode, raising=False)
+    monkeypatch.setattr("app.services.voice_trace.settings.voice_trace_user_id_mode", user_id_mode, raising=False)
     monkeypatch.setattr("app.services.voice_trace.settings.voice_trace_log_summary", True, raising=False)
     trace = VoiceTrace(
         session_id="trace-test",
@@ -90,7 +91,11 @@ def _send_a_turn(monkeypatch, mode):
 
 
 def test_by_default_langfuse_gets_no_phone_and_no_words(monkeypatch):
-    trace, client = _send_a_turn(monkeypatch, Settings.model_fields["voice_trace_text_mode"].default)
+    trace, client = _send_a_turn(
+        monkeypatch,
+        Settings.model_fields["voice_trace_text_mode"].default,
+        Settings.model_fields["voice_trace_user_id_mode"].default,
+    )
 
     sent = json.dumps(client.sent, ensure_ascii=False, default=str)
     for private in _PRIVATE:
@@ -98,6 +103,14 @@ def test_by_default_langfuse_gets_no_phone_and_no_words(monkeypatch):
     (propagated,) = [kwargs for kwargs in client.sent if "user_id" in kwargs]
     assert propagated["user_id"] == trace.metadata["user_id_hash"]
     assert trace.metadata["query"].keys() == {"chars", "sha256"}
+
+
+def test_phone_user_id_mode_sends_the_phone_and_keeps_the_hash(monkeypatch):
+    trace, client = _send_a_turn(monkeypatch, "none", "phone")
+
+    (propagated,) = [kwargs for kwargs in client.sent if "user_id" in kwargs]
+    assert propagated["user_id"] == "+91 9876543210"
+    assert trace.metadata["user_id_hash"] != "+91 9876543210"
 
 
 @pytest.mark.parametrize("mode", sorted(_VALID_TEXT_MODES))
