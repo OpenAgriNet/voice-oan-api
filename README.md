@@ -108,6 +108,7 @@ Auth:
 
 Request body uses the partner's wire keys (including spaces/casing), for example:
 `alertID`, `deviceid`, `tag no`, `Pashuaadhar No`, `AI Window start_time`.
+The optional `booking_url` field carries the partner-provided AI booking link.
 
 Successful response (`202 Accepted`):
 ```json
@@ -146,7 +147,7 @@ Env reference: `example.webhook.env`
    curl -sS -X POST "$BASE_URL/api/webhooks/alerts" \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer $WEBHOOK_SHARED_TOKEN" \
-     -d '{"alertID":"111","deviceid":"S1IAD1869","notification_type":"heat"}'
+     -d '{"alertID":"111","deviceid":"S1IAD1869","notification_type":"heat","booking_url":"https://booking.example.test/heat/abc123"}'
    ```
 6. Verify a row exists in `heat_alert_webhook_events`, then confirm old rows disappear after retention.
 
