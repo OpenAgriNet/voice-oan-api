@@ -23,6 +23,6 @@ jobs:
           python-version: "3.10"
           cache: pip
       - run: pip install -r requirements.txt pytest pyyaml
-      - run: python -m pytest -q tests/test_voice_telemetry_schema_stamps.py tests/test_voice_telemetry_contract.py tests/test_voice_telemetry_readers.py
+      - run: python -m pytest -q tests/test_voice_telemetry_schema_stamps.py tests/test_voice_telemetry_contract.py tests/test_voice_telemetry_readers.py tests/test_langfuse_release.py
         env:
           AMUL_OAN_API_PATH: amul-oan-api
