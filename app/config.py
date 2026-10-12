@@ -112,7 +112,8 @@ class Settings(BaseSettings):
         os.getenv("VOICE_OUTBOUND_CONSENT_TIMEOUT_SECONDS", "0.60")
     )
     enable_voice_tracing: bool = _get_bool_env("ENABLE_VOICE_TRACING", default=True)
-    voice_trace_text_mode: str = os.getenv("VOICE_TRACE_TEXT_MODE", "preview_hash")
+    voice_trace_text_mode: str = os.getenv("VOICE_TRACE_TEXT_MODE", "none")
+    voice_trace_user_id_mode: str = os.getenv("VOICE_TRACE_USER_ID_MODE", "hash")
     voice_trace_preview_chars: int = int(os.getenv("VOICE_TRACE_PREVIEW_CHARS", "120"))
     voice_trace_log_summary: bool = _get_bool_env("VOICE_TRACE_LOG_SUMMARY", default=True)
     # Shared voice profile prompt fields (rendered once at startup).
@@ -271,6 +272,19 @@ class Settings(BaseSettings):
     # e.g. postgresql+asyncpg://user:pass@host:5432/db. Secret — env only.
     loan_db_url: Optional[str] = os.getenv("LOAN_DB_URL")
     loan_db_pool_size: int = int(os.getenv("LOAN_DB_POOL_SIZE", "5"))
+
+    # ── Partner heat-alert webhook ───────────────────────────────────────────
+    # Shared secret sent by the partner as Authorization: Bearer. When
+    # unset/empty the webhook endpoint rejects all requests (fail closed).
+    webhook_shared_token: Optional[str] = os.getenv("WEBHOOK_SHARED_TOKEN")
+    # Dedicated Postgres for partner webhook payloads (hosted on vm2).
+    webhook_db_url: Optional[str] = os.getenv("WEBHOOK_DB_URL")
+    webhook_db_pool_size: int = int(os.getenv("WEBHOOK_DB_POOL_SIZE", "5"))
+    # Retention + cleanup cadence for ephemeral webhook data.
+    webhook_retention_hours: int = int(os.getenv("WEBHOOK_RETENTION_HOURS", "24"))
+    webhook_cleanup_interval_seconds: int = int(
+        os.getenv("WEBHOOK_CLEANUP_INTERVAL_SECONDS", "900")
+    )
 
     # ── Onex-Aura / OneXtel SMS gateway (DLT-approved KDCC micro-loan template) ─
     # When false, SMS is a dry-run: nothing is sent, the code is still issued and

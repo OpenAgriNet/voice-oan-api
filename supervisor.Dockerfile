@@ -4,6 +4,11 @@
 # Use Python as the base image
 FROM python:3.10-slim
 
+# Commit being built, for the release stamp on voice traces:
+# --build-arg GIT_SHA=$(git rev-parse HEAD). A mounted checkout's .git wins over it.
+ARG GIT_SHA
+ENV GIT_SHA=${GIT_SHA}
+
 # Set work directory
 WORKDIR /app
 
