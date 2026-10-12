@@ -9,11 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from agents.tools.farmer_animal_backends import (
     fetch_farmer_amulpashudhan,
-    fetch_farmer_herdman,
     fetch_animal_amulpashudhan,
-    fetch_animal_herdman,
     merge_farmer_records,
-    merge_animal_data,
     normalize_phone,
 )
 from helpers.gujarati_numbers import mask_tag_identifier
@@ -24,13 +21,6 @@ logger = get_logger(__name__)
 # Unions that have specific additional APIs
 BANAS_UNIONS = {"banas"}
 KAIRA_UNIONS = {"kaira"}
-MEHSANA_UNIONS = {"mehsana", "dudhsagar"}
-
-
-def _get_union_name(farmer: Dict[str, Any]) -> str:
-    """Extract and normalize union name from farmer record."""
-    name = farmer.get("unionName") or farmer.get("Union Name") or ""
-    return name.strip().lower()
 
 
 def _get_tags(farmer: Dict[str, Any]) -> List[str]:
@@ -112,22 +102,15 @@ def _format_animal(lines: list, tag: str, animal: Optional[Dict[str, Any]]) -> N
         _add_field(lines, "Last health activity", json.dumps(health, ensure_ascii=False) if isinstance(health, (dict, list)) else health)
 
 
-async def _fetch_animal_details(tag: str, token1: str, token3: str | None) -> tuple[str, Dict[str, Any] | None]:
-    """Fetch animal details from both backends and merge."""
-    primary = None
-    fallback = None
+async def _fetch_animal_details(tag: str, token1: str) -> tuple[str, Dict[str, Any] | None]:
+    """Fetch animal details from amulpashudhan."""
+    animal = None
     if token1:
         try:
-            primary = await fetch_animal_amulpashudhan(tag, token1)
+            animal = await fetch_animal_amulpashudhan(tag, token1)
         except Exception:
             pass
-    if token3:
-        try:
-            fallback = await fetch_animal_herdman(tag, token3)
-        except Exception:
-            pass
-    merged = merge_animal_data(primary, fallback)
-    return tag, merged if merged else None
+    return tag, animal if animal else None
 
 
 async def get_farmer_full_context_string(mobile_number: str) -> str:
@@ -140,8 +123,7 @@ async def get_farmer_full_context_string(mobile_number: str) -> str:
         return f"# Farmer Context\n\nNo farmer information found for mobile number `{mobile_number}`."
 
     token1 = os.getenv("PASHUGPT_TOKEN")
-    token3 = os.getenv("PASHUGPT_TOKEN_3")
-    if not token1 and not token3:
+    if not token1:
         return "# Farmer Context\n\nFarmer data service is not configured."
 
     # Fetch farmer records
@@ -154,18 +136,6 @@ async def get_farmer_full_context_string(mobile_number: str) -> str:
                 logger.info(f"Voice farmer context: {len(data)} record(s) from amulpashudhan for {mobile}")
         except Exception as e:
             logger.warning(f"amulpashudhan farmer error for {mobile}: {e}")
-
-    if token3:
-        # Check if Mehsana union (Herdman data available)
-        union_names = {_get_union_name(r) for r in records}
-        if union_names & MEHSANA_UNIONS:
-            try:
-                data = await fetch_farmer_herdman(mobile, token3)
-                if data:
-                    records = merge_farmer_records(records + data)
-                    logger.info(f"Voice farmer context: {len(data)} record(s) from herdman for {mobile}")
-            except Exception as e:
-                logger.warning(f"herdman farmer error for {mobile}: {e}")
 
     if not records:
         return f"# Farmer Context\n\nNo farmer information found for mobile number `{mobile}`."
@@ -195,7 +165,7 @@ async def get_farmer_full_context_string(mobile_number: str) -> str:
         lines.append(f"- **Animal tags:** {', '.join(masked_tags)}")
 
         # Fetch animal details in parallel
-        animal_tasks = [_fetch_animal_details(tag, token1 or "", token3) for tag in tags]
+        animal_tasks = [_fetch_animal_details(tag, token1) for tag in tags]
         animal_results = await asyncio.gather(*animal_tasks)
         for tag, animal_data in animal_results:
             _format_animal(lines, tag, animal_data)

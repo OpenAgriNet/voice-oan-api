@@ -15,14 +15,9 @@
     "transliteration": "Asamanya Lakshan"
   },
   {
-    "en": "ABORTION",
-    "gu": "તરવાઈ જવું",
-    "transliteration": "tarvai javu"
-  },
-  {
-    "en": "ABORTION",
-    "gu": "પશુ તરવાઈ જવું",
-    "transliteration": "pashu tarvai javu"
+    "en": "abortion",
+    "gu": "ગર્ભપાત",
+    "transliteration": "garbhapat"
   },
   {
     "en": "Abscess/Tumour (localised swelling)",
@@ -3183,6 +3178,11 @@
     "en": "Sick Animal",
     "gu": "બીમાર પશુ",
     "transliteration": "Bimar Pashu"
+  },
+  {
+    "en": "Silage",
+    "gu": "સાયલેજ",
+    "transliteration": "Sayalej"
   },
   {
     "en": "Silage Making",

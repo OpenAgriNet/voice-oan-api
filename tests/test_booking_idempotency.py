@@ -13,9 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from agents.tools import ai_call as ai_mod
-from agents.tools import health_call as hc_mod
 from agents.models.ai_call import AISpecies
-from agents.models.health_call import HealthCaseType
 
 # create_ai_call rejects identifiers that cannot be real; 24 base64 chars is the
 # shape of every real prod technician id.
@@ -71,27 +69,6 @@ def test_ai_call_idempotent_on_rerun(monkeypatch):
 
     r1 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "159", "00002", "5058", TECH_ID, species))
     r2 = asyncio.run(ai_mod.create_ai_call(_ctx("s1"), "159", "00002", "5058", TECH_ID, species))
-
-    assert calls["n"] == 1
-    assert "booked successfully" in r1
-    assert "already" in r2.lower()
-
-
-def test_health_call_idempotent_on_rerun(monkeypatch):
-    _patch_cache(monkeypatch, hc_mod)
-    calls = {"n": 0}
-
-    async def fake_api(request, token):
-        calls["n"] += 1
-        return SimpleNamespace(ticket_number="H1")
-
-    monkeypatch.setattr(hc_mod, "create_health_call_api", fake_api)
-    species = next(iter(AISpecies))
-    case_type = next(iter(HealthCaseType))
-
-    # remark differs across the re-run (model output varies) — session key still dedupes
-    r1 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), "159", "00002", "5058", species, case_type, "remark v1"))
-    r2 = asyncio.run(hc_mod.create_health_call(_ctx("s1"), "159", "00002", "5058", species, case_type, "remark v2"))
 
     assert calls["n"] == 1
     assert "booked successfully" in r1

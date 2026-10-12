@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class AnimalRecord(BaseModel):
-    """Canonical animal record — fields normalized from amulpashudhan and herdman APIs."""
+    """Canonical animal record — fields normalized from the amulpashudhan API."""
     model_config = ConfigDict(extra="allow")
 
     tagNumber: Optional[str] = None
@@ -19,9 +19,9 @@ class AnimalRecord(BaseModel):
     pregnancyStage: Optional[str] = None
     dateOfBirth: Optional[str] = None
     lactationNo: Optional[Union[int, str]] = None
-    # amulpashudhan returns these as nested objects (AI date + bull id, etc.);
-    # herdman returns flat strings. Accept either so the breeding/AI history
-    # survives the cache round-trip intact.
+    # amulpashudhan returns these as nested objects (AI date + bull id, etc.)
+    # on some records and flat strings on others. Accept either so the
+    # breeding/AI history survives the cache round-trip intact.
     lastBreedingActivity: Optional[Any] = None
     lastHealthActivity: Optional[Any] = None
     lastPD: Optional[str] = None

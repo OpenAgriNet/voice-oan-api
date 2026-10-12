@@ -10,10 +10,12 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
 from app.config import settings
+from app.services.telemetry_stamps import forward_voice_telemetry_metadata, running_release
 
 logger = logging.getLogger(__name__)
 
 _VALID_TEXT_MODES = {"preview_hash", "full", "none"}
+_VALID_USER_ID_MODES = {"hash", "phone"}
 _HASH_SALT = "voice-oan-api"
 
 
@@ -29,6 +31,17 @@ def _hash(value: str) -> str:
     return hashlib.sha256(f"{_HASH_SALT}:{value}".encode("utf-8")).hexdigest()
 
 
+def _langfuse_user_id(user_id: Optional[str], user_id_hash: str) -> str:
+    """The caller's hash by default. ``phone`` sends the caller's id as given, so
+    it is only for a Langfuse approved to hold phone numbers."""
+    mode = getattr(settings, "voice_trace_user_id_mode", "hash")
+    if mode not in _VALID_USER_ID_MODES:
+        mode = "hash"
+    if mode == "phone":
+        return (user_id or "anonymous")[:200]
+    return user_id_hash
+
+
 def _safe_update(observation: Any | None, **kwargs: Any) -> None:
     if observation is None:
         return
@@ -41,13 +54,14 @@ def _safe_update(observation: Any | None, **kwargs: Any) -> None:
 def sanitize_text(text: Optional[str], *, mode: Optional[str] = None) -> dict[str, Any]:
     """Return trace-safe text metadata.
 
-    The default keeps enough data to debug routing and regressions without
-    storing full caller text in logs or Langfuse.
+    By default only the length and a hash. ``preview_hash`` and ``full`` put the
+    caller's words in the trace, so they are only for a Langfuse approved to hold
+    them, with a documented retention and access policy.
     """
     value = text or ""
-    active_mode = mode or getattr(settings, "voice_trace_text_mode", "preview_hash")
+    active_mode = mode or getattr(settings, "voice_trace_text_mode", "none")
     if active_mode not in _VALID_TEXT_MODES:
-        active_mode = "preview_hash"
+        active_mode = "none"
 
     payload: dict[str, Any] = {
         "chars": len(value),
@@ -59,6 +73,21 @@ def sanitize_text(text: Optional[str], *, mode: Optional[str] = None) -> dict[st
         preview_chars = max(0, int(getattr(settings, "voice_trace_preview_chars", 120)))
         payload["preview"] = value[:preview_chars]
     return payload
+
+
+def _hash_only(value: Any) -> Any:
+    """``value`` with every sanitized text cut down to its length and hash. Logs
+    never hold the caller's words, whatever text mode the trace is sent with."""
+    if isinstance(value, dict):
+        sanitized = "chars" in value and "sha256" in value
+        return {
+            key: _hash_only(item)
+            for key, item in value.items()
+            if not (sanitized and key in ("preview", "text"))
+        }
+    if isinstance(value, list):
+        return [_hash_only(item) for item in value]
+    return value
 
 
 @dataclass
@@ -186,6 +215,7 @@ class VoiceTrace:
                 logger.debug("Langfuse client lookup failed: %s", exc)
         self.metadata.update(
             {
+                **forward_voice_telemetry_metadata(running_release()),
                 "trace_id": self.trace_id,
                 "provider": self.provider,
                 "process_id": self.process_id,
@@ -247,7 +277,7 @@ class VoiceTrace:
             )
             stack.enter_context(
                 propagate_attributes(
-                    user_id=(self.user_id or "anonymous")[:200],
+                    user_id=_langfuse_user_id(self.user_id, self.metadata["user_id_hash"]),
                     session_id=(self.session_id or "")[:200] or None,
                     metadata={
                         "process_id": str(self.process_id or "")[:200],
@@ -527,7 +557,7 @@ class VoiceTrace:
                 logger.debug("Langfuse root observation end failed: %s", exc)
         if getattr(settings, "voice_trace_log_summary", True):
             try:
-                logger.info("VOICE_TRACE_SUMMARY %s", json.dumps(summary, ensure_ascii=False, default=str))
+                logger.info("VOICE_TRACE_SUMMARY %s", json.dumps(_hash_only(summary), ensure_ascii=False, default=str))
             except Exception as exc:
                 logger.debug("Voice trace summary logging failed: %s", exc)
 
