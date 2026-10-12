@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS heat_alert_webhook_events (
     timestamp_raw TEXT,
     msg_title TEXT,
     msg_body TEXT,
+    booking_url TEXT,
 
     ai_window_start_at TIMESTAMPTZ,
     ai_window_end_at TIMESTAMPTZ,

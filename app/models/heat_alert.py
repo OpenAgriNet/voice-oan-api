@@ -86,6 +86,9 @@ class HeatAlertWebhookRequest(BaseModel):
     farmer_code: str | None = Field(default=None, description="Farmer code", max_length=64)
     farmer_contact: str = Field(description="Farmer phone / contact", max_length=32)
     system_tag_no: str | None = Field(default=None, description="System tag number", max_length=64)
+    booking_url: str | None = Field(
+        default=None, description="Partner-provided AI booking URL", max_length=2048
+    )
 
     @field_validator(
         "alert_id",

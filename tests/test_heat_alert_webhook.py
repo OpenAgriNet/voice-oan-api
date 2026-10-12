@@ -47,6 +47,7 @@ PARTNER_PAYLOAD = {
     "farmer_code": "1140",
     "farmer_contact": "9727703441",
     "system_tag_no": "12",
+    "booking_url": "https://booking.example.test/heat/abc123",
 }
 
 
@@ -56,6 +57,7 @@ class _FakeSession:
         self.last_stmt = None
         self.rowcount = 0
         self._rows_by_key = {}
+        self.insert_params = None
 
     @staticmethod
     def _extract_param(params, needle):
@@ -70,6 +72,7 @@ class _FakeSession:
 
         if sql.startswith("INSERT INTO heat_alert_webhook_events"):
             params = stmt.compile().params
+            self.insert_params = params
             alert_id = self._extract_param(params, "alert_id")
             farmer_contact = self._extract_param(params, "farmer_contact")
             received_at = self._extract_param(params, "received_at")
@@ -118,6 +121,7 @@ def test_partner_payload_aliases_and_numeric_coercion():
             "AI Window end_time": "2026-09-16T09:40:39.000Z",
             "timestamp": "2026-09-16T09:40:39.000Z",
             "farmer_contact": 9727703441,
+            "booking_url": "https://booking.example.test/heat/abc123",
         }
     )
     assert parsed.alert_id == "111"
@@ -130,6 +134,12 @@ def test_partner_payload_aliases_and_numeric_coercion():
     assert parsed.ai_window_start_time == "2026-09-16T09:40:39.000Z"
     assert parsed.timestamp == "2026-09-16T09:40:39.000Z"
     assert parsed.farmer_contact == "9727703441"
+    assert parsed.booking_url == "https://booking.example.test/heat/abc123"
+    assert parsed.model_dump(mode="json")["booking_url"] == parsed.booking_url
+
+    without_booking_url = dict(PARTNER_PAYLOAD)
+    without_booking_url.pop("booking_url")
+    assert HeatAlertWebhookRequest.model_validate(without_booking_url).booking_url is None
 
 
 def test_heat_alert_auth_and_persist(monkeypatch):
@@ -181,6 +191,17 @@ def test_heat_alert_auth_and_persist(monkeypatch):
         == 422
     )
 
+    oversized_booking_url = dict(PARTNER_PAYLOAD)
+    oversized_booking_url["booking_url"] = "x" * 2049
+    assert (
+        client.post(
+            "/api/webhooks/alerts",
+            json=oversized_booking_url,
+            headers={"Authorization": "Bearer test-webhook-token"},
+        ).status_code
+        == 422
+    )
+
     resp = client.post(
         "/api/webhooks/alerts",
         json=PARTNER_PAYLOAD,
@@ -196,6 +217,27 @@ def test_heat_alert_auth_and_persist(monkeypatch):
     assert ("111", "9727703441") in session._rows_by_key
     inserted_id, _inserted_received_at = session._rows_by_key[("111", "9727703441")]
     assert str(inserted_id) == body["id"]
+    assert session.insert_params is not None
+    assert (
+        session._extract_param(session.insert_params, "booking_url")
+        == PARTNER_PAYLOAD["booking_url"]
+    )
+    assert (
+        session._extract_param(session.insert_params, "payload_raw")["booking_url"]
+        == PARTNER_PAYLOAD["booking_url"]
+    )
+
+    without_booking_url = dict(PARTNER_PAYLOAD)
+    without_booking_url.pop("booking_url")
+    without_booking_url["alertID"] = "112"
+    resp_without_booking_url = client.post(
+        "/api/webhooks/alerts",
+        json=without_booking_url,
+        headers={"Authorization": "Bearer test-webhook-token"},
+    )
+    assert resp_without_booking_url.status_code == 202
+    assert session._extract_param(session.insert_params, "booking_url") is None
+    assert session._extract_param(session.insert_params, "payload_raw")["booking_url"] is None
 
     # Duplicate payload is idempotent: accepted, same record id.
     resp2 = client.post(

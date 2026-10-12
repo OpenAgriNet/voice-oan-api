@@ -108,6 +108,7 @@ Auth:
 
 Request body uses the partner's wire keys (including spaces/casing), for example:
 `alertID`, `deviceid`, `tag no`, `Pashuaadhar No`, `AI Window start_time`.
+The optional `booking_url` field carries the partner-provided AI booking link.
 
 Successful response (`202 Accepted`):
 ```json
@@ -134,8 +135,9 @@ Env reference: `example.webhook.env`
 ### vm2 deploy checklist
 
 1. Create a dedicated Postgres DB/user on vm2 for webhook storage.
-2. Apply migration:
-   `psql "$WEBHOOK_DSN" -f migrations/webhook/001_init.sql`
+2. Apply the schema migration before deploying the matching application code:
+   - fresh database: `psql "$WEBHOOK_DSN" -f migrations/webhook/001_init.sql`
+   - existing database: `psql "$WEBHOOK_DSN" -f migrations/webhook/003_booking_url.sql`
 3. Set runtime env on this service:
    - `WEBHOOK_SHARED_TOKEN=<shared-secret>`
    - `WEBHOOK_DB_URL=postgresql+asyncpg://USER:PASS@VM2_HOST:5432/DB`
@@ -143,12 +145,44 @@ Env reference: `example.webhook.env`
 4. Restart the API process and confirm startup log includes webhook cleanup worker start (or the "not started: WEBHOOK_DB_URL not configured" skip line).
 5. Smoke test:
    ```bash
-   curl -sS -X POST "$BASE_URL/api/webhooks/alerts" \
+   SMOKE_ALERT_ID="smoke-booking-url-$(date +%s)"
+   SMOKE_TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
+   SMOKE_RESPONSE_FILE="$(mktemp)"
+
+   SMOKE_HTTP_STATUS="$(curl -sS -o "$SMOKE_RESPONSE_FILE" -w '%{http_code}' \
+     -X POST "$BASE_URL/api/webhooks/alerts" \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer $WEBHOOK_SHARED_TOKEN" \
-     -d '{"alertID":"111","deviceid":"S1IAD1869","notification_type":"heat"}'
+     -d "{
+       \"alertID\": \"$SMOKE_ALERT_ID\",
+       \"deviceid\": \"SMOKE-BOOKING-URL\",
+       \"alert_type\": \"Amber\",
+       \"notification_type\": \"heat\",
+       \"AI Window start_time\": \"$SMOKE_TIMESTAMP\",
+       \"AI Window end_time\": \"$SMOKE_TIMESTAMP\",
+       \"timestamp\": \"$SMOKE_TIMESTAMP\",
+       \"farmer_contact\": \"0000000000\",
+       \"booking_url\": \"https://booking.example.test/heat/abc123\"
+     }")"
+
+   cat "$SMOKE_RESPONSE_FILE"
+   test "$SMOKE_HTTP_STATUS" = "202"
    ```
-6. Verify a row exists in `heat_alert_webhook_events`, then confirm old rows disappear after retention.
+6. Verify both persisted copies of the URL using the same shell variables:
+   ```bash
+   SMOKE_MATCHES="$(psql "$WEBHOOK_DSN" -Atc "
+     SELECT count(*)
+     FROM heat_alert_webhook_events
+     WHERE alert_id = '$SMOKE_ALERT_ID'
+       AND booking_url = 'https://booking.example.test/heat/abc123'
+       AND payload_raw->>'booking_url' = 'https://booking.example.test/heat/abc123';
+   ")"
+
+   test "$SMOKE_MATCHES" = "1"
+   echo "booking_url persistence smoke test passed"
+   rm -f "$SMOKE_RESPONSE_FILE"
+   ```
+7. Confirm the smoke row disappears after the configured retention period.
 
 ## FE / Telephony Contract
 

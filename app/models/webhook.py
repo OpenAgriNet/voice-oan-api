@@ -62,6 +62,7 @@ class HeatAlertWebhookEvent(WebhookBase):
     timestamp_raw: Mapped[str | None] = mapped_column(Text)
     msg_title: Mapped[str | None] = mapped_column(Text)
     msg_body: Mapped[str | None] = mapped_column(Text)
+    booking_url: Mapped[str | None] = mapped_column(Text)
 
     # Parsed timestamps (if parseable) improve queryability.
     ai_window_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
