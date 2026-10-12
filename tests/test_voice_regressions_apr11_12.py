@@ -46,7 +46,6 @@ from app.services.voice import (
 )
 from agents.deps import FarmerContext
 from agents.models.ai_call import AICallRequestModel, AISpecies
-from agents.models.health_call import HealthCallRequestModel, HealthCaseType
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 
 
@@ -362,7 +361,7 @@ class TestHelperCoverage:
     def test_signed_in_agent_has_farmer_tools(self):
         base_tool_names = set(voice_agent._function_toolset.tools.keys())
         signed_in_tool_names = set(voice_agent_signed_in._function_toolset.tools.keys())
-        assert {"search_terms", "search_documents", "get_farmer_milk_collection_details", "create_ai_call", "create_health_call"}.issubset(base_tool_names)
+        assert {"search_terms", "search_documents", "get_farmer_milk_collection_details", "create_ai_call"}.issubset(base_tool_names)
         # Brittle profile/herd/tag tools were dropped; signed-in surface keeps scheme + bonus.
         assert {"get_union_scheme_data", "get_farmer_bonus_amount"}.issubset(signed_in_tool_names)
         assert "get_farmer_profile" not in signed_in_tool_names

@@ -13,10 +13,8 @@ import pytest
 
 from agents.models.farmer import FarmerDataEnvelope, FarmerRecord
 from agents.models.ai_call import AISpecies
-from agents.models.health_call import HealthCaseType
 from agents.services.farmer_cache import _has_failed_technician_lookup
 from agents.tools import ai_call as ai_mod
-from agents.tools import health_call as hc_mod
 from agents.tools.farmer_animal_backends import AITechnicianBySocietyRecord
 from app.models.union import UNION_BANNED_MESSAGE, UNION_BANNED_MESSAGES
 from app.services.voice import (
@@ -419,26 +417,6 @@ def test_moderation_block_runs_before_union_ban(monkeypatch):
     out = asyncio.run(ai_mod.create_ai_call(ctx, "159", "00002", "5058", TECH_ID, SPECIES))
     assert out == "This helpline only handles dairy farming and animal husbandry questions."
     assert calls["n"] == 0
-
-
-def test_health_call_still_books_for_kutch_union(monkeypatch):
-    calls = {"n": 0}
-
-    async def fake_api(request, token):
-        calls["n"] += 1
-        return SimpleNamespace(ticket_number="H1")
-
-    monkeypatch.setenv("PASHUGPT_TOKEN", "tok")
-    monkeypatch.setattr(hc_mod, "create_health_call_api", fake_api)
-    out = asyncio.run(
-        hc_mod.create_health_call(
-            _booking_ctx(session_id=None, unions=["kutch"]),
-            "159", "00002", "5058", SPECIES, next(iter(HealthCaseType)), "fever",
-        )
-    )
-    assert calls["n"] == 1
-    assert "booked successfully" in out
-    assert UNION_BANNED_MESSAGE not in out
 
 
 # ── canned caller copy ────────────────────────────────────────────────────────

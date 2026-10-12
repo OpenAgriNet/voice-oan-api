@@ -2,7 +2,7 @@
 Internal backends for farmer and animal data from multiple APIs.
 - amulpashudhan.com (PASHUGPT_TOKEN): GetFarmerDetailsByMobile, GetAnimalDetailsByTagNo,
   GetAITechniciansBySociety, FarmerMilkCollectionDetails, GetFarmerBonusAmount,
-  CreateAICall, CreateHealthCall
+  CreateAICall
 
 Used by farmer.py and animal.py.
 """
@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agents.models.farmer import FarmerRecord, AnimalRecord
 from agents.models.ai_call import AICallRequestModel, AICallResponseModel, strip_ait_name_codes
-from agents.models.health_call import HealthCallRequestModel, HealthCallResponseModel
 from app.models.bonus import (
     FarmerBonusAmountRecordModel,
     FarmerBonusAmountRequestModel,
@@ -350,61 +349,6 @@ async def create_ai_call_api(
         _logger.error("[CreateAICall] :: HTTP %s: %s", e.response.status_code, e.response.text)
     except Exception as e:
         _logger.error("[CreateAICall] :: Error: %s", e)
-    return None
-
-
-async def create_health_call_api(
-    request: HealthCallRequestModel, token: str
-) -> HealthCallResponseModel | None:
-    """Creates a health call and returns the ticket details."""
-    api_url = f"{BASE_AMULPASHUDHAN}/CreateHealthCall"
-    try:
-        with start_observation(
-            "create_health_call_api",
-            input=request.to_query_params(),
-            metadata={"provider": "amulpashudhan", "url": api_url},
-        ) as observation:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    api_url,
-                    params=request.to_query_params(),
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-                _record_api_trace(observation, response, provider="amulpashudhan", url=api_url)
-                response.raise_for_status()
-                _logger.info(
-                    "[CreateHealthCall(%s,%s,%s,%s,%s)] :: Response received.",
-                    request.union_code,
-                    request.society_code,
-                    request.farmer_code,
-                    request.species.value,
-                    request.case_type.value,
-                )
-        response_json = response.json()
-        if not isinstance(response_json, dict):
-            raise Exception("Not a valid dict in response.")
-        return HealthCallResponseModel.model_validate(response_json)
-    except httpx.HTTPStatusError as e:
-        _logger.error(
-            "[CreateHealthCall(%s,%s,%s,%s,%s)] :: HTTP %s: %s",
-            request.union_code,
-            request.society_code,
-            request.farmer_code,
-            request.species.value,
-            request.case_type.value,
-            e.response.status_code,
-            e.response.text,
-        )
-    except Exception as e:
-        _logger.error(
-            "[CreateHealthCall(%s,%s,%s,%s,%s)] :: Error: %s",
-            request.union_code,
-            request.society_code,
-            request.farmer_code,
-            request.species.value,
-            request.case_type.value,
-            e,
-        )
     return None
 
 
