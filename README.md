@@ -156,7 +156,7 @@ Env reference: `example.webhook.env`
    - `WEBHOOK_SHARED_TOKEN=<shared-secret>`
    - `WEBHOOK_DB_URL=postgresql+asyncpg://USER:PASS@VM2_HOST:5432/DB`
    - `SARLABEN_WHATSAPP_API_KEY=<api-key-issued-by-GISPL>`
-   - optional: `SARLABEN_WHATSAPP_BASE_URL` (defaults to `https://comm.amulai.in/sarlaben`)
+   - optional: `SARLABEN_WHATSAPP_BASE_URL` (defaults to `https://comm.amul.in/sarlaben`)
    - optional: `SARLABEN_WHATSAPP_TIMEOUT_SECONDS` (defaults to `15`)
    - optional: `WEBHOOK_DB_POOL_SIZE`, `WEBHOOK_RETENTION_HOURS`, `WEBHOOK_CLEANUP_INTERVAL_SECONDS`
 4. Restart the API process and confirm startup log includes webhook cleanup worker start (or the "not started: WEBHOOK_DB_URL not configured" skip line).

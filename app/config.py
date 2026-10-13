@@ -287,7 +287,7 @@ class Settings(BaseSettings):
     )
     # Sarlaben WhatsApp API used after a new heat-alert webhook is stored.
     sarlaben_whatsapp_base_url: str = os.getenv(
-        "SARLABEN_WHATSAPP_BASE_URL", "https://comm.amulai.in/sarlaben"
+        "SARLABEN_WHATSAPP_BASE_URL", "https://comm.amul.in/sarlaben"
     )
     sarlaben_whatsapp_api_key: Optional[str] = os.getenv(
         "SARLABEN_WHATSAPP_API_KEY"
