@@ -285,6 +285,16 @@ class Settings(BaseSettings):
     webhook_cleanup_interval_seconds: int = int(
         os.getenv("WEBHOOK_CLEANUP_INTERVAL_SECONDS", "900")
     )
+    # Sarlaben WhatsApp API used after a new heat-alert webhook is stored.
+    sarlaben_whatsapp_base_url: str = os.getenv(
+        "SARLABEN_WHATSAPP_BASE_URL", "https://comm.amul.in/sarlaben"
+    )
+    sarlaben_whatsapp_api_key: Optional[str] = os.getenv(
+        "SARLABEN_WHATSAPP_API_KEY"
+    )
+    sarlaben_whatsapp_timeout_seconds: float = float(
+        os.getenv("SARLABEN_WHATSAPP_TIMEOUT_SECONDS", "15")
+    )
 
     # ── Onex-Aura / OneXtel SMS gateway (DLT-approved KDCC micro-loan template) ─
     # When false, SMS is a dry-run: nothing is sent, the code is still issued and
