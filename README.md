@@ -109,6 +109,7 @@ Auth:
 Request body uses the partner's wire keys (including spaces/casing), for example:
 `alertID`, `deviceid`, `tag no`, `Pashuaadhar No`, `AI Window start_time`.
 The optional `booking_url` field carries the partner-provided AI booking link.
+The optional boolean fields `called` and `call_booked` both default to `false`.
 
 Successful response (`202 Accepted`):
 ```json
@@ -137,7 +138,7 @@ Env reference: `example.webhook.env`
 1. Create a dedicated Postgres DB/user on vm2 for webhook storage.
 2. Apply the schema migration before deploying the matching application code:
    - fresh database: `psql "$WEBHOOK_DSN" -f migrations/webhook/001_init.sql`
-   - existing database: `psql "$WEBHOOK_DSN" -f migrations/webhook/003_booking_url.sql`
+   - existing database: apply `migrations/webhook/003_booking_url.sql`, then `migrations/webhook/004_call_flags.sql`
 3. Set runtime env on this service:
    - `WEBHOOK_SHARED_TOKEN=<shared-secret>`
    - `WEBHOOK_DB_URL=postgresql+asyncpg://USER:PASS@VM2_HOST:5432/DB`

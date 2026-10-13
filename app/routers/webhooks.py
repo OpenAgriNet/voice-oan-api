@@ -93,6 +93,8 @@ async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebho
         msg_title=payload.msg_title,
         msg_body=payload.msg_body,
         booking_url=payload.booking_url,
+        called=payload.called,
+        call_booked=payload.call_booked,
         ai_window_start_at=ai_window_start_at,
         ai_window_end_at=ai_window_end_at,
         partner_timestamp_at=partner_timestamp_at,

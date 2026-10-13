@@ -9,7 +9,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Index, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    false,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -63,6 +73,12 @@ class HeatAlertWebhookEvent(WebhookBase):
     msg_title: Mapped[str | None] = mapped_column(Text)
     msg_body: Mapped[str | None] = mapped_column(Text)
     booking_url: Mapped[str | None] = mapped_column(Text)
+    called: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    call_booked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
 
     # Parsed timestamps (if parseable) improve queryability.
     ai_window_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

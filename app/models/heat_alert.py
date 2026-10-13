@@ -89,6 +89,12 @@ class HeatAlertWebhookRequest(BaseModel):
     booking_url: str | None = Field(
         default=None, description="Partner-provided AI booking URL", max_length=2048
     )
+    called: bool = Field(
+        default=False, description="Whether the farmer has been called"
+    )
+    call_booked: bool = Field(
+        default=False, description="Whether the farmer call has been booked"
+    )
 
     @field_validator(
         "alert_id",
