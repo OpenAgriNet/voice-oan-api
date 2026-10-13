@@ -20,12 +20,16 @@ langfuse_client = None
 if langfuse_public_key and langfuse_secret_key:
     try:
         from app.config import settings
+        from app.services.telemetry_stamps import running_release
 
-        # Labels for Langfuse: identify all traces as from this service.
+        # Labels for Langfuse. The release is the build that served the trace:
+        # LANGFUSE_RELEASE if the deployment sets it, else the running commit,
+        # the same value as the release stamp.
         release = (
             os.getenv("LANGFUSE_RELEASE")
             or settings.langfuse_release
-            or "voice-oan-api"
+            or running_release()
+            or "unknown"
         )
         environment = (
             os.getenv("LANGFUSE_TRACING_ENVIRONMENT")
@@ -43,6 +47,8 @@ if langfuse_public_key and langfuse_secret_key:
         )
 
         os.environ.setdefault("LANGFUSE_BASE_URL", host)
+        # get_client() takes the release from the environment only.
+        os.environ.setdefault("LANGFUSE_RELEASE", release)
 
         print(
             f"Langfuse initializing: host={host}, release={release}, environment={environment}",
