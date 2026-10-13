@@ -3360,6 +3360,12 @@ async def stream_voice_message(
                 await update_message_history(session_id, messages)
             if trace.outcome is None:
                 trace.set_outcome("success")
+    except (asyncio.CancelledError, GeneratorExit):
+        # The caller hung up: the request task is cancelled, or the stream is
+        # closed at a yield. Neither reaches `except Exception`, and the turn
+        # wasn't delivered, so it mustn't fall through to "success" below.
+        trace.finish(trace.outcome or "client_disconnected")
+        raise
     except Exception as exc:
         trace.finish(trace.outcome or "error", error=exc)
         raise
