@@ -108,7 +108,21 @@ Auth:
 
 Request body uses the partner's wire keys (including spaces/casing), for example:
 `alertID`, `deviceid`, `tag no`, `Pashuaadhar No`, `AI Window start_time`.
-The optional `booking_url` field carries the partner-provided AI booking link.
+`farmer_contact`, `Pashuaadhar No`, `tag no`, and `booking_url` must be non-empty
+because they are sent to the single-farmer Sarlaben WhatsApp API. A missing value
+returns `422` before the event is stored.
+
+For each newly stored alert, the service calls
+`POST <SARLABEN_WHATSAPP_BASE_URL>/api/whatsapp/heat-alert` with this mapping:
+- `farmer_contact` → `mobile`
+- `Pashuaadhar No` → `animalNo`
+- `tag no` → `tagNo`
+- `booking_url` → `bookingLink`
+
+The database idempotency key (`alertID`, `farmer_contact`) also prevents a webhook
+retry from sending the same WhatsApp message twice. The webhook returns `503` when
+the WhatsApp API key is missing and `502` when the provider does not accept the
+message; in either case the new database row is rolled back so a retry can try again.
 
 Successful response (`202 Accepted`):
 ```json
@@ -141,6 +155,9 @@ Env reference: `example.webhook.env`
 3. Set runtime env on this service:
    - `WEBHOOK_SHARED_TOKEN=<shared-secret>`
    - `WEBHOOK_DB_URL=postgresql+asyncpg://USER:PASS@VM2_HOST:5432/DB`
+   - `SARLABEN_WHATSAPP_API_KEY=<api-key-issued-by-GISPL>`
+   - optional: `SARLABEN_WHATSAPP_BASE_URL` (defaults to `https://comm.amulai.in/sarlaben`)
+   - optional: `SARLABEN_WHATSAPP_TIMEOUT_SECONDS` (defaults to `15`)
    - optional: `WEBHOOK_DB_POOL_SIZE`, `WEBHOOK_RETENTION_HOURS`, `WEBHOOK_CLEANUP_INTERVAL_SECONDS`
 4. Restart the API process and confirm startup log includes webhook cleanup worker start (or the "not started: WEBHOOK_DB_URL not configured" skip line).
 5. Smoke test:
@@ -148,6 +165,10 @@ Env reference: `example.webhook.env`
    SMOKE_ALERT_ID="smoke-booking-url-$(date +%s)"
    SMOKE_TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
    SMOKE_RESPONSE_FILE="$(mktemp)"
+   : "${SMOKE_FARMER_MOBILE:?set a safe test WhatsApp recipient}"
+   : "${SMOKE_ANIMAL_NO:?set a test animal number}"
+   : "${SMOKE_TAG_NO:?set a test tag number}"
+   : "${SMOKE_BOOKING_URL:?set a test booking URL}"
 
    SMOKE_HTTP_STATUS="$(curl -sS -o "$SMOKE_RESPONSE_FILE" -w '%{http_code}' \
      -X POST "$BASE_URL/api/webhooks/alerts" \
@@ -161,8 +182,10 @@ Env reference: `example.webhook.env`
        \"AI Window start_time\": \"$SMOKE_TIMESTAMP\",
        \"AI Window end_time\": \"$SMOKE_TIMESTAMP\",
        \"timestamp\": \"$SMOKE_TIMESTAMP\",
-       \"farmer_contact\": \"0000000000\",
-       \"booking_url\": \"https://booking.example.test/heat/abc123\"
+       \"farmer_contact\": \"$SMOKE_FARMER_MOBILE\",
+       \"Pashuaadhar No\": \"$SMOKE_ANIMAL_NO\",
+       \"tag no\": \"$SMOKE_TAG_NO\",
+       \"booking_url\": \"$SMOKE_BOOKING_URL\"
      }")"
 
    cat "$SMOKE_RESPONSE_FILE"
@@ -174,8 +197,8 @@ Env reference: `example.webhook.env`
      SELECT count(*)
      FROM heat_alert_webhook_events
      WHERE alert_id = '$SMOKE_ALERT_ID'
-       AND booking_url = 'https://booking.example.test/heat/abc123'
-       AND payload_raw->>'booking_url' = 'https://booking.example.test/heat/abc123';
+       AND booking_url = '$SMOKE_BOOKING_URL'
+       AND payload_raw->>'booking_url' = '$SMOKE_BOOKING_URL';
    ")"
 
    test "$SMOKE_MATCHES" = "1"

@@ -12,6 +12,11 @@ from app.auth.webhook_token import require_webhook_token
 from app.core.webhook_db import get_webhook_session, webhook_db_configured
 from app.models.heat_alert import HeatAlertWebhookRequest, HeatAlertWebhookResponse
 from app.models.webhook import HeatAlertWebhookEvent
+from app.services.whatsapp_heat_alert import (
+    WhatsAppHeatAlertConfigurationError,
+    WhatsAppHeatAlertDeliveryError,
+    send_heat_alert_to_farmer,
+)
 from helpers.utils import get_logger
 
 logger = get_logger(__name__)
@@ -56,12 +61,31 @@ async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebho
     """Accept a partner heat-alert webhook payload.
 
     Validates the partner contract, persists to the webhook Postgres database,
-    and returns a 202 acknowledgement.
+    queues one WhatsApp message for a newly inserted alert, and returns a 202
+    acknowledgement.
     """
     if not webhook_db_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Webhook persistence DB is not configured",
+        )
+
+    whatsapp_values = {
+        "farmer_contact": payload.farmer_contact.strip(),
+        "Pashuaadhar No": (payload.pashuaadhar_no or "").strip(),
+        "tag no": (payload.tag_no or "").strip(),
+        "booking_url": (payload.booking_url or "").strip(),
+    }
+    missing_whatsapp_fields = [
+        name for name, value in whatsapp_values.items() if not value
+    ]
+    if missing_whatsapp_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Missing fields required for WhatsApp delivery: "
+                + ", ".join(missing_whatsapp_fields)
+            ),
         )
 
     received_at = datetime.now(timezone.utc)
@@ -118,6 +142,18 @@ async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebho
             inserted_row = (await session.execute(insert_stmt)).first()
             if inserted_row is not None:
                 record_id, stored_received_at = inserted_row
+                message_uuid = await send_heat_alert_to_farmer(
+                    mobile=whatsapp_values["farmer_contact"],
+                    animal_no=whatsapp_values["Pashuaadhar No"],
+                    tag_no=whatsapp_values["tag no"],
+                    booking_link=whatsapp_values["booking_url"],
+                )
+                logger.info(
+                    "Heat alert WhatsApp queued id=%s alert_id=%s message_uuid=%s",
+                    record_id,
+                    payload.alert_id,
+                    message_uuid,
+                )
             else:
                 existing_stmt = (
                     select(
@@ -138,6 +174,28 @@ async def receive_heat_alert(payload: HeatAlertWebhookRequest) -> HeatAlertWebho
                     )
                 record_id, stored_received_at = existing_row
             await session.commit()
+    except WhatsAppHeatAlertConfigurationError as exc:
+        logger.error(
+            "Heat alert WhatsApp is not configured alert_id=%s error=%s",
+            payload.alert_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="WhatsApp delivery is not configured",
+        ) from exc
+    except WhatsAppHeatAlertDeliveryError as exc:
+        logger.error(
+            "Heat alert WhatsApp delivery failed alert_id=%s error=%s",
+            payload.alert_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="WhatsApp provider did not accept the message",
+        ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(
             "Heat alert webhook persistence failed alert_id=%s device_id=%s error=%s",
