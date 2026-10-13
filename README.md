@@ -109,7 +109,8 @@ Auth:
 Request body uses the partner's wire keys (including spaces/casing), for example:
 `alertID`, `deviceid`, `tag no`, `Pashuaadhar No`, `AI Window start_time`.
 The optional `booking_url` field carries the partner-provided AI booking link.
-The optional boolean fields `called` and `call_booked` both default to `false`.
+The internal `called` and `call_booked` status columns both default to `false`.
+They are managed by application actions and are not accepted from webhook payloads.
 
 Successful response (`202 Accepted`):
 ```json
