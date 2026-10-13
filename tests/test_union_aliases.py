@@ -43,6 +43,15 @@ import agents.tools.union_schemes as us
     ("mehsana", "mehsana"),
     ("sursagar", "surendranagar"),
     ("Sursagar", "surendranagar"),
+    ("dudhdhara", "bharuch"),
+    ("Dudh Dhara", "bharuch"),
+    ("  DUDHDHARA  ", "bharuch"),
+    ("bharuch", "bharuch"),
+    ("madhur", "gandhinagar"),
+    ("Madhur Dairy", "gandhinagar"),
+    ("  GANDHINAGAR DAIRY  ", "gandhinagar"),
+    ("gandhinagar", "gandhinagar"),
+    ("vasudhara", "vasudhara"),
     ("sumul", "sumul"),
     ("kaira", "kaira"),
     ("", ""),
@@ -220,6 +229,25 @@ def test_scheme_cache_keys_match_chat_ingestion_sources():
     assert get_source_keys_for_union(UnionName.SURENDRANAGAR.value) == (
         "sursagardairy.com/farmer/milkproducers",
     )
+    assert get_source_keys_for_union(UnionName.BHARUCH.value) == (
+        "dudhdharadairy.in/for_our_milk_producers",
+    )
+    assert get_source_keys_for_union("dudhdhara") == (
+        "dudhdharadairy.in/for_our_milk_producers",
+    )
+    assert get_source_keys_for_union("dudh dhara") == (
+        "dudhdharadairy.in/for_our_milk_producers",
+    )
+    assert get_source_keys_for_union(UnionName.GANDHINAGAR.value) == (
+        "madhurdairy.org/forourmilkproducers",
+    )
+    assert get_source_keys_for_union("madhur dairy") == (
+        "madhurdairy.org/forourmilkproducers",
+    )
+    assert get_source_keys_for_union("gandhinagar dairy") == (
+        "madhurdairy.org/forourmilkproducers",
+    )
+    assert get_source_keys_for_union("vasudhara") == ()
     assert us.SUPPORTED_SCHEME_UNIONS == frozenset(SUPPORTED_UNION_SOURCE_KEYS)
     assert SUPPORTED_SCHEME_UNIONS == frozenset(
         {
@@ -227,5 +255,7 @@ def test_scheme_cache_keys_match_chat_ingestion_sources():
             UnionName.KUTCH.value,
             UnionName.SUMUL.value,
             UnionName.SURENDRANAGAR.value,
+            UnionName.BHARUCH.value,
+            UnionName.GANDHINAGAR.value,
         }
     )
