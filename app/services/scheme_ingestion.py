@@ -33,6 +33,8 @@ SUPPORTED_UNION_SOURCE_KEYS = {
     UnionName.KUTCH.value: ("sarhaddairy.coop/for-our-milk-producers",),
     UnionName.SUMUL.value: ("sumul.com/farmer-section",),
     UnionName.SURENDRANAGAR.value: ("sursagardairy.com/farmer/milkproducers",),
+    UnionName.BHARUCH.value: ("dudhdharadairy.in/for_our_milk_producers",),
+    UnionName.GANDHINAGAR.value: ("madhurdairy.org/forourmilkproducers",),
 }
 SUPPORTED_SCHEME_UNIONS = frozenset(SUPPORTED_UNION_SOURCE_KEYS)
 
