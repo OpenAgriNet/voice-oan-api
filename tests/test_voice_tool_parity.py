@@ -20,6 +20,11 @@ TOOL_MODULES = {
         "check_aif_loan_status",
         "check_aif_grievance_status",
     },
+    "agents.tools.kcc": {
+        "initiate_kcc_otp",
+        "check_kcc_application_status",
+        "select_kcc_application",
+    },
     "agents.tools.gfr": {"gfr_get_crop_registries", "gfr_get_recommendations"},
     "agents.tools.sathi_seed": {
         "get_sathi_crop_groups",

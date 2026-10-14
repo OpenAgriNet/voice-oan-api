@@ -12,6 +12,11 @@ from agents.tools.aif import (
     check_aif_loan_status,
     check_aif_grievance_status,
 )
+from agents.tools.kcc import (
+    initiate_kcc_otp,
+    check_kcc_application_status,
+    select_kcc_application,
+)
 from agents.tools.gfr import gfr_get_crop_registries, gfr_get_recommendations
 from agents.tools.sathi_seed import (
     get_sathi_crop_groups,
@@ -49,6 +54,9 @@ TOOLS = [
     Tool(verify_aif_otp, takes_ctx=True, strict=False),
     Tool(check_aif_loan_status, takes_ctx=True, strict=False),
     Tool(check_aif_grievance_status, takes_ctx=True, strict=False),
+    Tool(initiate_kcc_otp, takes_ctx=True, strict=False),
+    Tool(check_kcc_application_status, takes_ctx=True, strict=False),
+    Tool(select_kcc_application, takes_ctx=True, strict=False),
     Tool(gfr_get_crop_registries, takes_ctx=True, strict=False),
     Tool(gfr_get_recommendations, takes_ctx=True, strict=False),
     Tool(get_sathi_crop_groups, takes_ctx=False, strict=False),
