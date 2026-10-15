@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS heat_alert_webhook_events (
     msg_title TEXT,
     msg_body TEXT,
     booking_url TEXT,
+    called BOOLEAN NOT NULL DEFAULT FALSE,
+    call_booked BOOLEAN NOT NULL DEFAULT FALSE,
 
     ai_window_start_at TIMESTAMPTZ,
     ai_window_end_at TIMESTAMPTZ,

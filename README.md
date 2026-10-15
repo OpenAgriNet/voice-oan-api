@@ -124,6 +124,9 @@ retry from sending the same WhatsApp message twice. The webhook returns `503` wh
 the WhatsApp API key is missing and `502` when the provider does not accept the
 message; in either case the new database row is rolled back so a retry can try again.
 
+The internal `called` and `call_booked` status columns both default to `false`.
+They are managed by application actions and are not accepted from webhook payloads.
+
 Successful response (`202 Accepted`):
 ```json
 {
@@ -151,7 +154,7 @@ Env reference: `example.webhook.env`
 1. Create a dedicated Postgres DB/user on vm2 for webhook storage.
 2. Apply the schema migration before deploying the matching application code:
    - fresh database: `psql "$WEBHOOK_DSN" -f migrations/webhook/001_init.sql`
-   - existing database: `psql "$WEBHOOK_DSN" -f migrations/webhook/003_booking_url.sql`
+   - existing database: apply `migrations/webhook/003_booking_url.sql`, then `migrations/webhook/004_call_flags.sql`
 3. Set runtime env on this service:
    - `WEBHOOK_SHARED_TOKEN=<shared-secret>`
    - `WEBHOOK_DB_URL=postgresql+asyncpg://USER:PASS@VM2_HOST:5432/DB`
