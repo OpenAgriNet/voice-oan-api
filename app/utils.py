@@ -2,6 +2,7 @@ from typing import List, Dict
 import asyncio
 import json
 import os
+import time
 from app.core.cache import cache  # Import cache instance from core
 from helpers.utils import get_logger, count_tokens_for_part
 from copy import deepcopy
@@ -139,6 +140,55 @@ async def _get_message_history(
 async def update_message_history(session_id: str, all_messages: List[ModelMessage]):
     """Update message history."""
     await set_cache(f"{session_id}_{HISTORY_SUFFIX}", to_jsonable_python(all_messages), ttl=DEFAULT_CACHE_TTL)
+
+
+# Sarvam re-sends a longer transcript of the same utterance ("Hi" -> "Hi my name is")
+# on the same session, about 0.2s after our previous answer finished, and only speaks
+# the answer to the last one. Each answered turn stores when it finished and the history
+# length it started from, so the next request can tell it is a revision of that turn.
+TURN_MARKER_SUFFIX = "_SVA_TURN"
+TURN_MARKER_TTL = 60
+
+
+async def resolve_turn_revision(
+    session_id: str, history: List[ModelMessage], window_seconds: float
+) -> tuple[List[ModelMessage], bool]:
+    """Return (base history for this turn, is_revision).
+
+    If the previous turn finished less than `window_seconds` ago, this request is a
+    revision of it: the previous turn's messages are dropped so this request answers
+    from the same history the previous one started from (and keeps its first-turn status).
+    """
+    if window_seconds <= 0:
+        return history, False
+    try:
+        marker = await get_cache(f"{session_id}{TURN_MARKER_SUFFIX}")
+    except Exception:
+        logger.exception("Turn marker read failed, session=%s", session_id)
+        return history, False
+    if not marker:
+        return history, False
+    age = time.time() - marker.get("finished_at", 0)
+    base_len = marker.get("base_len", -1)
+    if age >= window_seconds or not (0 <= base_len <= len(history)):
+        return history, False
+    logger.info(
+        "Turn revision: session=%s, %.2fs after previous turn, dropping %d messages",
+        session_id, age, len(history) - base_len,
+    )
+    return history[:base_len], True
+
+
+async def mark_turn_finished(session_id: str, base_len: int) -> None:
+    """Record that a turn built on `base_len` history messages has just been answered."""
+    try:
+        await set_cache(
+            f"{session_id}{TURN_MARKER_SUFFIX}",
+            {"finished_at": time.time(), "base_len": base_len},
+            ttl=TURN_MARKER_TTL,
+        )
+    except Exception:
+        logger.exception("Turn marker write failed, session=%s", session_id)
 
 def filter_out_tool_calls(messages: List[ModelMessage]) -> List[ModelMessage]:
     """Filter out tool calls and tool returns from the message history.
