@@ -135,6 +135,7 @@ async def stream_voice_message(
         user_id=user_id,
         language_code=language_code,
     )
+    deps.capabilities.restore(history)
     user_message = deps.get_user_message()
     logger.info(
         "Running agent (language=%s, voice_qid=%s)", response_language, voice_qid

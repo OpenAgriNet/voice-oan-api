@@ -1,5 +1,8 @@
 # Bharat Vistaar Voice AI
 
+Tool availability and prompt decomposition: [prompt capabilities](docs/prompt_capabilities.md).
+Defaults preload all tools; configuration supports a hard allowlist and lazy loading.
+
 ## Delete all volumes
 ```
 docker system prune -a --volumes
