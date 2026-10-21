@@ -1,5 +1,5 @@
 """Session-local tool policy. No HTTP/API parameters are wired to this yet."""
-from typing import Self
+from typing_extensions import Self
 
 from decouple import config
 from pydantic import BaseModel, Field, model_validator
