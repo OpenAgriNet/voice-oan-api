@@ -1,5 +1,6 @@
 import re
 from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai.capabilities import PrepareTools
 from helpers.utils import get_prompt, get_today_date_str
 from agents.models import LLM_AGRINET_MODEL
 from agents.tools import TOOLS
@@ -30,12 +31,10 @@ voice_agent = Agent(
     model=LLM_AGRINET_MODEL,
     name="Voice Agent",
     output_type=str,
-    instrument=None,
     deps_type=FarmerContext,
     retries=3,
-    output_retries=3,
     tools=[*TOOLS, CAPABILITY_LOADER],
-    prepare_tools=prepare_capability_tools,
+    capabilities=[PrepareTools(prepare_capability_tools)],
     end_strategy='exhaustive',
     model_settings=ModelSettings(
         # temperature=0.7,

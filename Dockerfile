@@ -1,5 +1,5 @@
 # Use Python as the base image
-FROM python:3.10-slim
+FROM python:3.13-slim
 
 # Set work directory
 WORKDIR /app
@@ -14,10 +14,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
-COPY requirements.txt .
+COPY requirements.lock .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements.lock
 
 # Bake the scheme-search embedding model into the image. Prod has no egress to
 # huggingface.co, so downloading it lazily on first search_schemes call fails

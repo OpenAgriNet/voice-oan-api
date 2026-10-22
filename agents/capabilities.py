@@ -50,6 +50,8 @@ CAPABILITY_LOADER = Tool(load_capability, takes_ctx=True, sequential=True, stric
 
 async def prepare_capability_tools(ctx: RunContext[Any], tools: list) -> list:
     state = ctx.deps.capabilities
+    # V2 prepares tools before evaluating dynamic instructions.
+    state.restore(getattr(ctx, "messages", ()))
     visible = state.visible
     pending = state.policy.allowed_tools - visible
     # Any existing tool-specific prepare hooks have already run.

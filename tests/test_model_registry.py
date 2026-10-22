@@ -74,11 +74,12 @@ def test_voice_config_routes_70_30_with_mini_fallback(monkeypatch):
 
 def test_gemma_fallback_covers_transport_and_model_failures():
     import httpx
+    import httpx2
     from openai import APIConnectionError
     from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 
     errors = ModelRegistry().fallback_errors("gemma_vllm")
-    for error in [TimeoutError(), httpx.ReadError("disconnected"),
+    for error in [TimeoutError(), httpx.ReadError("disconnected"), httpx2.ReadError("disconnected"),
                   APIConnectionError(request=httpx.Request("POST", "http://test/v1")),
                   ModelHTTPError(503, "gemma"), UnexpectedModelBehavior("invalid output")]:
         assert isinstance(error, errors)

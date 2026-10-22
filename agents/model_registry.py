@@ -10,6 +10,7 @@ import yaml
 from dotenv import load_dotenv
 from openai import APIConnectionError, AsyncAzureOpenAI
 from httpx import TransportError
+from httpx2 import TransportError as ModelTransportError
 from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
@@ -123,7 +124,8 @@ class ModelRegistry:
 
     def fallback_errors(self, alias: str) -> tuple[type[BaseException], ...]:
         names = self.models.get(alias, {}).get("fallback", {}).get("on_error", [])
-        return tuple(_ERROR_TYPES[name] for name in names)
+        errors = tuple(_ERROR_TYPES[name] for name in names)
+        return errors + ((ModelTransportError,) if "TransportError" in names else ())
 
     def concurrency_limit(self, alias: str) -> int | None:
         value = self.models.get(alias, {}).get("fallback", {}).get("on_concurrency_above")
