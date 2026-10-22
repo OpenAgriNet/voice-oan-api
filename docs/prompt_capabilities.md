@@ -10,7 +10,7 @@ Browse `assets/prompts/capabilities/voice/<skill>/SKILL.md`. Its YAML frontmatte
 is the single source for tool bindings and localized sections. Edit workflow text
 inside its section/language files. `_shared` owns cross-workflow instructions.
 
-A root prompt is a layout: `{{ skill_section('pmkisan/status') }}` renders the
+A root prompt retains common behavior rules and layout: `{{ skill_section('pmkisan/status') }}` renders the
 section selected by language and policy in its original position. It does not
 repeat the tool list. `helpers/prompt_skills.py` derives the inventory from the
 packages and layouts; there is no hand-maintained `sections.json`. `README.md`

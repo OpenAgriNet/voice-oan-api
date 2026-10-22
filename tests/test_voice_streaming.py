@@ -76,39 +76,40 @@ async def run_streaming_test(question: str, language: str, session_id: str) -> d
     prev_audio = ""
 
     try:
-        async for event in voice_agent.run_stream_events(
+        async with voice_agent.run_stream_events(
             user_prompt=user_message,
             message_history=[],
             deps=deps
-        ):
-            kind = getattr(event, 'event_kind', '')
+        ) as events:
+            async for event in events:
+                kind = getattr(event, 'event_kind', '')
 
-            if kind == 'part_delta':
-                delta = event.delta
-                if getattr(delta, 'part_delta_kind', '') == 'text':
-                    text_buffer += delta.content_delta
-                    audio = _extract_audio_from_partial_json(text_buffer)
-                    if audio and audio != prev_audio:
-                        result["stream_count"] += 1
-                        prev_audio = audio
-                        print(f"    [stream {result['stream_count']}] audio: {audio[:80]}...")
+                if kind == 'part_delta':
+                    delta = event.delta
+                    if getattr(delta, 'part_delta_kind', '') == 'text':
+                        text_buffer += delta.content_delta
+                        audio = _extract_audio_from_partial_json(text_buffer)
+                        if audio and audio != prev_audio:
+                            result["stream_count"] += 1
+                            prev_audio = audio
+                            print(f"    [stream {result['stream_count']}] audio: {audio[:80]}...")
 
-            elif kind == 'function_tool_call':
-                tool_name = event.part.tool_name
-                result["tool_calls"] += 1
-                print(f"    [tool] {tool_name}")
+                elif kind == 'function_tool_call':
+                    tool_name = event.part.tool_name
+                    result["tool_calls"] += 1
+                    print(f"    [tool] {tool_name}")
 
-            elif kind == 'function_tool_result':
-                # Reset text buffer for next model turn
-                text_buffer = ""
-                prev_audio = ""
+                elif kind == 'function_tool_result':
+                    # Reset text buffer for next model turn
+                    text_buffer = ""
+                    prev_audio = ""
 
-            elif kind == 'agent_run_result':
-                result["final_output"] = {
-                    "audio": event.result.output,
-                    "end_interaction": deps.end_interaction,
-                }
-                result["status"] = "success"
+                elif kind == 'agent_run_result':
+                    result["final_output"] = {
+                        "audio": event.result.output,
+                        "end_interaction": deps.end_interaction,
+                    }
+                    result["status"] = "success"
 
     except asyncio.TimeoutError:
         result["status"] = "timeout"
