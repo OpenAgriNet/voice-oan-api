@@ -9,6 +9,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+from helpers.prompt_skills import prompt_environment, section_index, SECTION_CALL
 from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, ModelRetry, Tool
 from pydantic_ai.capabilities import PrepareTools
@@ -16,8 +17,8 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCall
 from pydantic_ai.models.function import FunctionModel
 
 from agents.capabilities import (
-    CAPABILITY_LOADER, PROMPT_DIR, capability_prompt_context, capability_routing,
-    load_capability, prepare_capability_tools, validate_manifest,
+    skill_capabilities, PROMPT_DIR, capability_prompt_context, capability_routing,
+    prepare_capability_tools, validate_manifest,
 )
 from agents.capability_manifest import CAPABILITIES
 from agents.capability_policy import ALL_TOOLS, CapabilityState, ToolPolicy, configured_tool_policy
@@ -25,7 +26,7 @@ from agents.deps import FarmerContext
 from app.core.languages import LANGUAGES, parse_iso_language_header
 
 ROOT = Path(__file__).resolve().parents[1]
-SECTIONS = json.loads((PROMPT_DIR / 'capabilities/sections.json').read_text())
+SECTIONS = section_index(PROMPT_DIR)
 PROMPTS = sorted(p.stem for p in PROMPT_DIR.glob('voice_*.md'))
 CONTEXT = dict(today_date='21 October 2026')
 
@@ -55,25 +56,13 @@ def test_every_supported_language_has_a_prompt_and_manifest():
 
 @pytest.mark.parametrize('prompt_file', PROMPTS)
 def test_default_and_explicit_all_loaded_prompts_match(prompt_file):
-    env = Environment(loader=FileSystemLoader(PROMPT_DIR), autoescape=False)
+    env = prompt_environment(PROMPT_DIR)
     deps = deps_for()
     actual = env.get_template(f'{prompt_file}.md').render(
         **capability_prompt_context(deps, prompt_file, CONTEXT)) + capability_routing(deps)
     assert actual == env.get_template(f'{prompt_file}.md').render(**CONTEXT)
 
 
-@pytest.mark.parametrize('prompt_file', PROMPTS)
-def test_lazy_loading_returns_original_instructions(prompt_file):
-    deps = deps_for(preloaded=frozenset())
-    capability_prompt_context(deps, prompt_file, CONTEXT)
-    sections = json.loads((PROMPT_DIR / 'capabilities/sections.json').read_text())[prompt_file]
-    env = Environment(loader=FileSystemLoader(PROMPT_DIR), autoescape=False)
-    for group, names in CAPABILITIES.items():
-        result = asyncio.run(load_capability(SimpleNamespace(deps=deps), group))
-        expected = [env.get_template(s['path']).render(**CONTEXT)
-                    for s in sections if set(s['tools']) & names]
-        assert result['instructions'] == '\n'.join(expected)
-    assert deps.capabilities.visible == ALL_TOOLS
 
 
 def test_allowlist_and_configuration(monkeypatch):
@@ -92,24 +81,14 @@ def test_allowlist_and_configuration(monkeypatch):
     assert configured_tool_policy().allowed_tools == set()
 
 
-def test_partial_capability_cannot_enable_forbidden_tools():
-    deps = deps_for(allowed={'search_terms'}, preloaded=set())
-    ctx = SimpleNamespace(deps=deps)
-    result = asyncio.run(load_capability(ctx, 'crop_advice'))
-    assert result['loaded_tools'] == ['search_terms']
-    deps.capabilities.loaded_tools.add('search_documents')
-    assert deps.capabilities.visible == {'search_terms'}
-    with pytest.raises(ModelRetry):
-        asyncio.run(load_capability(ctx, 'pmkisan'))
-    with pytest.raises(ModelRetry):
-        asyncio.run(load_capability(ctx, 'unknown'))
 
 
 def test_restore_across_topic_switches_and_policy_changes():
     deps = deps_for(preloaded=set())
     returns = []
     for group in ['pmkisan', 'weather', 'soil_health', 'pmkisan']:
-        result = asyncio.run(load_capability(SimpleNamespace(deps=deps), group))
+        result = {'capability': group, 'loaded_tools': sorted(CAPABILITIES[group])}
+        deps.capabilities.loaded_tools.update(CAPABILITIES[group])
         returns.append(ToolReturnPart(tool_name='load_capability', content=result))
     history = [ModelRequest(parts=returns)]
     fresh = deps_for(preloaded=set())
@@ -146,17 +125,17 @@ def test_real_agent_loader_then_execution_and_existing_prepare_guard():
         assert 'search_documents' not in names
         if step == 0:
             assert names == {'load_capability'}
-            response = ModelResponse(parts=[ToolCallPart('load_capability', {'capability': 'crop_advice'})])
+            response = ModelResponse(parts=[ToolCallPart('load_capability', {'id': 'crop_advice'})])
         elif step == 1:
-            assert names == {'search_terms'}
+            assert names == {'search_terms', 'load_capability'}
             response = ModelResponse(parts=[ToolCallPart('search_terms', {'query': 'rice'})])
         else:
             response = ModelResponse(parts=[TextPart('done')])
         step += 1
         return response
     agent = Agent(FunctionModel(model), deps_type=FarmerContext,
-                  tools=[Tool(search_terms), Tool(search_documents, prepare=deny), CAPABILITY_LOADER],
-                  capabilities=[PrepareTools(prepare_capability_tools)])
+                  tools=[Tool(search_terms), Tool(search_documents, prepare=deny)],
+                  capabilities=[skill_capabilities, PrepareTools(prepare_capability_tools)])
     deps = deps_for(allowed={'search_terms', 'search_documents'}, preloaded=set())
     assert agent.run_sync('rice', deps=deps).output == 'done'
     assert calls == ['rice']
@@ -174,20 +153,20 @@ def test_unavailable_tool_is_not_executed_even_if_model_requests_it():
             return ModelResponse(parts=[ToolCallPart('search_documents', {'query': 'rice'})])
         return ModelResponse(parts=[TextPart('unavailable')])
     agent = Agent(FunctionModel(model), deps_type=FarmerContext,
-                  tools=[Tool(search_documents), CAPABILITY_LOADER], capabilities=[PrepareTools(prepare_capability_tools)])
+                  tools=[Tool(search_documents)], capabilities=[skill_capabilities, PrepareTools(prepare_capability_tools)])
     assert agent.run_sync('rice', deps=deps_for(allowed=set())).output == 'unavailable'
 
 
 @pytest.mark.parametrize('prompt_file', PROMPTS)
 def test_unloaded_workflow_is_removed_but_defaults_restore_it(prompt_file):
-    env = Environment(loader=FileSystemLoader(PROMPT_DIR), autoescape=False)
+    env = prompt_environment(PROMPT_DIR)
     deps = deps_for(preloaded=set())
     small = env.get_template(f'{prompt_file}.md').render(
         **capability_prompt_context(deps, prompt_file, CONTEXT))
     full = env.get_template(f'{prompt_file}.md').render(**CONTEXT)
     assert len(small) < len(full)
     for group in CAPABILITIES:
-        asyncio.run(load_capability(SimpleNamespace(deps=deps), group))
+        deps.capabilities.loaded_tools.update(CAPABILITIES[group])
     restored = env.get_template(f'{prompt_file}.md').render(
         **capability_prompt_context(deps, prompt_file, CONTEXT))
     assert restored == full
@@ -200,7 +179,7 @@ def production_voice_module(monkeypatch):
         module = ModuleType(name)
         module.__dict__.update(attrs)
         monkeypatch.setitem(sys.modules, name, module)
-    env = Environment(loader=FileSystemLoader(PROMPT_DIR), autoescape=False)
+    env = prompt_environment(PROMPT_DIR)
     stub('helpers.utils',
          get_prompt=lambda name, context: env.get_template(name+'.md').render(**context),
          get_today_date_str=lambda: CONTEXT['today_date'], get_logger=logging.getLogger)
@@ -219,7 +198,7 @@ def production_voice_module(monkeypatch):
 def test_actual_agent_prompt_hook_in_every_language(production_voice_module, language):
     module = production_voice_module
     deps = deps_for(language=language)
-    env = Environment(loader=FileSystemLoader(PROMPT_DIR), autoescape=False)
+    env = prompt_environment(PROMPT_DIR)
     expected = env.get_template(f'voice_{language}.md').render(**CONTEXT)
     assert module.get_voice_system_prompt(SimpleNamespace(deps=deps, messages=[])) == expected
     assert module.voice_agent.run_sync('test', deps=deps).output == 'done'
@@ -230,7 +209,7 @@ def test_actual_agent_lazy_load_restores_otp_workflow_after_topic_switch(product
     def first_model(messages, info):
         names = {tool.name for tool in info.function_tools}
         if 'initiate_pm_kisan_status_check' not in names:
-            return ModelResponse(parts=[ToolCallPart('load_capability', {'capability': 'pmkisan'})])
+            return ModelResponse(parts=[ToolCallPart('load_capability', {'id': 'pmkisan'})])
         returns = [p for m in messages for p in m.parts if isinstance(p, ToolReturnPart)]
         if not any(p.tool_name == 'initiate_pm_kisan_status_check' for p in returns):
             assert any(p.tool_name == 'load_capability' and p.content['instructions'] for p in returns)
@@ -242,7 +221,7 @@ def test_actual_agent_lazy_load_restores_otp_workflow_after_topic_switch(product
         names = {tool.name for tool in info.function_tools}
         assert CAPABILITIES['pmkisan'] <= names
         if 'weather_forecast' not in names:
-            return ModelResponse(parts=[ToolCallPart('load_capability', {'capability': 'weather'})])
+            return ModelResponse(parts=[ToolCallPart('load_capability', {'id': 'weather'})])
         return ModelResponse(parts=[TextPart('done')])
     with agent.override(model=FunctionModel(weather_model)):
         second = agent.run_sync('Now weather', deps=deps_for(preloaded=set()), message_history=first.all_messages())

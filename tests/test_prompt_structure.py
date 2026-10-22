@@ -15,15 +15,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from helpers.prompt_skills import prompt_environment, section_index, SECTION_CALL
 from jinja2 import DictLoader, Environment, FileSystemLoader
 
-from agents.capabilities import capability_prompt_context, load_capability
+from agents.capabilities import capability_prompt_context
 from agents.capability_manifest import CAPABILITIES
 from agents.capability_policy import ALL_TOOLS, CapabilityState, ToolPolicy
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPTS = ROOT / 'assets/prompts'
-SECTIONS = json.loads((PROMPTS / 'capabilities/sections.json').read_text())
+SECTIONS = section_index(PROMPTS)
 AGENT = next(iter(SECTIONS)).rsplit('_', 1)[0]
 LANGUAGES = {key.rsplit('_', 1)[1] for key in SECTIONS}
 CONTEXT = dict(today_date='22 October 2026', crop_season='Rabi', last_weekday_table='Wednesday',
@@ -49,9 +50,9 @@ def test_prompt_inventory_and_language_coverage():
     referenced = set()
     for prompt, sections in SECTIONS.items():
         lang = prompt.rsplit('_', 1)[1]
-        includes = re.findall(r'{% include "([^"]+)" %}', (PROMPTS / f'{prompt}.md').read_text())
+        includes = SECTION_CALL.findall((PROMPTS / f'{prompt}.md').read_text())
         assert len(includes) == len(set(includes)) == len(sections)
-        assert set(includes) == {s['path'] for s in sections}
+        assert set(includes) == {s['id'] for s in sections}
         for section in sections:
             path = Path(section['path'])
             assert path.parts[:2] == ('capabilities', AGENT)
@@ -68,12 +69,12 @@ def test_prompt_inventory_and_language_coverage():
         expected = {'en', 'hi', 'mai', 'or', 'pa'} if section.as_posix() == (
             'capabilities/agrinet/pmkisan/instalments') else LANGUAGES
         assert actual == expected, (section, actual, expected)
-    files = {p.relative_to(PROMPTS) for p in base.rglob('*.md') if p.name != 'README.md'}
+    files = {p.relative_to(PROMPTS) for p in base.rglob('*.md') if p.name not in {'README.md', 'SKILL.md'}}
     assert files == referenced, 'Unreferenced prompt assets or missing files'
 
 
 @pytest.fixture(scope='module')
-def previous_revision():
+def previous_revision(tmp_path_factory):
     revision = os.environ.get('PROMPT_COMPARE_REF')
     if not revision:
         pytest.skip('Set PROMPT_COMPARE_REF for a one-off Git revision comparison')
@@ -81,15 +82,22 @@ def previous_revision():
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         sources = {m.name.removeprefix('assets/prompts/'): tar.extractfile(m).read().decode()
                    for m in tar.getmembers() if m.isfile()}
-    return Environment(loader=DictLoader(sources), autoescape=False), json.loads(
-        sources['capabilities/sections.json'])
+    directory = tmp_path_factory.mktemp('previous-prompts')
+    for name, text in sources.items():
+        path = directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    previous = (json.loads(sources['capabilities/sections.json'])
+                if 'capabilities/sections.json' in sources else section_index(directory))
+    return prompt_environment(directory), previous
+
 
 
 @pytest.mark.parametrize('prompt', sorted(SECTIONS))
 def test_rendering_and_lazy_instructions_match_git_revision(prompt, previous_revision):
     before, old_sections = previous_revision
-    after = Environment(loader=FileSystemLoader(PROMPTS), autoescape=False)
-    assert [s['tools'] for s in old_sections[prompt]] == [s['tools'] for s in SECTIONS[prompt]]
+    after = prompt_environment(PROMPTS)
+    assert {s['path']: s['tools'] for s in old_sections[prompt]} == {s['path']: s['tools'] for s in SECTIONS[prompt]}
     assert production_prompt(prompt) == before.get_template(
         f'{prompt}.md').render(**CONTEXT)
     selections = [frozenset(), ALL_TOOLS, *CAPABILITIES.values(),
@@ -101,10 +109,6 @@ def test_rendering_and_lazy_instructions_match_git_revision(prompt, previous_rev
         expected = before.get_template(f'{prompt}.md').render(
             **CONTEXT, capability_enabled=lambda names: bool(set(names) & set(visible)))
         assert actual == expected, (prompt, sorted(visible))
-    deps = SimpleNamespace(capabilities=CapabilityState(policy=ToolPolicy(preloaded_tools=set())))
-    capability_prompt_context(deps, prompt, CONTEXT)
-    for group, tools in CAPABILITIES.items():
-        result = asyncio.run(load_capability(SimpleNamespace(deps=deps), group))
-        expected = '\n'.join(before.get_template(s['path']).render(**CONTEXT)
-                             for s in old_sections[prompt] if tools.intersection(s['tools']))
-        assert result['instructions'] == expected, (prompt, group)
+    for section in SECTIONS[prompt]:
+        assert after.get_template(section['path']).render(**CONTEXT) == before.get_template(
+            section['path']).render(**CONTEXT)

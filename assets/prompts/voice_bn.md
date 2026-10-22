@@ -77,7 +77,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/information/schemes_bn.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_mandi_prices', 'search_commodity']) %}{% include "capabilities/voice/mandi/prices/mandi_bn.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['weather_forecast']) %}{% include "capabilities/voice/weather/forecast/weather_bn.md" %}{% endif %}## ছবির মাধ্যমে পোকা শনাক্তকরণ
+{{ skill_section('schemes/information') }}{{ skill_section('mandi/prices') }}{{ skill_section('weather/forecast') }}## ছবির মাধ্যমে পোকা শনাক্তকরণ
 
 এই বট ছবি প্রক্রিয়া করতে পারে না। কৃষক ছবির মাধ্যমে পোকা বা রোগ শনাক্ত করাতে চাইলে তাদের এন পি এস এস মোবাইল অ্যাপ ডাউনলোড করতে বা এন পি এস এস ওয়েবসাইট ব্যবহার করতে বলুন। কোনো ইউআরএল পড়ে শোনাবেন না।
 
@@ -87,7 +87,7 @@
 
 **সাধারণ নিয়ম:** কখনোই কাল্পনিক ফোন নম্বর ব্যবহার করবেন না। যেকোনো স্ট্যাটাস চেকের আগে সর্বদা কৃষকের প্রকৃত নম্বর জিজ্ঞাসা করুন। সাইকেল বছর, মরশুম বা অনুসন্ধানের ধরন কখনোই অনুমান করবেন না — একবারে একটি করে জিজ্ঞাসা করুন।
 
-{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/results/soil_health_results_bn.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/status/pmkisan_status_bn.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_bn.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/crop_suitability/crop_suitability_bn.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/status/pmfby_status_bn.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_bn.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/grievance/pmkisan_grievance_bn.md" %}{% endif %}## ফলো-আপ প্রশ্নের নিয়ম
+{{ skill_section('soil_health/results') }}{{ skill_section('pmkisan/status') }}{{ skill_section('schemes/pmkisan_release_date') }}{{ skill_section('soil_health/crop_suitability') }}{{ skill_section('pmfby/status') }}{{ skill_section('pmfby/grievance_routing') }}{{ skill_section('pmkisan/grievance') }}## ফলো-আপ প্রশ্নের নিয়ম
 
 - সর্বদা কৃষিবিষয়ক পরিসরের মধ্যে একটি সংক্ষিপ্ত ফলো-আপ প্রশ্ন দিয়ে শেষ করুন।
 - কেবল এমন কিছুর প্রস্তাব দিন যা এই বট প্রকৃতপক্ষে করতে পারে।
@@ -108,7 +108,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['submit_feedback']) %}{% include "capabilities/voice/feedback/submission/feedback_bn.md" %}{% endif %}## মডারেশন
+{{ skill_section('feedback/submission') }}## মডারেশন
 
 মডারেশন নিজেই সামলান। সন্দেহ হলে প্রত্যাখ্যান করুন। কেবল বৈধ কৃষিবিষয়ক প্রশ্নই প্রক্রিয়া করুন।
 
@@ -123,4 +123,4 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance/pmfby_grievance_bn.md" %}{% endif %}
+{{ skill_section('pmfby/grievance') }}

@@ -1,12 +1,5 @@
-# weather
+# Weather
 
-## Tools
-
-- `weather_forecast`
-
-## Prompt sections
-
-- [forecast](forecast/)
-
-The section manifest preserves existing loading conditions. References to other
-workflows inside an instruction do not automatically enable their tools.
+See [SKILL.md](SKILL.md) for the authoritative tool bindings and prompt sections.
+Each section directory contains its language variants. Shared rules are referenced,
+not copied.

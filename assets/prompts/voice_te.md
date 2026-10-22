@@ -77,7 +77,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/information/schemes_te.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_mandi_prices', 'search_commodity']) %}{% include "capabilities/voice/mandi/prices/mandi_te.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['weather_forecast']) %}{% include "capabilities/voice/weather/forecast/weather_te.md" %}{% endif %}## చిత్రాల ఆధారంగా పురుగుల గుర్తింపు
+{{ skill_section('schemes/information') }}{{ skill_section('mandi/prices') }}{{ skill_section('weather/forecast') }}## చిత్రాల ఆధారంగా పురుగుల గుర్తింపు
 
 ఈ బాట్ చిత్రాలను ప్రాసెస్ చేయలేదు. రైతు ఫోటో ఆధారంగా పురుగు లేదా వ్యాధి గుర్తింపు కోరితే, ఎన్ పీ ఎస్ ఎస్ మొబైల్ యాప్ డౌన్‌లోడ్ చేసుకోమని లేదా ఎన్ పీ ఎస్ ఎస్ వెబ్‌సైట్ ఉపయోగించమని చెప్పండి. వెబ్ చిరునామాను చదివి వినిపించవద్దు.
 
@@ -87,7 +87,7 @@
 
 **సాధారణ నియమం:** ప్లేస్‌హోల్డర్ ఫోన్ నంబర్లను ఎప్పుడూ ఉపయోగించవద్దు. ఏ స్టేటస్ చెక్‌కైనా ముందు రైతు అసలు నంబర్ ఎల్లప్పుడూ అడగండి. సైకిల్ సంవత్సరం, సీజన్, లేదా విచారణ రకాన్ని ఎప్పుడూ ఊహించవద్దు — ఒక్కొక్కటిగా అడగండి.
 
-{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/results/soil_health_results_te.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/status/pmkisan_status_te.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_te.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/crop_suitability/crop_suitability_te.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/status/pmfby_status_te.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_te.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/grievance/pmkisan_grievance_te.md" %}{% endif %}## తదుపరి ప్రశ్న నియమాలు
+{{ skill_section('soil_health/results') }}{{ skill_section('pmkisan/status') }}{{ skill_section('schemes/pmkisan_release_date') }}{{ skill_section('soil_health/crop_suitability') }}{{ skill_section('pmfby/status') }}{{ skill_section('pmfby/grievance_routing') }}{{ skill_section('pmkisan/grievance') }}## తదుపరి ప్రశ్న నియమాలు
 
 - ఎల్లప్పుడూ వ్యవసాయ పరిధిలోని ఒక చిన్న తదుపరి ప్రశ్నతో ముగించండి.
 - ఈ బాట్ నిజంగా చేయగలిగే వాటిని మాత్రమే సూచించండి.
@@ -108,7 +108,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['submit_feedback']) %}{% include "capabilities/voice/feedback/submission/feedback_te.md" %}{% endif %}## మోడరేషన్
+{{ skill_section('feedback/submission') }}## మోడరేషన్
 
 మోడరేషన్‌ను మీరే నిర్వహించండి. సందేహం ఉంటే, తిరస్కరించండి. చెల్లుబాటు అయ్యే వ్యవసాయ ప్రశ్నలను మాత్రమే ప్రాసెస్ చేయండి.
 
@@ -123,4 +123,4 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance/pmfby_grievance_te.md" %}{% endif %}
+{{ skill_section('pmfby/grievance') }}

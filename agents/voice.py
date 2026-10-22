@@ -7,7 +7,7 @@ from agents.tools import TOOLS
 from pydantic_ai.settings import ModelSettings
 from agents.deps import FarmerContext
 from agents.capabilities import (
-    CAPABILITY_LOADER, prepare_capability_tools, validate_manifest,
+    skill_capabilities, prepare_capability_tools, validate_manifest,
     capability_prompt_context, capability_routing,
 )
 import logging
@@ -33,8 +33,8 @@ voice_agent = Agent(
     output_type=str,
     deps_type=FarmerContext,
     retries=3,
-    tools=[*TOOLS, CAPABILITY_LOADER],
-    capabilities=[PrepareTools(prepare_capability_tools)],
+    tools=TOOLS,
+    capabilities=[skill_capabilities, PrepareTools(prepare_capability_tools)],
     end_strategy='exhaustive',
     model_settings=ModelSettings(
         # temperature=0.7,

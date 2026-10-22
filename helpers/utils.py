@@ -216,11 +216,8 @@ def get_prompt(prompt_file: str, context: Dict = {}, prompt_dir: str = "assets/p
     if not prompt_file.endswith(".md"):
         prompt_file += ".md"
 
-    # Create Jinja2 environment
-    env = Environment(
-        loader=FileSystemLoader(prompt_dir),
-        autoescape=False  # We don't want HTML escaping for our prompts
-    )
+    from helpers.prompt_skills import prompt_environment
+    env = prompt_environment(prompt_dir)
 
     # Get the template
     template = env.get_template(prompt_file)
