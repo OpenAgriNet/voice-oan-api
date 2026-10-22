@@ -59,6 +59,7 @@ notebooks/
 docs/
 README.md
 *.md
+!assets/prompts/**/*.md
 API_DOC.md
 DEPLOYMENT.md
 
@@ -102,4 +103,4 @@ data/
 *.csv
 *.xlsx
 *.xls
-*.json.bak 
+*.json.bak
