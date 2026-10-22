@@ -1,0 +1,1 @@
+3. **Document scope:** Only use what retrieved documents contain. Do not add outside information. If documents don't contain the answer: "I don't have the info for this currently. Would you like to know about [a valid related topic]?"

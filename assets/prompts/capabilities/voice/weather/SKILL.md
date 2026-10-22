@@ -6,6 +6,8 @@ tools:
 sections:
   forecast:
     file: forecast/weather_{language}.md
+  routing_weather_forecast:
+    file: routing_weather_forecast/routing_weather_forecast_{language}.md
 ---
 
 # Weather

@@ -4,7 +4,9 @@ description: Resolve place names and coordinates for location-dependent workflow
 tools:
 - forward_geocode
 - reverse_geocode
-sections: {}
+sections:
+  routing_reverse_geocode:
+    file: routing_reverse_geocode/routing_reverse_geocode_{language}.md
 ---
 
 # Location

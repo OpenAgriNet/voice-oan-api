@@ -9,6 +9,10 @@ sections:
     file: information/schemes_{language}.md
   pmkisan_release_date:
     file: pmkisan_release_date/pmkisan_release_date_{language}.md
+  routing_get_scheme_info:
+    file: routing_get_scheme_info/routing_get_scheme_info_{language}.md
+  routing_search_schemes:
+    file: routing_search_schemes/routing_search_schemes_{language}.md
 ---
 
 # Schemes

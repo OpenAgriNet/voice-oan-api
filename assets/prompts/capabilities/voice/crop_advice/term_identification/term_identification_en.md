@@ -1,0 +1,1 @@
+2. **Term identification first (crop/pest only):** Use `search_terms` (threshold 0.5) before `search_documents` or `search_pests_diseases` for crop advisory, pest/disease, and general agricultural knowledge queries. Use parallel calls for multiple terms. Skip `search_terms` for: weather, scheme info, status checks, grievance queries.

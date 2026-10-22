@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from helpers.prompt_skills import prompt_environment, section_index, SECTION_CALL
+from helpers.prompt_skills import prompt_environment, section_index, SECTION_CALL, skill_catalog
 from jinja2 import DictLoader, Environment, FileSystemLoader
 
 from agents.capabilities import capability_prompt_context
@@ -64,11 +64,16 @@ def test_prompt_inventory_and_language_coverage():
             assert text.strip() and 'preserve fragment whitespace' not in text
             coverage.setdefault(path.parent, set()).add(lang)
             referenced.add(path)
-    for section, actual in coverage.items():
-        # Inherited source difference, not a translation fallback.
-        expected = {'en', 'hi', 'mai', 'or', 'pa'} if section.as_posix() == (
-            'capabilities/agrinet/pmkisan/instalments') else LANGUAGES
-        assert actual == expected, (section, actual, expected)
+    for group, package in skill_catalog().items():
+        for name, spec in package['sections'].items():
+            expected = set(spec.get('languages', LANGUAGES))
+            actual = {prompt.rsplit('_', 1)[1] for prompt, sections in SECTIONS.items()
+                      if any(s['id'] == f'{group}/{name}' for s in sections)}
+            assert actual == expected, (group, name, actual, expected)
+    for root in PROMPTS.glob(f'{AGENT}_*.md'):
+        for line in root.read_text().splitlines():
+            if line.startswith('|'):
+                assert not any(f'`{tool}`' in line for tool in ALL_TOOLS), 'Routing belongs inside skills'
     files = {p.relative_to(PROMPTS) for p in base.rglob('*.md') if p.name not in {'README.md', 'SKILL.md'}}
     assert files == referenced, 'Unreferenced prompt assets or missing files'
 
@@ -97,12 +102,18 @@ def previous_revision(tmp_path_factory):
 def test_rendering_and_lazy_instructions_match_git_revision(prompt, previous_revision):
     before, old_sections = previous_revision
     after = prompt_environment(PROMPTS)
-    assert {s['path']: s['tools'] for s in old_sections[prompt]} == {s['path']: s['tools'] for s in SECTIONS[prompt]}
+    old_bindings = {s['path']: s['tools'] for s in old_sections[prompt]}
+    new_bindings = {s['path']: s['tools'] for s in SECTIONS[prompt]}
+    assert old_bindings.items() <= new_bindings.items()
+    added = set(new_bindings) - set(old_bindings)
     assert production_prompt(prompt) == before.get_template(
         f'{prompt}.md').render(**CONTEXT)
     selections = [frozenset(), ALL_TOOLS, *CAPABILITIES.values(),
                   *({tool} for tool in sorted(ALL_TOOLS))]
-    for visible in selections:
+    # New extractions intentionally remove previously always-visible routing in
+    # selective mode. Full rendering must still be byte-identical; native tests
+    # independently verify each newly gated section in every language.
+    for visible in selections if not added else [ALL_TOOLS]:
         deps = SimpleNamespace(capabilities=CapabilityState(policy=ToolPolicy(preloaded_tools=visible)))
         context = capability_prompt_context(deps, prompt, CONTEXT)
         actual = after.get_template(f'{prompt}.md').render(**context)
@@ -110,5 +121,8 @@ def test_rendering_and_lazy_instructions_match_git_revision(prompt, previous_rev
             **CONTEXT, capability_enabled=lambda names: bool(set(names) & set(visible)))
         assert actual == expected, (prompt, sorted(visible))
     for section in SECTIONS[prompt]:
-        assert after.get_template(section['path']).render(**CONTEXT) == before.get_template(
-            section['path']).render(**CONTEXT)
+        text = after.get_template(section['path']).render(**CONTEXT)
+        if section['path'] in added:
+            assert text in before.get_template(f'{prompt}.md').render(**CONTEXT)
+        else:
+            assert text == before.get_template(section['path']).render(**CONTEXT)

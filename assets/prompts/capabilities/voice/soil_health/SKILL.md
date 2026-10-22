@@ -8,6 +8,8 @@ sections:
     file: results/soil_health_results_{language}.md
   crop_suitability:
     file: crop_suitability/crop_suitability_{language}.md
+  routing_check_shc_status:
+    file: routing_check_shc_status/routing_check_shc_status_{language}.md
 ---
 
 # Soil Health

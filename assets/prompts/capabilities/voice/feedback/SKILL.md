@@ -6,6 +6,8 @@ tools:
 sections:
   submission:
     file: submission/feedback_{language}.md
+  routing_submit_feedback:
+    file: routing_submit_feedback/routing_submit_feedback_{language}.md
 ---
 
 # Feedback
