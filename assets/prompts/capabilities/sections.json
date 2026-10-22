@@ -1,0 +1,1102 @@
+{
+  "voice_bn": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_bn.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_bn.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_bn.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_bn.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_bn.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_bn.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_bn.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_bn.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_bn.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_bn.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_bn.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_bn.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_en": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_en.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_en.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_en.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_en.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_en.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_en.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_en.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_en.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_en.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_en.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_en.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_en.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_gu": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_gu.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_gu.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_gu.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_gu.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_gu.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_gu.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_gu.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_gu.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_gu.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_gu.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_gu.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_gu.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_hi": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_hi.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_hi.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_hi.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_hi.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_hi.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_hi.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_hi.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_hi.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_hi.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_hi.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_hi.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_hi.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_kn": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_kn.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_kn.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_kn.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_kn.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_kn.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_kn.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_kn.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_kn.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_kn.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_kn.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_kn.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_kn.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_ml": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_ml.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_ml.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_ml.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_ml.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_ml.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_ml.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_ml.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_ml.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_ml.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_ml.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_ml.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_ml.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_mr": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_mr.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_mr.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_mr.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_mr.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_mr.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_mr.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_mr.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_mr.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_mr.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_mr.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_mr.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_mr.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_od": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_od.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_od.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_od.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_od.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_od.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_od.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_od.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_od.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_od.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_od.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_od.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_od.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_pa": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_pa.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_pa.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_pa.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_pa.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_pa.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_pa.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_pa.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_pa.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_pa.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_pa.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_pa.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_pa.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_ta": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_ta.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_ta.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_ta.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_ta.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_ta.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_ta.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_ta.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_ta.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_ta.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_ta.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_ta.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_ta.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ],
+  "voice_te": [
+    {
+      "path": "capabilities/voice/schemes/information/schemes_te.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/mandi/prices/mandi_te.md",
+      "tools": [
+        "get_mandi_prices",
+        "search_commodity"
+      ]
+    },
+    {
+      "path": "capabilities/voice/weather/forecast/weather_te.md",
+      "tools": [
+        "weather_forecast"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_te.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_te.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/feedback/submission/feedback_te.md",
+      "tools": [
+        "submit_feedback"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/results/soil_health_results_te.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_te.md",
+      "tools": [
+        "check_pm_kisan_status_with_otp",
+        "initiate_pm_kisan_status_check",
+        "pmkisan_grievance_send_otp",
+        "pmkisan_grievance_status",
+        "pmkisan_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_te.md",
+      "tools": [
+        "get_scheme_info",
+        "search_schemes"
+      ]
+    },
+    {
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_te.md",
+      "tools": [
+        "check_shc_status"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/status/pmfby_status_te.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    },
+    {
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_te.md",
+      "tools": [
+        "check_pmfby_grievance_otp",
+        "check_pmfby_status_with_otp",
+        "initiate_pmfby_grievance_otp",
+        "initiate_pmfby_status_check",
+        "pmfby_grievance_status",
+        "pmfby_submit_grievance"
+      ]
+    }
+  ]
+}

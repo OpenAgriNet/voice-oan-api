@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from agents.capability_policy import CapabilityState
 
 
 class FarmerContext(BaseModel):
@@ -17,6 +18,7 @@ class FarmerContext(BaseModel):
     Example:
         **User:** "What is the weather in Mumbai?"
     """
+    capabilities: CapabilityState = Field(default_factory=CapabilityState)
     query: str = Field(description="The user's question.")
     session_id: str = Field(description="The session ID for the conversation.")
     question_id: str = Field(

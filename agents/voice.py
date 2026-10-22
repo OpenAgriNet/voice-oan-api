@@ -5,8 +5,13 @@ from agents.models import LLM_AGRINET_MODEL
 from agents.tools import TOOLS
 from pydantic_ai.settings import ModelSettings
 from agents.deps import FarmerContext
+from agents.capabilities import (
+    CAPABILITY_LOADER, prepare_capability_tools, validate_manifest,
+    capability_prompt_context, capability_routing,
+)
 import logging
 logger = logging.getLogger(__name__)
+validate_manifest(TOOLS)
 
 # Gemma sometimes narrates a tool call ("I will check the details. One moment
 # please.") and ends the turn without calling the tool, so the caller hears a
@@ -29,7 +34,8 @@ voice_agent = Agent(
     deps_type=FarmerContext,
     retries=3,
     output_retries=3,
-    tools=TOOLS,
+    tools=[*TOOLS, CAPABILITY_LOADER],
+    prepare_tools=prepare_capability_tools,
     end_strategy='exhaustive',
     model_settings=ModelSettings(
         # temperature=0.7,
@@ -60,9 +66,10 @@ def reject_hold_messages(ctx: RunContext[FarmerContext], output: str) -> str:
 def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
     language_code = ctx.deps.language_code
     prompt_file = f"voice_{language_code}"
+    ctx.deps.capabilities.restore(ctx.messages)
     return get_prompt(
         prompt_file,
-        context={
+        context=capability_prompt_context(ctx.deps, prompt_file, {
             'today_date': get_today_date_str(),
-        },
-    )
+        }),
+    ) + capability_routing(ctx.deps)
