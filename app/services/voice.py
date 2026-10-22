@@ -25,8 +25,7 @@ logger = get_logger(__name__)
 
 async def _run_events_with_timeout(**kwargs):
     deadline = asyncio.get_running_loop().time() + get_registry().timeout(VOICE_USE_CASE)
-    events = voice_agent.run_stream_events(**kwargs)
-    try:
+    async with voice_agent.run_stream_events(**kwargs) as events:
         while True:
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
@@ -35,8 +34,6 @@ async def _run_events_with_timeout(**kwargs):
                 yield await asyncio.wait_for(events.__anext__(), timeout=remaining)
             except StopAsyncIteration:
                 return
-    finally:
-        await events.aclose()
 
 
 def _user_message_count(history: list) -> int:

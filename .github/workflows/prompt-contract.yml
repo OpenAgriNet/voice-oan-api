@@ -23,4 +23,4 @@ jobs:
         env:
           PYDANTIC_AI_NO_BANNER: '1'
           OTEL_SDK_DISABLED: 'true'
-        run: python -m pytest tests/test_prompt_structure.py tests/test_capabilities.py tests/test_native_skills.py -q
+        run: python -m pytest tests/test_prompt_structure.py tests/test_capabilities.py tests/test_native_skills.py tests/test_backend_pydantic_contract.py -q
