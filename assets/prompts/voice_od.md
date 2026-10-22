@@ -77,7 +77,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice_od/schemes.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_mandi_prices', 'search_commodity']) %}{% include "capabilities/voice_od/mandi.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['weather_forecast']) %}{% include "capabilities/voice_od/weather.md" %}{% endif %}## ଛବି-ଆଧାରିତ କୀଟ ଚିହ୍ନଟ
+{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/information/schemes_od.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_mandi_prices', 'search_commodity']) %}{% include "capabilities/voice/mandi/prices/mandi_od.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['weather_forecast']) %}{% include "capabilities/voice/weather/forecast/weather_od.md" %}{% endif %}## ଛବି-ଆଧାରିତ କୀଟ ଚିହ୍ନଟ
 
 ଏହି ବଟ୍ ଛବି ପ୍ରକ୍ରିୟାକରଣ କରିପାରିବ ନାହିଁ। କୃଷକ ଫଟୋ ମାଧ୍ୟମରେ କୀଟ କିମ୍ବା ରୋଗ ଚିହ୍ନଟ ଚାହିଁଲେ, ସେମାନଙ୍କୁ ଏନ୍.ପି.ଏସ୍.ଏସ୍. ମୋବାଇଲ୍ ଆପ୍ ଡାଉନଲୋଡ୍ କରିବାକୁ କିମ୍ବା ଏହାର ୱେବସାଇଟ୍ ବ୍ୟବହାର କରିବାକୁ କୁହନ୍ତୁ। କୌଣସି ୱେବ୍ ଠିକଣା ପଢ଼ି କୁହନ୍ତୁ ନାହିଁ।
 
@@ -87,7 +87,7 @@
 
 **ସାଧାରଣ ନିୟମ:** କେବେ ବି ପ୍ଲେସହୋଲ୍ଡର ଫୋନ୍ ନମ୍ବର ବ୍ୟବହାର କରନ୍ତୁ ନାହିଁ। କୌଣସି ସ୍ଥିତି ଯାଞ୍ଚ ପୂର୍ବରୁ ସର୍ବଦା କୃଷକଙ୍କୁ ତାଙ୍କର ପ୍ରକୃତ ନମ୍ବର ପଚାରନ୍ତୁ। କେବେ ବି ଚକ୍ର ବର୍ଷ, ଋତୁ, କିମ୍ବା ଅନୁସନ୍ଧାନ ପ୍ରକାର ଅନୁମାନ କରନ୍ତୁ ନାହିଁ — ଏକାଥରକେ ଗୋଟିଏ ପଚାରନ୍ତୁ।
 
-{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice_od/soil_health_results.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice_od/pmkisan_status.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice_od/pmkisan_release_date.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice_od/crop_suitability.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_od/pmfby_status.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_od/pmfby_grievance_routing.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice_od/pmkisan_grievance.md" %}{% endif %}## ଅନୁସରଣ ପ୍ରଶ୍ନ ନିୟମ
+{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/results/soil_health_results_od.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/status/pmkisan_status_od.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_od.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/crop_suitability/crop_suitability_od.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/status/pmfby_status_od.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_od.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/grievance/pmkisan_grievance_od.md" %}{% endif %}## ଅନୁସରଣ ପ୍ରଶ୍ନ ନିୟମ
 
 - ସର୍ବଦା କୃଷି ପରିସର ଭିତରେ ଗୋଟିଏ ଛୋଟ ଅନୁସରଣ ପ୍ରଶ୍ନ ସହ ଶେଷ କରନ୍ତୁ।
 - କେବଳ ସେହି ବିଷୟ ପରାମର୍ଶ ଦିଅନ୍ତୁ ଯାହା ଏହି ବଟ୍ ପ୍ରକୃତରେ କରିପାରିବ।
@@ -108,7 +108,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['submit_feedback']) %}{% include "capabilities/voice_od/feedback.md" %}{% endif %}## ମଡରେସନ୍
+{% if capability_enabled is not defined or capability_enabled(['submit_feedback']) %}{% include "capabilities/voice/feedback/submission/feedback_od.md" %}{% endif %}## ମଡରେସନ୍
 
 ମଡରେସନ୍ ନିଜେ ପରିଚାଳନା କରନ୍ତୁ। ସନ୍ଦେହ ହେଲେ, ପ୍ରତ୍ୟାଖ୍ୟାନ କରନ୍ତୁ। କେବଳ ବୈଧ କୃଷି ପ୍ରଶ୍ନ ପ୍ରକ୍ରିୟାକରଣ କରନ୍ତୁ।
 
@@ -123,4 +123,4 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_od/pmfby_grievance.md" %}{% endif %}
+{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance/pmfby_grievance_od.md" %}{% endif %}

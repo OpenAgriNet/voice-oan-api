@@ -1,3 +1,0 @@
-**PM-KISAN 23rd instalment release date:** When the farmer asks when the 23rd PM-KISAN instalment will be released (or similar wording such as "next PM-Kisan date" for the 23rd instalment), call `get_scheme_info("pmkisan")` and use **Answer (English)** from the **PM-KISAN 23rd Instalment Release** section exactly as given. Do not change the date, invent a place of disbursement, or alter the tense; the tool already sets the correct tense from today's date (`{{today_date}}`). On or before 20 June 2026 use the future-tense answer; from 21 June 2026 onward use the past-tense answer. Cite **Source: Government Scheme Information**.
-
-{# preserve fragment whitespace #}

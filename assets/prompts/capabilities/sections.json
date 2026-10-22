@@ -1,27 +1,27 @@
 {
   "voice_bn": [
     {
-      "path": "capabilities/voice_bn/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_bn.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_bn/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_bn.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_bn/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_bn.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_bn/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_bn.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -31,7 +31,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_bn/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_bn.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -42,19 +42,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_bn/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_bn.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_bn/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_bn.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_bn/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_bn.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -64,20 +64,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_bn/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_bn.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_bn/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_bn.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_bn/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_bn.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -88,7 +88,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_bn/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_bn.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -101,27 +101,27 @@
   ],
   "voice_en": [
     {
-      "path": "capabilities/voice_en/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_en.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_en/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_en.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_en/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_en.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_en/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_en.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -131,7 +131,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_en/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_en.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -142,19 +142,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_en/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_en.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_en/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_en.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_en/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_en.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -164,20 +164,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_en/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_en.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_en/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_en.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_en/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_en.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -188,7 +188,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_en/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_en.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -201,27 +201,27 @@
   ],
   "voice_gu": [
     {
-      "path": "capabilities/voice_gu/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_gu.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_gu/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_gu.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_gu/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_gu.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_gu/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_gu.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -231,7 +231,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_gu/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_gu.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -242,19 +242,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_gu/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_gu.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_gu/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_gu.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_gu/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_gu.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -264,20 +264,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_gu/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_gu.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_gu/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_gu.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_gu/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_gu.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -288,7 +288,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_gu/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_gu.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -301,27 +301,27 @@
   ],
   "voice_hi": [
     {
-      "path": "capabilities/voice_hi/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_hi.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_hi/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_hi.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_hi/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_hi.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_hi/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_hi.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -331,7 +331,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_hi/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_hi.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -342,19 +342,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_hi/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_hi.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_hi/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_hi.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_hi/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_hi.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -364,20 +364,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_hi/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_hi.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_hi/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_hi.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_hi/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_hi.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -388,7 +388,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_hi/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_hi.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -401,27 +401,27 @@
   ],
   "voice_kn": [
     {
-      "path": "capabilities/voice_kn/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_kn.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_kn/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_kn.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_kn/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_kn.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_kn/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_kn.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -431,7 +431,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_kn/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_kn.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -442,19 +442,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_kn/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_kn.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_kn/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_kn.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_kn/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_kn.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -464,20 +464,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_kn/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_kn.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_kn/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_kn.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_kn/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_kn.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -488,7 +488,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_kn/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_kn.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -501,27 +501,27 @@
   ],
   "voice_ml": [
     {
-      "path": "capabilities/voice_ml/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_ml.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_ml/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_ml.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_ml/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_ml.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_ml/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_ml.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -531,7 +531,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_ml/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_ml.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -542,19 +542,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_ml/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_ml.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_ml/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_ml.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_ml/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_ml.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -564,20 +564,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_ml/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_ml.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_ml/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_ml.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_ml/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_ml.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -588,7 +588,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_ml/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_ml.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -601,27 +601,27 @@
   ],
   "voice_mr": [
     {
-      "path": "capabilities/voice_mr/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_mr.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_mr/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_mr.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_mr/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_mr.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_mr/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_mr.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -631,7 +631,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_mr/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_mr.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -642,19 +642,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_mr/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_mr.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_mr/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_mr.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_mr/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_mr.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -664,20 +664,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_mr/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_mr.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_mr/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_mr.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_mr/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_mr.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -688,7 +688,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_mr/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_mr.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -701,27 +701,27 @@
   ],
   "voice_od": [
     {
-      "path": "capabilities/voice_od/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_od.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_od/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_od.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_od/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_od.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_od/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_od.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -731,7 +731,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_od/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_od.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -742,19 +742,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_od/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_od.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_od/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_od.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_od/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_od.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -764,20 +764,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_od/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_od.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_od/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_od.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_od/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_od.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -788,7 +788,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_od/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_od.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -801,27 +801,27 @@
   ],
   "voice_pa": [
     {
-      "path": "capabilities/voice_pa/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_pa.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_pa/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_pa.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_pa/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_pa.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_pa/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_pa.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -831,7 +831,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_pa/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_pa.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -842,19 +842,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_pa/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_pa.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_pa/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_pa.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_pa/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_pa.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -864,20 +864,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_pa/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_pa.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_pa/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_pa.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_pa/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_pa.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -888,7 +888,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_pa/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_pa.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -901,27 +901,27 @@
   ],
   "voice_ta": [
     {
-      "path": "capabilities/voice_ta/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_ta.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_ta/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_ta.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_ta/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_ta.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_ta/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_ta.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -931,7 +931,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_ta/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_ta.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -942,19 +942,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_ta/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_ta.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_ta/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_ta.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_ta/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_ta.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -964,20 +964,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_ta/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_ta.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_ta/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_ta.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_ta/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_ta.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -988,7 +988,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_ta/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_ta.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -1001,27 +1001,27 @@
   ],
   "voice_te": [
     {
-      "path": "capabilities/voice_te/schemes.md",
+      "path": "capabilities/voice/schemes/information/schemes_te.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_te/mandi.md",
+      "path": "capabilities/voice/mandi/prices/mandi_te.md",
       "tools": [
         "get_mandi_prices",
         "search_commodity"
       ]
     },
     {
-      "path": "capabilities/voice_te/weather.md",
+      "path": "capabilities/voice/weather/forecast/weather_te.md",
       "tools": [
         "weather_forecast"
       ]
     },
     {
-      "path": "capabilities/voice_te/pmkisan_grievance.md",
+      "path": "capabilities/voice/pmkisan/grievance/pmkisan_grievance_te.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -1031,7 +1031,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_te/pmfby_grievance.md",
+      "path": "capabilities/voice/pmfby/grievance/pmfby_grievance_te.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -1042,19 +1042,19 @@
       ]
     },
     {
-      "path": "capabilities/voice_te/feedback.md",
+      "path": "capabilities/voice/feedback/submission/feedback_te.md",
       "tools": [
         "submit_feedback"
       ]
     },
     {
-      "path": "capabilities/voice_te/soil_health_results.md",
+      "path": "capabilities/voice/soil_health/results/soil_health_results_te.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_te/pmkisan_status.md",
+      "path": "capabilities/voice/pmkisan/status/pmkisan_status_te.md",
       "tools": [
         "check_pm_kisan_status_with_otp",
         "initiate_pm_kisan_status_check",
@@ -1064,20 +1064,20 @@
       ]
     },
     {
-      "path": "capabilities/voice_te/pmkisan_release_date.md",
+      "path": "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_te.md",
       "tools": [
         "get_scheme_info",
         "search_schemes"
       ]
     },
     {
-      "path": "capabilities/voice_te/crop_suitability.md",
+      "path": "capabilities/voice/soil_health/crop_suitability/crop_suitability_te.md",
       "tools": [
         "check_shc_status"
       ]
     },
     {
-      "path": "capabilities/voice_te/pmfby_status.md",
+      "path": "capabilities/voice/pmfby/status/pmfby_status_te.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",
@@ -1088,7 +1088,7 @@
       ]
     },
     {
-      "path": "capabilities/voice_te/pmfby_grievance_routing.md",
+      "path": "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_te.md",
       "tools": [
         "check_pmfby_grievance_otp",
         "check_pmfby_status_with_otp",

@@ -77,7 +77,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice_mr/schemes.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_mandi_prices', 'search_commodity']) %}{% include "capabilities/voice_mr/mandi.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['weather_forecast']) %}{% include "capabilities/voice_mr/weather.md" %}{% endif %}## प्रतिमेवर आधारित कीड ओळख
+{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/information/schemes_mr.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_mandi_prices', 'search_commodity']) %}{% include "capabilities/voice/mandi/prices/mandi_mr.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['weather_forecast']) %}{% include "capabilities/voice/weather/forecast/weather_mr.md" %}{% endif %}## प्रतिमेवर आधारित कीड ओळख
 
 हा बॉट प्रतिमांवर प्रक्रिया करू शकत नाही. शेतकऱ्याला फोटोवरून कीड किंवा रोग ओळखायचे असल्यास, त्यांना एन पी एस एस मोबाइल अॅप डाउनलोड करायला किंवा एन पी एस एस संकेतस्थळ वापरायला सांगा. कोणताही वेब पत्ता वाचून सांगू नका.
 
@@ -87,7 +87,7 @@
 
 **सर्वसाधारण नियम:** प्लेसहोल्डर फोन नंबर कधीही वापरू नका. कोणतीही स्थिती तपासणी करण्यापूर्वी शेतकऱ्याकडून त्यांचा खरा नंबर नेहमी विचारा. सायकल वर्ष, हंगाम किंवा चौकशीचा प्रकार कधीही गृहीत धरू नका — एका वेळी एकच गोष्ट विचारा.
 
-{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice_mr/soil_health_results.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice_mr/pmkisan_status.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice_mr/pmkisan_release_date.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice_mr/crop_suitability.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_mr/pmfby_status.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_mr/pmfby_grievance_routing.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice_mr/pmkisan_grievance.md" %}{% endif %}## पुढील प्रश्नाचे नियम
+{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/results/soil_health_results_mr.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/status/pmkisan_status_mr.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_mr.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/crop_suitability/crop_suitability_mr.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/status/pmfby_status_mr.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_mr.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/grievance/pmkisan_grievance_mr.md" %}{% endif %}## पुढील प्रश्नाचे नियम
 
 - शेतीच्या कक्षेतील एका छोट्या पुढील प्रश्नाने नेहमी शेवट करा.
 - हा बॉट प्रत्यक्षात करू शकतो अशाच गोष्टी सुचवा.
@@ -108,7 +108,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['submit_feedback']) %}{% include "capabilities/voice_mr/feedback.md" %}{% endif %}## नियंत्रण
+{% if capability_enabled is not defined or capability_enabled(['submit_feedback']) %}{% include "capabilities/voice/feedback/submission/feedback_mr.md" %}{% endif %}## नियंत्रण
 
 नियंत्रण स्वतः हाताळा. शंका असल्यास नकार द्या. फक्त वैध शेतीविषयक प्रश्नांवरच प्रक्रिया करा.
 
@@ -123,4 +123,4 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_mr/pmfby_grievance.md" %}{% endif %}
+{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance/pmfby_grievance_mr.md" %}{% endif %}

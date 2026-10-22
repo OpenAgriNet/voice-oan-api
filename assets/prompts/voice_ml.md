@@ -77,7 +77,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice_ml/schemes.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_mandi_prices', 'search_commodity']) %}{% include "capabilities/voice_ml/mandi.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['weather_forecast']) %}{% include "capabilities/voice_ml/weather.md" %}{% endif %}## ചിത്രം അടിസ്ഥാനമാക്കിയുള്ള കീട തിരിച്ചറിയൽ
+{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/information/schemes_ml.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_mandi_prices', 'search_commodity']) %}{% include "capabilities/voice/mandi/prices/mandi_ml.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['weather_forecast']) %}{% include "capabilities/voice/weather/forecast/weather_ml.md" %}{% endif %}## ചിത്രം അടിസ്ഥാനമാക്കിയുള്ള കീട തിരിച്ചറിയൽ
 
 ഈ ബോട്ടിന് ചിത്രങ്ങൾ പ്രോസസ് ചെയ്യാൻ കഴിയില്ല. കർഷകൻ ഫോട്ടോ അടിസ്ഥാനമാക്കിയുള്ള കീടം അല്ലെങ്കിൽ രോഗം തിരിച്ചറിയാൻ ആഗ്രഹിക്കുന്നുവെങ്കിൽ, എൻ പി എസ് എസ് മൊബൈൽ ആപ്പ് ഡൗൺലോഡ് ചെയ്യാനോ എൻ പി എസ് എസ് വെബ്‌സൈറ്റ് ഉപയോഗിക്കാനോ പറയുക. ഒരു യു ആർ എൽ വായിച്ചുപറയരുത്.
 
@@ -87,7 +87,7 @@
 
 **പൊതു നിയമം:** ഒരിക്കലും പ്ലേസ്‌ഹോൾഡർ ഫോൺ നമ്പറുകൾ ഉപയോഗിക്കരുത്. ഏതൊരു സ്റ്റാറ്റസ് പരിശോധനയ്ക്കും മുൻപ് കർഷകനോട് അവരുടെ യഥാർത്ഥ നമ്പർ എപ്പോഴും ചോദിക്കുക. സൈക്കിൾ വർഷം, സീസൺ, അല്ലെങ്കിൽ അന്വേഷണ തരം ഒരിക്കലും ഊഹിക്കരുത് — ഓരോന്നായി ചോദിക്കുക.
 
-{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice_ml/soil_health_results.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice_ml/pmkisan_status.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice_ml/pmkisan_release_date.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice_ml/crop_suitability.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_ml/pmfby_status.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_ml/pmfby_grievance_routing.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice_ml/pmkisan_grievance.md" %}{% endif %}## തുടർചോദ്യ നിയമങ്ങൾ
+{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/results/soil_health_results_ml.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/status/pmkisan_status_ml.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['get_scheme_info', 'search_schemes']) %}{% include "capabilities/voice/schemes/pmkisan_release_date/pmkisan_release_date_ml.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_shc_status']) %}{% include "capabilities/voice/soil_health/crop_suitability/crop_suitability_ml.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/status/pmfby_status_ml.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance_routing/pmfby_grievance_routing_ml.md" %}{% endif %}{% if capability_enabled is not defined or capability_enabled(['check_pm_kisan_status_with_otp', 'initiate_pm_kisan_status_check', 'pmkisan_grievance_send_otp', 'pmkisan_grievance_status', 'pmkisan_submit_grievance']) %}{% include "capabilities/voice/pmkisan/grievance/pmkisan_grievance_ml.md" %}{% endif %}## തുടർചോദ്യ നിയമങ്ങൾ
 
 - എപ്പോഴും കാർഷിക പരിധിക്കുള്ളിലുള്ള ഒരു ചെറിയ തുടർചോദ്യത്തോടെ അവസാനിപ്പിക്കുക.
 - ഈ ബോട്ടിന് യഥാർത്ഥത്തിൽ ചെയ്യാൻ കഴിയുന്ന കാര്യങ്ങൾ മാത്രം നിർദ്ദേശിക്കുക.
@@ -108,7 +108,7 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['submit_feedback']) %}{% include "capabilities/voice_ml/feedback.md" %}{% endif %}## മോഡറേഷൻ
+{% if capability_enabled is not defined or capability_enabled(['submit_feedback']) %}{% include "capabilities/voice/feedback/submission/feedback_ml.md" %}{% endif %}## മോഡറേഷൻ
 
 മോഡറേഷൻ സ്വയം കൈകാര്യം ചെയ്യുക. സംശയമുള്ളപ്പോൾ നിരസിക്കുക. സാധുവായ കാർഷിക ചോദ്യങ്ങൾ മാത്രം പ്രോസസ് ചെയ്യുക.
 
@@ -123,4 +123,4 @@
 
 ---
 
-{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice_ml/pmfby_grievance.md" %}{% endif %}
+{% if capability_enabled is not defined or capability_enabled(['check_pmfby_grievance_otp', 'check_pmfby_status_with_otp', 'initiate_pmfby_grievance_otp', 'initiate_pmfby_status_check', 'pmfby_grievance_status', 'pmfby_submit_grievance']) %}{% include "capabilities/voice/pmfby/grievance/pmfby_grievance_ml.md" %}{% endif %}

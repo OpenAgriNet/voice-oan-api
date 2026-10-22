@@ -59,18 +59,20 @@ mode overrides references to tools that are not permitted. Some shared reference
 intentionally remain; this is not a translation or workflow-rewriting change.
 
 `sections.json` maps blocks to tools. Any loaded member includes the original block;
-loader results also return the matching instructions. `original_sha256.json` anchors
-reconstruction to the original production templates, so lost or changed wording is
-caught for every language. Deliberate future prompt edits require updating that
-preservation baseline explicitly. Tool schemas/descriptions are unchanged.
+loader results also return the matching instructions. Browse
+[capability → section → language](../assets/prompts/capabilities/voice/README.md).
+Git preserves prior wording; no frozen hash files are used. For a structural change,
+set `PROMPT_COMPARE_REF` to the preceding Git revision to compare every rendered
+language prompt and lazy-loaded instructions byte-for-byte. Tool schemas/descriptions
+are unchanged.
 
 With the repo's pinned Pydantic AI 1.2.1 and compatible OpenTelemetry installed:
 
 ```bash
-python -m pytest tests/test_capabilities.py tests/test_model_registry.py -q
+python -m pytest tests/test_capabilities.py tests/test_prompt_structure.py tests/test_model_registry.py -q
 ```
 
-Checks include full registry/language coverage, exact prompt reconstruction/rendering,
+Checks include full registry/language coverage, default/all-loaded prompt equality,
 allowlist enforcement, per-session state, existing prepare guards, and deterministic
 offline load→execute and topic-switch tests through the actual voice agent wiring.
 No model server is needed. Model accuracy, selective-mode latency and a deployed
