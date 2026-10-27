@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 from sentence_transformers import SentenceTransformer
+from helpers.master_catalog import get_vector_scheme_entries
 
 DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-large"
 SCHEME_SEARCH_SOURCE = "Government Scheme Information"
@@ -22,101 +23,34 @@ _qdrant_client_cache: dict[tuple[str, Optional[str]], QdrantClient] = {}
 
 # scheme_code -> scheme_name + aliases.
 # scheme_code must match Qdrant payload.
-_QDRANT_SCHEME_DEFINITIONS: dict[str, dict[str, Any]] = {
-    "mif": {
-        "scheme_name": "Micro Irrigation Fund",
-        "scheme_aliases": [
-            "MIF",
-            "micro irrigation fund",
-            "Micro Irrigation Fund scheme",
-        ],
-    },
-    "pkvy": {
-        "scheme_name": "Paramparagat Krishi Vikas Yojana",
-        "scheme_aliases": [
-            "PKVY",
-            "paramparagat krishi vikas yojana",
-            "paramparagat krishi",
-            "organic farming scheme",
-        ],
-    },
-    "pm-kmy": {
-        "scheme_name": "Pradhan Mantri Kisan Maandhan Yojana",
-        "scheme_aliases": [
-            "PM-KMY",
-            "PMKMY",
-            "pm kmy",
-            "Kisan Maandhan Yojana",
-            "Kisan Mandhan Yojana",
-            "kisan mandhan",
-            "PMKMY Yojana",
-        ],
-    },
-    "cdp": {
-        "scheme_name": "Crop Diversification Programme",
-        "scheme_aliases": [
-            "CDP",
-            "crop diversification programme",
-            "crop diversification program",
-            "crop diversification",
-        ],
-    },
-    "pulses-mission": {
-        "scheme_name": "Mission for Aatmanirbharta in Pulses",
-        "scheme_aliases": [
-            "pulses mission",
-            "aatmanirbharta in pulses",
-            "mission for aatmanirbharta in pulses",
-            "nfsm pulses",
-            "pulses scheme",
-            "self reliance in pulses",
-        ],
-    },
-    "cotton-mission": {
-        "scheme_name": "Mission for Cotton Productivity",
-        "scheme_aliases": [
-            "cotton mission",
-            "mission for cotton productivity",
-            "cotton productivity mission",
-            "nfsnm cotton",
-            "nfsm cotton",
-        ],
-    },
-    "nmeo": {
-        "scheme_name": "National Mission on Edible Oils – Oilseeds",
-        "scheme_aliases": [
-            "NMEO",
-            "NMEO-OS",
-            "NMEO OS",
-            "edible oils oilseeds",
-            "oilseeds mission",
-            "national mission on edible oils",
-        ],
-    },
-}
-
-QDRANT_SCHEME_CODES = frozenset(_QDRANT_SCHEME_DEFINITIONS.keys())
-
-_BUILTIN_SCHEME_LIST: list[dict[str, Any]] = [
-    {
-        "scheme_code": code,
-        "scheme_name": definition["scheme_name"],
-        "scheme_aliases": list(definition.get("scheme_aliases", [])),
-    }
-    for code, definition in _QDRANT_SCHEME_DEFINITIONS.items()
-]
-
-
 def get_builtin_scheme_list() -> list[dict[str, Any]]:
-    """Built-in scheme registry used for query → scheme_code resolution."""
-    return _BUILTIN_SCHEME_LIST
+    """Scheme registry from the live master catalog for query resolution."""
+    scheme_list: list[dict[str, Any]] = []
+    for entry in get_vector_scheme_entries():
+        code = str(entry.get("code") or "").strip().lower()
+        name = str(entry.get("name") or "").strip()
+        if not code or not name:
+            continue
+        scheme_list.append(
+            {
+                "scheme_code": code,
+                "scheme_name": name,
+                "scheme_aliases": [
+                    str(alias).strip()
+                    for alias in entry.get("aliases", [])
+                    if str(alias).strip()
+                ],
+                "prompt_visible": entry.get("prompt_visible", True),
+            }
+        )
+    return scheme_list
 
 
 def format_qdrant_scheme_codes_for_doc() -> str:
-    """One-line scheme code list for tool docstrings (like get_scheme_info)."""
+    """One-line scheme code list for search tool documentation."""
     return ", ".join(
-        f'"{code}" ({_QDRANT_SCHEME_DEFINITIONS[code]["scheme_name"]})'
-        for code in sorted(_QDRANT_SCHEME_DEFINITIONS)
+        f'"{item["scheme_code"]}" ({item["scheme_name"]})'
+        for item in sorted(get_builtin_scheme_list(), key=lambda entry: entry["scheme_code"])
     )
 
 ALIAS_STOPWORDS = {
@@ -297,7 +231,7 @@ def classify_query_intent(query: str) -> Optional[str]:
 
 
 def classify_scheme_section_focus(query: str) -> Optional[str]:
-    """Mirrors legacy get_scheme_info eligibility/exclusion routing."""
+    """Classify eligibility versus exclusion-only questions for result selection."""
     q = query.lower()
     has_eligibility = any(term in q for term in INTENT_TERMS["eligibility"])
     has_exclusion = any(term in q for term in EXCLUSION_TERMS)
@@ -724,10 +658,12 @@ def _merge_supplemental_results(
 def _filter_results_by_scheme(
     results: list[dict[str, Any]],
     scheme_code: Optional[str],
+    scheme_list: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     if scheme_code:
         return [r for r in results if r.get("scheme_code") == scheme_code]
-    return [r for r in results if r.get("scheme_code") in QDRANT_SCHEME_CODES]
+    scheme_codes = {item["scheme_code"] for item in scheme_list}
+    return [r for r in results if r.get("scheme_code") in scheme_codes]
 
 
 def search_schemes(
@@ -745,7 +681,7 @@ def search_schemes(
     """
     client = client or get_qdrant_client()
     model = model or get_embedder()
-    scheme_list = scheme_list if scheme_list is not None else _BUILTIN_SCHEME_LIST
+    scheme_list = scheme_list if scheme_list is not None else get_builtin_scheme_list()
 
     if scheme_code is None:
         scheme_code = resolve_scheme_code(query, scheme_list)
@@ -769,7 +705,7 @@ def search_schemes(
             client, collection_name, fetch_k, model,
         )
 
-    results = _filter_results_by_scheme(results, scheme_code)
+    results = _filter_results_by_scheme(results, scheme_code, scheme_list)
     results = rerank_results(query, results)
     return _finalize_results(results, section_focus, intent, top_k)
 
@@ -814,7 +750,7 @@ def format_search_results(
     scheme_list: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     if not results:
-        active_scheme_list = scheme_list if scheme_list is not None else _BUILTIN_SCHEME_LIST
+        active_scheme_list = scheme_list if scheme_list is not None else get_builtin_scheme_list()
         return _empty_search_message(query, active_scheme_list)
 
     blocks = [_format_result_block(item) for item in results]

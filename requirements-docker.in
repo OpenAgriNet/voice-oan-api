@@ -1,0 +1,4 @@
+# Docker and CI target CPython 3.15 on Linux amd64.
+-r requirements.txt
+# Select the CPU wheel explicitly instead of resolving Torch from PyPI.
+torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.14.0%2Bcpu-cp315-cp315-manylinux_2_28_x86_64.whl#sha256=a8b2fa9a03d81bc083f279737fce1cd8d1ed2e267da92215260cd644dcfdd3fe

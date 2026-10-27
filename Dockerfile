@@ -1,5 +1,5 @@
 # Use Python as the base image
-FROM python:3.10-slim
+FROM python:3.15-slim
 
 # Set work directory
 WORKDIR /app
@@ -8,16 +8,24 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     supervisor \
     gcc \
+    g++ \
+    libyaml-dev \
     make \
     python3-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
-COPY requirements.txt .
+COPY requirements.txt requirements-docker.in requirements-build.lock ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Hash-lock build tools before disabling isolation for the two source builds.
+RUN python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements-build.lock
+# These two packages do not publish CPython 3.15 wheels yet.
+RUN python -m pip install --no-cache-dir --no-build-isolation \
+    --only-binary=:all: --no-binary=marisa-trie,pyyaml \
+    -r requirements-docker.in
+RUN python -m pip check && python -c \
+    "import marisa_trie, pandas, pydantic, rapidfuzz, torch, zope.interface; from yaml import CLoader; from langcodes import Language; from sentence_transformers import SentenceTransformer; assert torch.version.cuda is None, 'Expected CPU-only Torch'; assert Language.get('hi').display_name('en') == 'Hindi'"
 
 # Bake the scheme-search embedding model into the image. Prod has no egress to
 # huggingface.co, so downloading it lazily on first search_schemes call fails

@@ -59,15 +59,6 @@
     ]
   },
   {
-    "code": 7,
-    "name": "Red Gram",
-    "terms": [
-      "Red Gram",
-      "तूर",
-      "tur"
-    ]
-  },
-  {
     "code": 8,
     "name": "Black Gram(Urd Beans)(Whole)",
     "terms": [
@@ -133,11 +124,12 @@
   },
   {
     "code": 14,
-    "name": "Sunflower",
+    "name": "Sunflower/Sunflower Seed",
     "terms": [
-      "Sunflower",
+      "Sunflower/Sunflower Seed",
       "सूर्यफूल",
-      "suryaphul"
+      "suryaphul",
+      "Sunflower Seed"
     ]
   },
   {
@@ -348,9 +340,9 @@
   },
   {
     "code": 36,
-    "name": "Cardamoms",
+    "name": "Cardamom",
     "terms": [
-      "Cardamoms",
+      "Cardamom",
       "वेलची",
       "velchi",
       "elaichi"
@@ -365,12 +357,13 @@
   },
   {
     "code": 38,
-    "name": "Cumin Seed(Jeera)",
+    "name": "Cummin Seed(Jeera)",
     "terms": [
       "Cumin Seed",
       "Jeera",
       "जिरे",
-      "jire"
+      "jire",
+      "Cummin Seed(Jeera)"
     ]
   },
   {
@@ -424,12 +417,13 @@
   },
   {
     "code": 45,
-    "name": "Arhar(Tur/Red Gram)(Whole)",
+    "name": "Red gram/Arhar/Tur(whole)",
     "terms": [
       "Arhar",
       "Tur",
       "Red Gram",
-      "तूर"
+      "तूर",
+      "Red gram/Arhar/Tur(whole)"
     ]
   },
   {
@@ -474,8 +468,9 @@
   },
   {
     "code": 51,
-    "name": "Rice Bran",
+    "name": "Riccbcan",
     "terms": [
+      "Riccbcan",
       "Rice Bran"
     ]
   },
@@ -673,14 +668,6 @@
     "name": "Banana - Green",
     "terms": [
       "Banana - Green"
-    ]
-  },
-  {
-    "code": 77,
-    "name": "Dal(Avare)",
-    "terms": [
-      "Dal",
-      "Avare"
     ]
   },
   {
@@ -960,9 +947,9 @@
   },
   {
     "code": 117,
-    "name": "Sunhemp",
+    "name": "Sanai/Sunhemp",
     "terms": [
-      "Sunhemp"
+      "Sanai/Sunhemp"
     ]
   },
   {
@@ -1003,15 +990,6 @@
       "Sugarcane",
       "ऊस",
       "us"
-    ]
-  },
-  {
-    "code": 123,
-    "name": "Jaggery",
-    "terms": [
-      "Jaggery",
-      "गूळ",
-      "gul"
     ]
   },
   {
@@ -1073,25 +1051,27 @@
   },
   {
     "code": 131,
-    "name": "Cucumber(Kheera)",
+    "name": "Cucumbar(Kheera)",
     "terms": [
       "Cucumber",
-      "Kheera"
+      "Kheera",
+      "Cucumbar(Kheera)"
     ]
   },
   {
     "code": 132,
-    "name": "Ridge Gourd(Tori)",
+    "name": "Ridgeguard(Tori)",
     "terms": [
       "Ridge Gourd",
-      "Tori"
+      "Tori",
+      "Ridgeguard(Tori)"
     ]
   },
   {
     "code": 133,
-    "name": "Radish",
+    "name": "Raddish",
     "terms": [
-      "Radish"
+      "Raddish"
     ]
   },
   {
@@ -1230,9 +1210,9 @@
   },
   {
     "code": 153,
-    "name": "Jack Fruit",
+    "name": "Jack Fruit(Ripe)",
     "terms": [
-      "Jack Fruit"
+      "Jack Fruit(Ripe)"
     ]
   },
   {
@@ -1471,9 +1451,10 @@
   },
   {
     "code": 186,
-    "name": "Rose(Loose)",
+    "name": "Rose(Loose))",
     "terms": [
-      "Rose"
+      "Rose",
+      "Rose(Loose))"
     ]
   },
   {
@@ -1542,9 +1523,9 @@
   },
   {
     "code": 196,
-    "name": "Cashew Kernel",
+    "name": "Cashew Kernnel",
     "terms": [
-      "Cashew Kernel"
+      "Cashew Kernnel"
     ]
   },
   {
@@ -1670,10 +1651,11 @@
   },
   {
     "code": 214,
-    "name": "Arhar Dal(Tur Dal)",
+    "name": "Red gram split/Arhar dal/Tur dal",
     "terms": [
       "Arhar Dal",
-      "Tur Dal"
+      "Tur Dal",
+      "Red gram split/Arhar dal/Tur dal"
     ]
   },
   {
@@ -1739,7 +1721,9 @@
     "code": 223,
     "name": "Avare Dal",
     "terms": [
-      "Avare Dal"
+      "Avare Dal",
+      "Dal",
+      "Avare"
     ]
   },
   {
@@ -1841,13 +1825,6 @@
     ]
   },
   {
-    "code": 238,
-    "name": "Sunflower Seed",
-    "terms": [
-      "Sunflower Seed"
-    ]
-  },
-  {
     "code": 239,
     "name": "Soji",
     "terms": [
@@ -1946,10 +1923,11 @@
   },
   {
     "code": 252,
-    "name": "Pigeon Pea(Arhar Fali)",
+    "name": "Pegeon Pea(Arhar Fali)",
     "terms": [
       "Pigeon Pea",
-      "Arhar Fali"
+      "Arhar Fali",
+      "Pegeon Pea(Arhar Fali)"
     ]
   },
   {
@@ -1978,10 +1956,11 @@
   },
   {
     "code": 256,
-    "name": "Kartali(Kantola)",
+    "name": "Spiny Gourd / Kartali(Kantola)",
     "terms": [
       "Kartali",
-      "Kantola"
+      "Kantola",
+      "Spiny Gourd / Kartali(Kantola)"
     ]
   },
   {
@@ -2001,9 +1980,9 @@
   },
   {
     "code": 259,
-    "name": "Peas cod",
+    "name": "Pea Pod/Pea Cod/हरी मटर",
     "terms": [
-      "Peas cod"
+      "Pea Pod/Pea Cod/हरी मटर"
     ]
   },
   {
@@ -2216,9 +2195,9 @@
   },
   {
     "code": 288,
-    "name": "Mushrooms",
+    "name": "Mushroom",
     "terms": [
-      "Mushrooms"
+      "Mushroom"
     ]
   },
   {
@@ -2364,10 +2343,11 @@
   },
   {
     "code": 308,
-    "name": "Egyptian Clover(Barseem)",
+    "name": "Egypian Clover(Barseem)",
     "terms": [
       "Egyptian Clover",
-      "Barseem"
+      "Barseem",
+      "Egypian Clover(Barseem)"
     ]
   },
   {
@@ -2639,10 +2619,11 @@
   },
   {
     "code": 346,
-    "name": "Ambady/Mesta",
+    "name": "Ambady/Mesta/Patson",
     "terms": [
       "Ambady",
-      "Mesta"
+      "Mesta",
+      "Ambady/Mesta/Patson"
     ]
   },
   {
@@ -2962,7 +2943,7 @@
   },
   {
     "code": 392,
-    "name": "tulip",
+    "name": "Tulip",
     "terms": [
       "Tulip"
     ]
@@ -4057,6 +4038,468 @@
       "Yam Bean",
       "Bankla",
       "Mexican Turnip"
+    ]
+  },
+  {
+    "code": 550,
+    "name": "MENETC*3",
+    "terms": [
+      "MENETC*3"
+    ]
+  },
+  {
+    "code": 551,
+    "name": "Rab/Liquid Jaggery/Molasses",
+    "terms": [
+      "Rab/Liquid Jaggery/Molasses"
+    ]
+  },
+  {
+    "code": 552,
+    "name": "Catechu(Black Cutch/ Khair/Katha)",
+    "terms": [
+      "Catechu(Black Cutch/ Khair/Katha)"
+    ]
+  },
+  {
+    "code": 553,
+    "name": "Chicory(Chikori/Kasni)",
+    "terms": [
+      "Chicory(Chikori/Kasni)"
+    ]
+  },
+  {
+    "code": 554,
+    "name": "Dhaincha(Seed)",
+    "terms": [
+      "Dhaincha(Seed)"
+    ]
+  },
+  {
+    "code": 555,
+    "name": "Imarti Wood(Good Quality)",
+    "terms": [
+      "Imarti Wood(Good Quality)"
+    ]
+  },
+  {
+    "code": 556,
+    "name": "Jackfruit(Green/Raw/Unripe)",
+    "terms": [
+      "Jackfruit(Green/Raw/Unripe)"
+    ]
+  },
+  {
+    "code": 557,
+    "name": "Makhana(Foxnut)",
+    "terms": [
+      "Makhana(Foxnut)"
+    ]
+  },
+  {
+    "code": 558,
+    "name": "Mentha(Mint)",
+    "terms": [
+      "Mentha(Mint)"
+    ]
+  },
+  {
+    "code": 559,
+    "name": "Popular Wood",
+    "terms": [
+      "Popular Wood"
+    ]
+  },
+  {
+    "code": 560,
+    "name": "Rambans(Agave /Century plant)",
+    "terms": [
+      "Rambans(Agave /Century plant)"
+    ]
+  },
+  {
+    "code": 561,
+    "name": "Sehuwan (Seed)",
+    "terms": [
+      "Sehuwan (Seed)"
+    ]
+  },
+  {
+    "code": 562,
+    "name": "Tendu Leaves/Kendu leaves/Bidi Leaves",
+    "terms": [
+      "Tendu Leaves/Kendu leaves/Bidi Leaves"
+    ]
+  },
+  {
+    "code": 563,
+    "name": "Engineered Wood/Processed Wood",
+    "terms": [
+      "Engineered Wood/Processed Wood"
+    ]
+  },
+  {
+    "code": 564,
+    "name": "Wooden Stick / Wooden Pole",
+    "terms": [
+      "Wooden Stick / Wooden Pole"
+    ]
+  },
+  {
+    "code": 565,
+    "name": "Wood Veneer",
+    "terms": [
+      "Wood Veneer"
+    ]
+  },
+  {
+    "code": 566,
+    "name": "Flowers-Others",
+    "terms": [
+      "Flowers-Others"
+    ]
+  },
+  {
+    "code": 567,
+    "name": "Khandsari(Desi Khand)",
+    "terms": [
+      "Khandsari(Desi Khand)"
+    ]
+  },
+  {
+    "code": 568,
+    "name": "Gholbhaji",
+    "terms": [
+      "Gholbhaji"
+    ]
+  },
+  {
+    "code": 569,
+    "name": "Basmati Rice",
+    "terms": [
+      "Basmati Rice"
+    ]
+  },
+  {
+    "code": 570,
+    "name": "Heena",
+    "terms": [
+      "Heena"
+    ]
+  },
+  {
+    "code": 571,
+    "name": "Adulsa",
+    "terms": [
+      "Adulsa"
+    ]
+  },
+  {
+    "code": 572,
+    "name": "Ambrette Seed/Muskmallow",
+    "terms": [
+      "Ambrette Seed/Muskmallow"
+    ]
+  },
+  {
+    "code": 573,
+    "name": "Amaltas",
+    "terms": [
+      "Amaltas"
+    ]
+  },
+  {
+    "code": 574,
+    "name": "Shankhpushpi",
+    "terms": [
+      "Shankhpushpi"
+    ]
+  },
+  {
+    "code": 575,
+    "name": "Kaunch",
+    "terms": [
+      "Kaunch"
+    ]
+  },
+  {
+    "code": 576,
+    "name": "Aretha",
+    "terms": [
+      "Aretha"
+    ]
+  },
+  {
+    "code": 577,
+    "name": "Bejhar",
+    "terms": [
+      "Bejhar"
+    ]
+  },
+  {
+    "code": 578,
+    "name": "Dal Mix",
+    "terms": [
+      "Dal Mix"
+    ]
+  },
+  {
+    "code": 579,
+    "name": "Salad",
+    "terms": [
+      "Salad"
+    ]
+  },
+  {
+    "code": 580,
+    "name": "Processed Products(Non-Notified)",
+    "terms": [
+      "Processed Products(Non-Notified)"
+    ]
+  },
+  {
+    "code": 581,
+    "name": "Coco Broom",
+    "terms": [
+      "Coco Broom"
+    ]
+  },
+  {
+    "code": 582,
+    "name": "Quinoa",
+    "terms": [
+      "Quinoa"
+    ]
+  },
+  {
+    "code": 583,
+    "name": "Chiaseeds",
+    "terms": [
+      "Chiaseeds"
+    ]
+  },
+  {
+    "code": 584,
+    "name": "Akarkara",
+    "terms": [
+      "Akarkara"
+    ]
+  },
+  {
+    "code": 585,
+    "name": "Hingot",
+    "terms": [
+      "Hingot"
+    ]
+  },
+  {
+    "code": 586,
+    "name": "Kantakari",
+    "terms": [
+      "Kantakari"
+    ]
+  },
+  {
+    "code": 587,
+    "name": "Bhringraj",
+    "terms": [
+      "Bhringraj"
+    ]
+  },
+  {
+    "code": 588,
+    "name": "Tesu Flower",
+    "terms": [
+      "Tesu Flower"
+    ]
+  },
+  {
+    "code": 589,
+    "name": "Gangri",
+    "terms": [
+      "Gangri"
+    ]
+  },
+  {
+    "code": 590,
+    "name": "Baboolphali",
+    "terms": [
+      "Baboolphali"
+    ]
+  },
+  {
+    "code": 591,
+    "name": "Aloe Vera Leaf",
+    "terms": [
+      "Aloe Vera Leaf"
+    ]
+  },
+  {
+    "code": 592,
+    "name": "Gokhru",
+    "terms": [
+      "Gokhru"
+    ]
+  },
+  {
+    "code": 593,
+    "name": "Nagarmotha",
+    "terms": [
+      "Nagarmotha"
+    ]
+  },
+  {
+    "code": 594,
+    "name": "Nirguni",
+    "terms": [
+      "Nirguni"
+    ]
+  },
+  {
+    "code": 595,
+    "name": "Gataran",
+    "terms": [
+      "Gataran"
+    ]
+  },
+  {
+    "code": 596,
+    "name": "Sarphoka",
+    "terms": [
+      "Sarphoka"
+    ]
+  },
+  {
+    "code": 597,
+    "name": "Amarbel",
+    "terms": [
+      "Amarbel"
+    ]
+  },
+  {
+    "code": 598,
+    "name": "Sahjan Leaf",
+    "terms": [
+      "Sahjan Leaf"
+    ]
+  },
+  {
+    "code": 599,
+    "name": "Bichchu Phal",
+    "terms": [
+      "Bichchu Phal"
+    ]
+  },
+  {
+    "code": 600,
+    "name": "Lata Kasturi",
+    "terms": [
+      "Lata Kasturi"
+    ]
+  },
+  {
+    "code": 601,
+    "name": "Nilgiri",
+    "terms": [
+      "Nilgiri"
+    ]
+  },
+  {
+    "code": 602,
+    "name": "Indrayan Fruit",
+    "terms": [
+      "Indrayan Fruit"
+    ]
+  },
+  {
+    "code": 603,
+    "name": "Chena",
+    "terms": [
+      "Chena"
+    ]
+  },
+  {
+    "code": 604,
+    "name": "Harsingar Leaf",
+    "terms": [
+      "Harsingar Leaf"
+    ]
+  },
+  {
+    "code": 606,
+    "name": "Jamun",
+    "terms": [
+      "Jamun"
+    ]
+  },
+  {
+    "code": 607,
+    "name": "Letuce",
+    "terms": [
+      "Letuce"
+    ]
+  },
+  {
+    "code": 608,
+    "name": "Sohsang",
+    "terms": [
+      "Sohsang"
+    ]
+  },
+  {
+    "code": 609,
+    "name": "Sohphi",
+    "terms": [
+      "Sohphi"
+    ]
+  },
+  {
+    "code": 610,
+    "name": "Turmeric Powder",
+    "terms": [
+      "Turmeric Powder"
+    ]
+  },
+  {
+    "code": 611,
+    "name": "Betelvine",
+    "terms": [
+      "Betelvine"
+    ]
+  },
+  {
+    "code": 612,
+    "name": "Begonia",
+    "terms": [
+      "Begonia"
+    ]
+  },
+  {
+    "code": 613,
+    "name": "Tamarind",
+    "terms": [
+      "Tamarind"
+    ]
+  },
+  {
+    "code": 614,
+    "name": "Chest Nut",
+    "terms": [
+      "Chest Nut"
+    ]
+  },
+  {
+    "code": 615,
+    "name": "Pomelo",
+    "terms": [
+      "Pomelo"
+    ]
+  },
+  {
+    "code": 619,
+    "name": "Sanai Seed",
+    "terms": [
+      "Sanai Seed"
     ]
   }
 ]

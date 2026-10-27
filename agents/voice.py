@@ -5,6 +5,7 @@ from agents.models import LLM_AGRINET_MODEL
 from agents.tools import TOOLS
 from pydantic_ai.settings import ModelSettings
 from agents.deps import FarmerContext
+from helpers.master_catalog import get_vector_schemes_prompt_block
 import logging
 logger = logging.getLogger(__name__)
 
@@ -64,5 +65,6 @@ def get_voice_system_prompt(ctx: RunContext[FarmerContext]):
         prompt_file,
         context={
             'today_date': get_today_date_str(),
+            **get_vector_schemes_prompt_block(),
         },
     )
