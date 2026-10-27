@@ -16,16 +16,16 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
-COPY requirements.txt requirements-build.lock ./
+COPY requirements.txt requirements-docker.in requirements-build.lock ./
 
 # Hash-lock build tools before disabling isolation for the two source builds.
 RUN python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements-build.lock
 # These two packages do not publish CPython 3.15 wheels yet.
 RUN python -m pip install --no-cache-dir --no-build-isolation \
     --only-binary=:all: --no-binary=marisa-trie,pyyaml \
-    -r requirements.txt
+    -r requirements-docker.in
 RUN python -m pip check && python -c \
-    "import marisa_trie, pandas, pydantic, rapidfuzz, zope.interface; from yaml import CLoader; from langcodes import Language; assert Language.get('hi').display_name('en') == 'Hindi'"
+    "import marisa_trie, pandas, pydantic, rapidfuzz, torch, zope.interface; from yaml import CLoader; from langcodes import Language; from sentence_transformers import SentenceTransformer; assert torch.version.cuda is None, 'Expected CPU-only Torch'; assert Language.get('hi').display_name('en') == 'Hindi'"
 
 # Bake the scheme-search embedding model into the image. Prod has no egress to
 # huggingface.co, so downloading it lazily on first search_schemes call fails
