@@ -3,8 +3,27 @@
 ## Python runtime
 
 Docker and GitHub Actions use **Python 3.15**. Use the same version for local
-development. Validate dependency installation and the image build in CI before
-deploying this runtime upgrade; no packages were installed locally for it.
+development.
+
+Python 3.15 wheel compatibility pins match the main API: pandas 3.1.0,
+pydantic 2.14.1 (which selects pydantic-core 2.50.1), rapidfuzz 3.14.6, and
+zope-interface 8.7. Existing Pydantic AI and OpenTelemetry constraints are
+unchanged.
+
+Docker and CI build only `marisa-trie==1.4.1` and `PyYAML==6.0.3` from source,
+because they do not publish Python 3.15 wheels. They install C++/libyaml headers
+and hash-locked build tools from `requirements-build.lock` first, then disable
+build isolation. Every other application dependency must have a compatible wheel.
+Both paths run `pip check` and a native-import/language-data smoke check; Docker
+does this before downloading the embedding model.
+
+Unlike the main API, this service still uses a partially pinned
+`requirements.txt`, not a full application hash lock. Only build tools use
+`--require-hashes`; application dependency resolution remains the responsibility
+of CI.
+
+No packages or images were installed locally for this change. Source builds,
+dependency resolution, and the image smoke check must pass in CI before deployment.
 
 ## Delete all volumes
 ```

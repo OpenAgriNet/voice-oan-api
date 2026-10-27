@@ -1,12 +1,13 @@
 ## basic setup packages
-wheel 
-setuptools
+wheel==0.47.0
+setuptools==83.0.0
+packaging==26.3
 
 httpx_oauth
 Jinja2>=3.1.0  # For template rendering
 
 # for data/DB
-pandas
+pandas==3.1.0
 simplejson
 
 ### for DB
@@ -14,7 +15,7 @@ simplejson
 
 # LLM
 openai
-pydantic
+pydantic==2.14.1
 tiktoken
 tenacity
 langfuse
@@ -29,6 +30,7 @@ opentelemetry-exporter-otlp-proto-http>=1.33.1,<1.44
 # Logfire
 logfire
 gevent>=22.10.0
+zope-interface==8.7
 
 # Redis for caching and stuff
 redis
@@ -70,6 +72,7 @@ python-dateutil
 pytz
 
 langcodes[data]==3.4.0
+marisa-trie==1.4.1
 
 # python dotenv
 python-dotenv
@@ -86,10 +89,10 @@ pycryptodome
 marqo  # Vector search
 qdrant-client  # Qdrant vector search (scheme documents)
 sentence-transformers  # Embeddings for Qdrant scheme search
-rapidfuzz  # Fuzzy string matching
+rapidfuzz==3.14.6  # Fuzzy string matching
 
 # Cloud Services
 boto3  # AWS SDK
 google-cloud-translate  #
 
-PyYAML  # model registry configuration
+PyYAML==6.0.3  # model registry configuration
