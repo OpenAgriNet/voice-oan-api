@@ -1,5 +1,11 @@
 # Bharat Vistaar Voice AI
 
+## Python runtime
+
+Docker and GitHub Actions use **Python 3.15**. Use the same version for local
+development. Validate dependency installation and the image build in CI before
+deploying this runtime upgrade; no packages were installed locally for it.
+
 ## Delete all volumes
 ```
 docker system prune -a --volumes
