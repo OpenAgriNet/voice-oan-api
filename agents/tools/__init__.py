@@ -17,6 +17,15 @@ from agents.tools.kcc import (
     check_kcc_application_status,
     select_kcc_application,
 )
+from agents.tools.khc import (
+    initiate_khc_otp,
+    verify_khc_otp,
+    lookup_khc_reference,
+    find_khc_location,
+    get_khc_grievance_options,
+    check_khc_grievance_status,
+    register_khc_grievance,
+)
 from agents.tools.gfr import gfr_get_crop_registries, gfr_get_recommendations
 from agents.tools.sathi_seed import (
     get_sathi_crop_groups,
@@ -57,6 +66,13 @@ TOOLS = [
     Tool(initiate_kcc_otp, takes_ctx=True, strict=False),
     Tool(check_kcc_application_status, takes_ctx=True, strict=False),
     Tool(select_kcc_application, takes_ctx=True, strict=False),
+    Tool(initiate_khc_otp, takes_ctx=True, strict=False),
+    Tool(verify_khc_otp, takes_ctx=True, strict=False),
+    Tool(lookup_khc_reference, takes_ctx=True, strict=False),
+    Tool(find_khc_location, takes_ctx=True, strict=False),
+    Tool(get_khc_grievance_options, takes_ctx=True, strict=False),
+    Tool(check_khc_grievance_status, takes_ctx=True, strict=False),
+    Tool(register_khc_grievance, takes_ctx=True, strict=False),
     Tool(gfr_get_crop_registries, takes_ctx=True, strict=False),
     Tool(gfr_get_recommendations, takes_ctx=True, strict=False),
     Tool(get_sathi_crop_groups, takes_ctx=False, strict=False),

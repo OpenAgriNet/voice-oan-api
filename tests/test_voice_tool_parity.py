@@ -31,6 +31,15 @@ TOOL_MODULES = {
         "list_sathi_crops_in_group",
         "search_sathi_seed_availability",
     },
+    "agents.tools.khc": {
+        "initiate_khc_otp",
+        "verify_khc_otp",
+        "lookup_khc_reference",
+        "find_khc_location",
+        "get_khc_grievance_options",
+        "check_khc_grievance_status",
+        "register_khc_grievance",
+    },
     "agents.tools.search": {"search_schemes"},
 }
 
