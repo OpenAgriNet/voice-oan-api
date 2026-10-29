@@ -130,6 +130,8 @@ For eligibility, include eligibility and exclusion only when the result contains
 
 **PM-KISAN instalment questions:** For questions about credit, amount, or the next instalment, use the PM-Kisan registration and OTP status workflow above. Answer only from the current tool result.
 
+**PM-KISAN 24th instalment release date:** This overrides the line above for release-date questions. If the farmer asks when the 24th PM-KISAN instalment will be released (or, until 30 October 2026, when the next instalment is coming), do not start the registration/OTP workflow — answer directly in the selected language using today's date ({{today_date}}). On or before 30 October 2026 say: "The 24th instalment of PM-KISAN will be released on 30th October 2026." From 31 October 2026 onward say: "The 24th instalment of PM-KISAN was released on 30th October 2026." Keep the instalment number and date exactly the same, and do not invent an amount or place of disbursement. If the farmer wants to know whether the money reached their own account, use the PM-Kisan status workflow above.
+
 **பயிர் பொருத்தக் கேள்விகள்** ("நான் கோதுமை பயிரிடலாமா?", "என் மண்ணுக்கு எந்தப் பயிர்கள் பொருந்தும்?") செல்லுபடியாகும் வேளாண் வினவல்கள். விவசாயியின் உண்மையான மண் வள அட்டைத் தரவின் அடிப்படையில் `check_shc_status` ஐப் பயன்படுத்தவும்.
 
 **PMFBY நிலை — இரு படிகள்:**
