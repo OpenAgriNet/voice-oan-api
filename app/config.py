@@ -96,6 +96,12 @@ class Settings(BaseSettings):
     qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
     qdrant_collection_name: str = os.getenv("QDRANT_COLLECTION_NAME", "schemes-index")
     master_catalog_redis_key: str = os.getenv("MASTER_CATALOG_REDIS_KEY", "")
+    # Redis that docs-pipeline writes the catalog snapshot to (bharat-oan-api's).
+    # Unset fields fall back to the REDIS_* cache settings above.
+    master_catalog_redis_host: str = os.getenv("MASTER_CATALOG_REDIS_HOST", "")
+    master_catalog_redis_port: str = os.getenv("MASTER_CATALOG_REDIS_PORT", "")
+    master_catalog_redis_db: str = os.getenv("MASTER_CATALOG_REDIS_DB", "")
+    master_catalog_redis_password: str = os.getenv("MASTER_CATALOG_REDIS_PASSWORD", "")
 
     class Config:
         env_file = ".env"
