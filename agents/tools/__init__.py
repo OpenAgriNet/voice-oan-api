@@ -134,7 +134,7 @@ TOOLS = [
     ),
     Tool(
         search_schemes,
-        takes_ctx=False,
+        takes_ctx=True,
         strict=False,
     ),
     Tool(

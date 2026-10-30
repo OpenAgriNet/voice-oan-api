@@ -6,6 +6,8 @@ import json
 import logging
 from typing import Any, Optional
 
+from langfuse import observe
+
 logger = logging.getLogger(__name__)
 
 _REDIS_KEY_PREFIX = "master-catalog"
@@ -104,13 +106,32 @@ def get_vector_scheme_entries(
     ]
 
 
+@observe(name="tool:master_catalog_redis_check", as_type="tool")
 def get_vector_schemes_prompt_block() -> dict[str, Any]:
+    # Runs once per turn while building the system prompt; the span makes the
+    # Redis read visible in Langfuse.
     snapshot = get_master_catalog_snapshot()
     prompt = (snapshot or {}).get("prompt") if snapshot else None
     if not isinstance(prompt, dict):
-        return {
+        prompt = {
             "vector_schemes_bullets": "",
             "vector_schemes_identifiers": "",
             "vector_scheme_count": 0,
         }
+    try:
+        from app.observability.langfuse_client import safe_update_current_span
+
+        entries = get_vector_scheme_entries(snapshot) if snapshot else []
+        safe_update_current_span(
+            metadata={
+                "redis_snapshot_found": snapshot is not None,
+                "redis_snapshot_version": (snapshot or {}).get("version"),
+                "redis_snapshot_updated_at": (snapshot or {}).get("updated_at"),
+                "redis_entry_count": len((snapshot or {}).get("entries") or []),
+                "vector_scheme_count": prompt.get("vector_scheme_count"),
+                "vector_scheme_codes": [entry.get("code") for entry in entries],
+            }
+        )
+    except Exception as exc:
+        logger.debug("Master catalog span update skipped: %s", exc)
     return prompt
