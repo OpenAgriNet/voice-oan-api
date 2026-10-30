@@ -33,14 +33,19 @@ def _get_redis_client():
         import redis
 
         settings = _settings()
+        host = settings.master_catalog_redis_host or settings.redis_host
+        port = int(settings.master_catalog_redis_port.strip() or settings.redis_port)
+        db = int(settings.master_catalog_redis_db.strip() or settings.redis_db)
         _redis_client = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            db=settings.redis_db,
+            host=host,
+            port=port,
+            db=db,
+            password=settings.master_catalog_redis_password or None,
             decode_responses=True,
             socket_connect_timeout=settings.redis_socket_connect_timeout,
             socket_timeout=settings.redis_socket_timeout,
         )
+        logger.info("Master catalog Redis: host=%s port=%s db=%s", host, port, db)
     except Exception as exc:
         logger.warning("Could not create master catalog Redis client: %s", exc)
         _redis_client = None

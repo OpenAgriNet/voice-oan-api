@@ -88,6 +88,6 @@ The cross-network scheme, status, fertilizer, and seed tools use the following e
 - `SATHI_MASTER_BASE_URL` and `SATHI_MASTER_API_KEY` for SATHI crop group and crop lookup.
 - `AMUL_SCHEME_DOMAIN` and `AMUL_SEARCH_TTL` are optional AmulVistaar overrides.
 
-Scheme search reads the docs-pipeline catalog snapshot from the same Redis instance configured by `REDIS_HOST`, `REDIS_PORT`, and `REDIS_DB`. Development environments read `master-catalog:dev:snapshot`; other environments read `master-catalog:live:snapshot`. Set `MASTER_CATALOG_REDIS_KEY` only when the snapshot uses a custom key.
+Scheme search reads the docs-pipeline catalog snapshot from the Redis instance configured by `MASTER_CATALOG_REDIS_HOST`, `MASTER_CATALOG_REDIS_PORT`, `MASTER_CATALOG_REDIS_DB`, and `MASTER_CATALOG_REDIS_PASSWORD`. docs-pipeline writes the snapshot only to bharat-oan-api's Redis, so point these at that instance; any that are unset fall back to `REDIS_HOST`, `REDIS_PORT`, and `REDIS_DB`. The voice cache keeps using `REDIS_*`. Development environments read `master-catalog:dev:snapshot`; other environments read `master-catalog:live:snapshot`. Set `MASTER_CATALOG_REDIS_KEY` only when the snapshot uses a custom key.
 
 Keep API keys and credentials in the deployment environment; do not commit them.
