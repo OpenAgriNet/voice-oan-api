@@ -62,9 +62,14 @@ def get_master_catalog_snapshot(tier: Optional[str] = None) -> Optional[dict[str
         return None
 
     try:
-        raw = client.get(_redis_key_for_tier(tier))
-        payload = json.loads(raw) if raw else None
+        key = _redis_key_for_tier(tier)
+        raw = client.get(key)
+        if not raw:
+            logger.warning("Master catalog snapshot missing in Redis (tier=%s key=%s)", tier, key)
+            return None
+        payload = json.loads(raw)
         if not isinstance(payload, dict):
+            logger.warning("Master catalog snapshot is not a JSON object (tier=%s key=%s)", tier, key)
             return None
         _log_if_new_sync(tier, payload)
         return payload
@@ -106,7 +111,7 @@ def get_vector_scheme_entries(
     ]
 
 
-@observe(name="tool:master_catalog_redis_check", as_type="tool")
+@observe(name="tool:master_catalog_redis_check", as_type="tool", capture_output=False)
 def get_vector_schemes_prompt_block() -> dict[str, Any]:
     # Runs once per turn while building the system prompt; the span makes the
     # Redis read visible in Langfuse.
@@ -122,15 +127,17 @@ def get_vector_schemes_prompt_block() -> dict[str, Any]:
         from app.observability.langfuse_client import safe_update_current_span
 
         entries = get_vector_scheme_entries(snapshot) if snapshot else []
+        tier = _tier_for_environment()
         safe_update_current_span(
-            metadata={
+            input={"tier": tier, "redis_key": _redis_key_for_tier(tier)},
+            output={
                 "redis_snapshot_found": snapshot is not None,
                 "redis_snapshot_version": (snapshot or {}).get("version"),
                 "redis_snapshot_updated_at": (snapshot or {}).get("updated_at"),
                 "redis_entry_count": len((snapshot or {}).get("entries") or []),
                 "vector_scheme_count": prompt.get("vector_scheme_count"),
                 "vector_scheme_codes": [entry.get("code") for entry in entries],
-            }
+            },
         )
     except Exception as exc:
         logger.debug("Master catalog span update skipped: %s", exc)
