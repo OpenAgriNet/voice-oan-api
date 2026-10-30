@@ -730,6 +730,19 @@ def _empty_search_message(query: str, scheme_list: list[dict[str, Any]]) -> str:
     return format_scheme_unavailable(query)
 
 
+def _distinct_network_sources(results: list[dict[str, Any]]) -> list[str]:
+    """Unique, order-preserving list of per-chunk `source` values from the
+    network response (e.g. "Millet mission (BharatVistaar)")."""
+    seen: set[str] = set()
+    sources: list[str] = []
+    for item in results:
+        source = str(item.get("source") or "").strip()
+        if source and source not in seen:
+            seen.add(source)
+            sources.append(source)
+    return sources
+
+
 def _format_result_block(item: dict[str, Any]) -> str:
     scheme_name = str(item.get("scheme_name") or "")
     scheme_code = str(item.get("scheme_code") or "")
@@ -754,8 +767,55 @@ def format_search_results(
         return _empty_search_message(query, active_scheme_list)
 
     blocks = [_format_result_block(item) for item in results]
+    network_sources = _distinct_network_sources(results)
+    source_label = "; ".join(network_sources) if network_sources else SCHEME_SEARCH_SOURCE
     return (
         f"> Scheme Search Results for `{query}`\n\n"
-        f"**Source: {SCHEME_SEARCH_SOURCE}**\n\n"
+        f"**Source: {source_label}**\n\n"
         + "\n\n----\n\n".join(blocks)
+    )
+
+
+# Schemes that also have a live status/service flow. search_schemes appends an
+# offer for these after the scheme answer; the prompt routes a direct status
+# request straight to the flow without calling search_schemes first.
+SCHEME_STATUS_SERVICES: dict[str, tuple[tuple[str, str], ...]] = {
+    "pmkisan": (
+        ("PM-KISAN beneficiary / installment status", "initiate_pm_kisan_status_check → check_pm_kisan_status_with_otp"),
+        ("PM-KISAN grievance submit", "pmkisan_grievance_send_otp → pmkisan_submit_grievance"),
+        ("PM-KISAN grievance status", "pmkisan_grievance_send_otp → pmkisan_grievance_status"),
+    ),
+    "pmfby": (
+        ("PMFBY policy / claim status", "initiate_pmfby_status_check → check_pmfby_status_with_otp"),
+        ("PMFBY grievance status", "pmfby_grievance_status"),
+    ),
+    "aif": (
+        ("AIF loan status", "initiate_aif_otp → verify_aif_otp → check_aif_loan_status"),
+        ("AIF grievance status", "initiate_aif_otp → verify_aif_otp → check_aif_grievance_status"),
+    ),
+    "kcc": (
+        ("KCC application status", "initiate_kcc_otp → check_kcc_application_status"),
+    ),
+    "shc": (
+        ("Soil Health Card status", "check_shc_status"),
+    ),
+    "smam": (
+        ("SMAM application / beneficiary status", "check_smam_scheme_status"),
+    ),
+}
+
+
+def format_status_check_offer(scheme_code: Optional[str]) -> str:
+    """Offer block appended to search_schemes output; empty when the scheme has no status flow."""
+    services = SCHEME_STATUS_SERVICES.get((scheme_code or "").strip().lower())
+    if not services:
+        return ""
+    lines = "\n".join(f"- {label} (tools: {flow})" for label, flow in services)
+    return (
+        "\n\n----\n\n"
+        "**Status check available for this scheme:**\n"
+        f"{lines}\n"
+        "After answering, ask the farmer in their language whether they want to check "
+        "their status (name the service in plain words; never mention tool names). "
+        "Start the flow only if they say yes."
     )
