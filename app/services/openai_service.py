@@ -8,7 +8,6 @@ from app.services.voice import stream_voice_message
 from app.utils import _get_message_history
 from app.observability.voice import safe_update_observation, voice_output_summary
 from app.observability.langfuse_client import (
-    safe_flush,
     safe_propagate_attributes,
     safe_start_observation,
 )
@@ -79,8 +78,6 @@ async def generate_openai_stream(
                 raise
             finally:
                 safe_update_observation(root_obs, voice_output_summary(last_chunk))
-                # Flush at end of stream to avoid dropping buffered spans.
-                safe_flush()
 
     finish_chunk = {
         "id": completion_id,
@@ -148,7 +145,6 @@ async def generate_openai_response(
                         last_chunk = chunk
                 safe_update_observation(generation_obs, voice_output_summary(last_chunk))
         safe_update_observation(root_obs, voice_output_summary(last_chunk))
-        safe_flush()
 
     return {
         "id": completion_id,
